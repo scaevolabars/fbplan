@@ -58,8 +58,11 @@ Last update: 2026-10-29.
 - e-learner's request 2 (public `forward`, `example_batch`, checkpoint writer, `save_numpy_pickle`,
   `maze_name`, `cache_dir`): already done in `a1a65b6` (first review), no new code. e-learner uses
   no private name of `frozen.py`. Mapping for e-learner: see the requests.
-- Release `baselines-v1` of the 10 retrained baselines (medium and large, seeds 0-4): prepared and
-  checked, not uploaded (see "Trained checkpoints").
+- Release `baselines-v1` of the 10 retrained baselines (medium and large, seeds 0-4): uploaded
+  (user approved, 2026-10-29), hashes pinned in `_TRAINED_FILES` (`9b1c8c1`), real download
+  checked (see "Trained checkpoints").
+- Merged `main` (`3f169ae`: e-learner's download fix `275dfe1`, the rule "questions go to the
+  coordinator"). 386 tests pass.
 
 ## Review findings, first pass
 
@@ -157,14 +160,16 @@ Writer and reader: `frozen.save_trained_checkpoint(agent, flags, out_dir)` and
 and large seed 0: `save_trained_checkpoint` rewrites e-learner's exported `high_actor.pkl` and
 `flags.json` byte for byte, and both loaders give equal params.
 
-**Release `baselines-v1`: prepared, not uploaded (the user decides).** Everything is in
-`~/.cache/fbplan/release/baselines-v1/` (outside the repo):
+**Release `baselines-v1`: published** (user approved, 2026-10-29),
+https://github.com/scaevolabars/fbplan/releases/tag/baselines-v1: 20 assets, 26.9 MB, not a
+draft, tag on public `7ae64a5`. The staging is in `~/.cache/fbplan/release/baselines-v1/`
+(outside the repo):
 - `assets/`: 20 files, 26 MB: `baselines-{medium,large}-seed{0..4}-{high_actor.pkl,flags.json}`,
   copies of e-learner's exports in `~/.cache/fbplan/baselines/` (key `baselines/<maze>/seed<k>`).
 - `sha256.txt`; `notes.md` (release notes with the sha256 table); `pin.txt` (the `_TRAINED_FILES`
   entries to commit after the upload); `upload.sh` (checks the hashes, then
   `gh release create baselines-v1 --repo scaevolabars/fbplan --target 7ae64a5... --notes-file
-  notes.md assets/*`). Not run.
+  notes.md assets/*`). Run once, after the user's approval.
 - Tag target: public `main` `7ae64a5` (= local `dded908`), which has the loader for this format.
   Training commits, from `~/.cache/fbplan/publish/commit-map`: medium `9557a55` = public `e5d66d7`,
   large `a189a49` = public `6f6439b`. The notes give both hashes of each.
@@ -182,9 +187,15 @@ Checks:
   `FBPLAN_BASELINE_DIR`, and `load_trained_model` on each of the 10 keys gave params equal to
   e-learner's `load_baseline_model` on the local files.
 
-After the upload: commit `pin.txt` into `_TRAINED_FILES`, download each asset from GitHub into
-an empty folder, commit. This needs e-learner's fix of `download_trained(key, folder)` first
-(see the requests).
+Checks after the upload, on GitHub:
+- With an empty `FBPLAN_BASELINE_DIR`, `python -m fbplan.frozen --trained` downloaded the 20
+  assets through the pinned hashes; `load_trained_model` on each of the 10 keys gave params equal
+  to the local checkpoint.
+- After the merge of e-learner's fix: `checkpoint.load_baseline_model(env, seed)` on an empty
+  folder fetched `flags.json` and `high_actor.pkl` of each of the 10 checkpoints from GitHub,
+  equal to the local ones.
+- On this Mac, `python -m fbplan.frozen --trained` only hash-checks the local files (no
+  download, exit 0): the local files are the published bytes.
 
 ## Clean-clone check (item 9)
 
@@ -280,8 +291,8 @@ fails if the physics drift again.
 
 ## Next
 
-- Item 7: after the user's decision, run `~/.cache/fbplan/release/baselines-v1/upload.sh`, pin
-  `pin.txt`, check the real download, commit. Then the same for the approach B checkpoints.
+- Item 7: release the approach B checkpoints when e-learner's folders are ready: stage, scan,
+  check the download path, then ask the user before the upload (a public upload).
 - Download the train splits of large, giant, teleport (240 MB each) when c-planner or e-learner
   need them.
 
@@ -291,13 +302,6 @@ fails if the physics drift again.
 
 ## Requests to the coordinator
 
-- For e-learner, must fix before the release hashes are pinned:
-  `fbplan/learned/checkpoint.py:79` (`load_trained_file`) calls
-  `frozen.download_trained(key, folder)`. Since `a1a65b6`, `download_trained` takes only the key
-  and writes to `frozen.trained_dir(key)`, which is the same folder with the same env variables.
-  So a missing file gives a `TypeError` instead of a download. `tests/test_learned_checkpoint.py:118`
-  replaces `download_trained` with a fake that has the old signature, so the test passes. Fix:
-  `frozen.download_trained(key)`, or `frozen.load_trained_model(env, key)` for the whole loader.
 - For e-learner (request 2 is done; X8, X9): the local copies in `fbplan/learned/checkpoint.py`
   and `value.py` can use the public names of `frozen.py`:
   - `maze_name` -> `frozen.maze_name` (also refuses an unknown env);
@@ -309,13 +313,14 @@ fails if the physics drift again.
   - `example_batch(agent, obs_dim)` -> `frozen.example_batch(agent.network.params)` (reads
     `obs_dim` from the B weights);
   - `value.py:99` `forward` (TODO) -> `frozen.forward`;
-  - `jax.device_put` before `frozen.FrozenFBModel(...)` (`checkpoint.py:106`): no longer needed,
+  - `jax.device_put` before `frozen.FrozenFBModel(...)` (`checkpoint.py:110`): no longer needed,
     the constructor does it.
 - For g-release: gap 2 has its tool now. `uv run python -m fbplan.frozen --datasets
   antmaze-medium-navigate-v0` downloads the 4 provided checkpoints and the medium train and val
   splits (270 MB); after it, `uv run pytest` skips no test of medium. Put it before `pytest` in
-  the README and in `scripts/reproduce.sh`. Gap 3: `--trained` after the release. Gaps 1 and 4
-  are fixed on `main` (4 workers; uv pinned in `devbox.json`). Optional (`pyproject.toml` is
+  the README and in `scripts/reproduce.sh`. Gap 3 is closed: `baselines-v1` is pinned, and the
+  README and `reproduce.sh` call `--trained`. Gaps 1 and 4 are fixed on `main` (4 workers; uv
+  pinned in `devbox.json`). Optional (`pyproject.toml` is
   yours now): a `filterwarnings` entry for the tfp-nightly DeprecationWarning.
 - For c-planner: `analysis/planner_routes.py:193` -> `frozen.maze_name(args.env)` (X8).
 - For b-theory (K2): the protocol has no `temperature` or `seed` any more;
