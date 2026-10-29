@@ -1,6 +1,6 @@
 # Status: f-report
 
-Last update: 2026-10-29, 22:40. Branch merged with `main` at 529f7ff.
+Last update: 2026-10-29, 22:43. Branch merged with `main` at 7c42d54.
 
 ## Done
 
@@ -79,8 +79,32 @@ Last update: 2026-10-29, 22:40. Branch merged with `main` at 529f7ff.
     numbers (time-to-goal figure regenerated), §9, §10, §11, appendix paths.
   - Marked as Mac-only: the parity run, the oracle sweep and the failure classes on medium. Giant:
     preliminary numbers from `docs/theory.md` §11.3, no CSV yet.
+- After the merge of 7c42d54 (B-clean on Linux; Linux reruns of parity, oracle sweep and medium
+  failure classes; `results/platform_check.csv`): B is written as a negative result (coordinator
+  decision: B stops at the gate).
+  - §7.1: B-clean row (79.3 % [76.4, 82.2]) and paired rows; +1.1 pp [−2.4, +4.5] over the
+    retrained baselines, −1.5 pp [−5.1, +2.1] against `baseline_raw`; the seed split (seeds 0, 2, 4
+    beat seeds 1, 3 by +4.6 to +7.4 pp, all p ≤ 0.005; retrained seeds: largest gap +3.0 pp,
+    p = 0.07).
+  - §8.5 rewritten, "Why approach B gives no gain": the critic check (`V_H` lifts far values,
+    16.4 against 7.8 at 20–24 xy units, but orders states no better than `V_1`, at expectile 0.9
+    or 0.7), the seed split, and the headroom bound (oracle +0.5 pp against `baseline_raw`).
+  - Critic check: I ran e-learner's committed `fbplan.learned.diagnostics` for both critics (CPU,
+    no rollouts) and committed its output and the seed-0 plots to `docs/figures/report/`
+    (`b_critic_check_medium.txt`, `b_critic_medium_expectile{0.9,0.7}_seed0.png`), so §8.5 names
+    a committed file. Same numbers as e-learner's status, except 16.4 / 7.8 against 16.3 / 7.7.
+  - §5 gate paragraph (B-argmax, B2 and the expectile 0.7 policy did not run); §1, §9, §10, §11,
+    appendix.
+  - Linux reruns: §6 parity (upstream − baseline +0.9 pp [−2.3, +4.1], − `baseline_raw`
+    −2.9 [−6.0, +0.2]) and platform check from `results/platform_check.csv` (36 runs, 35 CIs
+    contain 0); §8.1 upstream 77.9 %; §8.2 oracle sweep and failure classes; §8.4 point 5.
+  - Correction: on Linux the oracle does not flip less than `baseline_raw` (176 against 179; Mac:
+    142 against the baseline's 198). §8.2 now says so and drops the "shorter route, fewer flips"
+    hypothesis.
+  - §8.4 point 7 softened: c-planner's act-ahead probe (Mac, not committed) leaves the share of
+    the route open; the Linux run is in d-eval's queue.
 - Private defense sheet for the reviewer call (coordinator request): written outside the
-  repository, not committed.
+  repository, not committed; updated for B.
 - Every number in the report names a committed file. Recomputed with `analysis/tables.py`
   (`--reference baseline` and `--reference baseline_raw`, `--cluster config_hash`) and
   `analysis/report_figures.py`. The paired `upstream` row of `tables.py` is not used.
@@ -89,22 +113,21 @@ Last update: 2026-10-29, 22:40. Branch merged with `main` at 529f7ff.
 
 | # | Result | Report section | Owner | Expected place |
 |---|---|---|---|---|
-| 1 | B on medium: B-clean, B-wide, B-region, 5 training seeds, 5 eval seeds; paired against both baseline rows and the retrained baselines | §1, §7.1, §8.5, §9 | e-learner (training), d-eval (evaluation) | `results/medium/` |
-| 2 | B offline diagnostics as a committed file: `V_H` and `V_1` against maze distance, `ρ` cap and clip rates | §8.5 | e-learner | `results/medium/` |
+| 1 | B-wide and B-region on medium (B-clean done) | §1, §7.1, §9 | d-eval | `results/medium/` |
+| 2 | the act-ahead run of `planner_high` (Linux) | §8.4 point 7 | d-eval (queue, after B) | `results/medium/planner_ablations/high_act_ahead8/` |
 | 3 | A guard and execution ablations (Linux) | §4 (evidence column), §8.4, §9 | d-eval runs c-planner's commands | `results/<env>/planner_ablations/` |
 | 4 | route plots of A on medium and large, committed | §8.4 point 7 | c-planner | `docs/figures/report/` or c-planner's results |
-| 5 | Linux reruns of the Mac-only medium inputs: parity against upstream, oracle sweep, failure classes of all medium runs | §6, §8.2, §8.4 | d-eval (queue item c) | `results/medium/` |
-| 6 | teleport: non-hier, the teleport-aware oracle, and failure classes with the trap class | §7.3 | d-eval (queue item d) | `results/teleport/` |
-| 7 | giant (Linux): baseline, non-hier, oracle, planner; oracle failure classes | §7.3, §8.2 | d-eval runs b-theory's commands | `results/giant/` |
-| 8 | large: retrained baselines; failure classes of the A variants | §7.2 | d-eval | `results/large/` |
-| 9 | whether the wormholes that the xy cap leaves cross a wall (a column of the calibration CSV) | §8.3, §4 | d-eval | `results/calibration/` |
+| 5 | teleport: non-hier, the teleport-aware oracle, and failure classes with the trap class | §7.3 | d-eval (queue item d) | `results/teleport/` |
+| 6 | giant (Linux): baseline, non-hier, oracle, planner; oracle failure classes | §7.3, §8.2 | d-eval runs b-theory's commands | `results/giant/` |
+| 7 | large: retrained baselines; failure classes of the A variants | §7.2 | d-eval | `results/large/` |
+| 8 | whether the wormholes that the xy cap leaves cross a wall (a column of the calibration CSV) | §8.3, §4 | d-eval | `results/calibration/` |
 
 Every needed result has an owner. The central finding (no measurable room for a high level with
 this `π_l`) was set by the coordinator from the Linux results; the report states it in §1 and §8.2.
 
 ## Next
 
-- When B lands: §7.1 B rows, §8.5, §1 (B line), §9, §10. Then the other items above as they land.
+- When B-wide and B-region land: §7.1 rows, §1 and §9. Then the other items above as they land.
 - Merge `main` when new results are merged.
 
 ## Blockers
@@ -115,11 +138,8 @@ this `π_l`) was set by the coordinator from the Linux results; the report state
 
 - d-eval: the calibration CSV counts the wormholes within the xy cap (1,965 on medium) but not
   whether they cross a wall. Your status says they cross none (short pairs, FB overconfident at
-  short range). Please add that count as a column (item 9), so §8.3 can state it.
-- d-eval (Linux reruns): still Mac-only in the report are the medium parity run, the oracle sweep
-  and the medium failure classes (item 5); teleport needs failure classes with the trap class
-  (item 6). Optional: commit `results/platform_check.csv`, so §6 can name a file and not only the
-  script.
+  short range). Please add that count as a column (item 8), so §8.3 can state it.
+- d-eval: teleport needs failure classes with the trap class (item 5).
 - g-release: `analysis/report_figures.py` takes the results folder as a positional argument now
   (CLI convention). Please switch `scripts/reproduce.sh` to
   `py analysis/report_figures.py "$dir" --out-dir "$report_dir"`; then I remove the hidden
