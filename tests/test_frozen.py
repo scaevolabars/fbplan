@@ -257,6 +257,27 @@ def test_make_env_gives_the_upstream_eval_env():
     assert env.spec.max_episode_steps == 1000
 
 
+def test_eval_env_reproduces_the_dataset_dynamics():
+    """One env step from a dataset state with the dataset action gives the dataset next state.
+
+    pi_l was trained on these transitions, so the eval env must have the same physics.
+    MuJoCo 3.1.6 reproduces them to float precision (about 4e-7). MuJoCo 3.17 does not (8e-3).
+    """
+    _skip_without_dataset(MEDIUM, "val")
+    maze = frozen.make_env(MEDIUM).unwrapped
+    data = frozen.load_dataset(MEDIUM, "val")
+    within = np.flatnonzero(data["terminals"][:-1] == 0)
+    rows = np.random.default_rng(0).choice(within, size=100, replace=False)
+
+    errors = []
+    for t in rows:
+        maze.set_state(data["qpos"][t], data["qvel"][t])
+        maze.do_simulation(data["actions"][t], maze.frame_skip)
+        errors.append(np.abs(maze.data.qpos - data["qpos"][t + 1]).max())
+
+    assert np.median(errors) < 1e-5
+
+
 @pytest.mark.parametrize("split", ["train", "val"])
 def test_load_dataset_gives_aligned_transitions(split):
     _skip_without_dataset(MEDIUM, split)
