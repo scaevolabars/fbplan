@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-29, 22:50. Branch merged with `main` at 3e36461.
+Last update: 2026-10-29, 22:55. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -136,6 +136,28 @@ bootstrap over training seeds (both sides) and episodes.
   +5.9, −1.2, +3.4 pp; seeds 0, 2, 4 significant). The retrained baselines spread less (76.6–79.7 %).
 - No significant gain over the retrained baselines (+1.1 pp, CI contains 0), and none against
   baseline_raw (−1.5 pp). The spread between B training seeds is the largest effect.
+
+## Held-out seed selection (design.md §8; `results/medium/heldout/`, `heldout_selection.csv`)
+
+Every seed on the 10 medium held-out goals (`--heldout --seeds 0 1 2 --episodes 20`, 600
+episodes per seed), selection by `analysis/heldout_selection.py` (highest held-out success, ties
+to the lower id), then the selected seeds on the 5 eval tasks:
+
+| family | held-out success, seeds 0–4 (%) | selected | eval success | vs selected retrained (pp) | vs baseline_raw (pp) |
+|---|---|---|---|---|---|
+| retrained | 87.8, 86.3, 83.7, 87.7, 86.0 | seed 0 | 79.1 | – | −1.7 [−4.7, +1.4], p 0.31 |
+| B clean | 87.0, 86.0, 87.7, 85.3, 82.2 | seed 2 | 83.0 | +3.8 [+0.9, +6.9], p 0.014 | +2.2 [−1.0, +5.1], p 0.18 |
+
+- The selected B clean seed beats the selected retrained baseline, but not baseline_raw, so by
+  the rule of §8 it is no gain. Held-out differences between seeds are small (one seed: 600
+  episodes, standard error about 1.4 points), so the selection itself is noisy: seeds 0 and 3
+  of the retrained baseline differ by 0.1 point.
+- B wide and B region follow when e-learner exports them (queued automatically).
+
+## Giant (Linux, `results/giant/`, 5 eval seeds × 5 tasks × 50 episodes)
+
+baseline 0.5 %, non-hier 0.5 %, oracle (privileged) 2.5 % (+2.0 [+1.1, +3.0] pp), planner
+(sets 0–2 pooled) 0.4 %, planner_high 0.8 %. No headroom, as b-theory's preview showed.
 
 ## Medium (Linux, `results/medium/`, 5 eval seeds × 5 tasks × 50 episodes)
 
