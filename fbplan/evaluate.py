@@ -129,11 +129,11 @@ def run_episode(
 
 
 def _run_job(
-    env: gym.Env, controller: Controller, task: TaskSpec, eval_seed: int, n_episodes: int
+    env: gym.Env, controller: Controller, task: TaskSpec, eval_seed: int, episodes: range
 ) -> list[EpisodeRecord]:
-    """All episodes of one (task, eval_seed) pair."""
+    """Episodes of one (task, eval_seed) pair."""
     chash = config_hash(controller)
-    return [run_episode(env, controller, task, eval_seed, ep, chash) for ep in range(n_episodes)]
+    return [run_episode(env, controller, task, eval_seed, ep, chash) for ep in episodes]
 
 
 def _single_env_name(tasks: Sequence[TaskSpec]) -> str:
@@ -156,7 +156,7 @@ def run_episodes(
         record
         for task in tasks
         for eval_seed in eval_seeds
-        for record in _run_job(env, controller, task, eval_seed, n_episodes)
+        for record in _run_job(env, controller, task, eval_seed, range(n_episodes))
     ]
 
 
@@ -171,10 +171,10 @@ def _init_worker(
     _worker_state = (env_factory(env_name), controller_factory())
 
 
-def _run_worker_job(task: TaskSpec, eval_seed: int, n_episodes: int) -> list[EpisodeRecord]:
+def _run_worker_job(task: TaskSpec, eval_seed: int, episodes: range) -> list[EpisodeRecord]:
     assert _worker_state is not None, "_init_worker did not run"
     env, controller = _worker_state
-    return _run_job(env, controller, task, eval_seed, n_episodes)
+    return _run_job(env, controller, task, eval_seed, episodes)
 
 
 def run_parallel(
@@ -184,26 +184,29 @@ def run_parallel(
     n_episodes: int,
     workers: int,
     env_factory: EnvFactory = make_env,
+    episodes_per_job: int = 10,
 ) -> list[EpisodeRecord]:
-    """Same records as `run_episodes`, with (task, eval_seed) jobs spread over processes.
+    """Same records as `run_episodes`, with jobs spread over processes.
 
+    A job is a block of `episodes_per_job` episodes of one (task, eval_seed) pair. Small blocks
+    keep all workers busy when tasks have different episode lengths.
     `controller_factory` and `env_factory` must be picklable (module-level callables or
     `functools.partial` of them). Workers start with "spawn" because JAX is not fork-safe.
     """
     env_name = _single_env_name(tasks)
-    jobs = [(task, eval_seed) for task in tasks for eval_seed in eval_seeds]
+    jobs = [
+        (task, eval_seed, range(start, min(start + episodes_per_job, n_episodes)))
+        for task in tasks
+        for eval_seed in eval_seeds
+        for start in range(0, n_episodes, episodes_per_job)
+    ]
     with ProcessPoolExecutor(
         max_workers=workers,
         mp_context=multiprocessing.get_context("spawn"),
         initializer=_init_worker,
         initargs=(controller_factory, env_factory, env_name),
     ) as pool:
-        chunks = pool.map(
-            _run_worker_job,
-            [task for task, _ in jobs],
-            [eval_seed for _, eval_seed in jobs],
-            [n_episodes] * len(jobs),
-        )
+        chunks = pool.map(_run_worker_job, *zip(*jobs, strict=True))
         return [record for chunk in chunks for record in chunk]
 
 

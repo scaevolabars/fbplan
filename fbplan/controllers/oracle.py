@@ -214,7 +214,11 @@ class OracleWaypointController:
 
 
 def make_oracle(model: FBModel, **options) -> OracleWaypointController:
-    """Oracle on the maze of `model.env_name`, waypoints from the training data."""
+    """Oracle on the maze of `model.env_name`, waypoints from the validation split.
+
+    The validation split is always present (z_r inference reads it too), and its 100k
+    states cover every cell, so the waypoints need no download of the training split.
+    """
     maze = MazeGeometry.from_env(make_env(model.env_name))
-    observations = load_dataset(model.env_name, "train")["observations"]
+    observations = load_dataset(model.env_name, "val")["observations"]
     return OracleWaypointController(model, maze, observations, OracleConfig(**options))

@@ -171,6 +171,16 @@ def test_run_parallel_matches_sequential_run():
     assert _without_time(parallel) == _without_time(sequential)
 
 
+def test_run_parallel_with_one_episode_per_job_matches_sequential_run():
+    tasks = [_task(1)]
+    sequential = run_episodes(_GreedyController(), tasks, [3], 3, env_factory=_make_point_env)
+    parallel = run_parallel(
+        _GreedyController, tasks, [3], 3, workers=2, env_factory=_make_point_env,
+        episodes_per_job=1,
+    )
+    assert _without_time(parallel) == _without_time(sequential)
+
+
 def test_csv_round_trip_keeps_records(tmp_path):
     records = run_episodes(_GreedyController(), [_task(1)], [0], 2, env_factory=_make_point_env)
     path = tmp_path / "out" / "result.csv"
