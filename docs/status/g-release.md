@@ -84,6 +84,8 @@ Last update: 2026-10-29.
   smoke run trained, so its episodes differ from the committed ones.
 - CI on the public repo is green from 7ae64a5 (= local dded908): ruff clean, pytest 345 passed,
   40 skipped, 74 s.
+- Merged `main` 3e36461 (c-planner and d-eval fixes). `failures.py` now handles a CSV without
+  failures (D9), so `reproduce.sh` no longer guards it; `--smoke` runs the parity check again.
 - Merged `main` 3f169ae (review fixes of a-frozen, b-theory, e-learner). `reproduce.sh`: the
   checkpoints stage also gets the medium datasets (`fbplan.frozen --datasets`, a-frozen's new
   flag); `run_study --out-dir` (b-theory renamed the flag). README: the setup line gets the
@@ -125,7 +127,8 @@ Last update: 2026-10-29.
    that differ from the dataclass defaults, so a new field with an old-behaviour default keeps
    every hash. This changes the hash of every committed CSV once, so rewrite the column after a
    check that a rerun of eval seed 0 gives identical records. Alternative: c-planner reruns.
-2. Still open: d-eval adds `--episodes` to `analysis/parity.py` (sent).
+2. Done (d-eval): `analysis/parity.py --episodes`. `--smoke` runs the parity check again
+   (1 repetition, 2 episodes per task, 15 s).
 3. F1 (new, should-fix, f-report): `analysis/report_figures.py` raises
    `KeyError: ['planner_region'] not in index` when one planner variant has no CSV in
    `--results`, so it cannot run on a subset. `reproduce.sh --smoke` now runs one CSV of each
