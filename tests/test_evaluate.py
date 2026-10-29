@@ -259,13 +259,24 @@ def medium_model() -> frozen.FrozenFBModel:
     return frozen.load_model(MEDIUM)
 
 
-@pytest.mark.parametrize("method", ["baseline", "nonhier", "oracle"])
+@pytest.mark.parametrize("method", ["baseline", "baseline_raw", "nonhier", "oracle"])
 def test_builtin_controllers_run_an_episode_on_the_real_model(medium_model, method):
     controller = resolve_controller(method)(medium_model)
     tasks = make_tasks(MEDIUM, [2], medium_model.infer_task_latent)
     (record,) = run_episodes(controller, tasks, [0], 1)
     assert (record.method, record.env_name, record.task_id) == (method, MEDIUM, 2)
     assert 1 <= record.steps <= 1000
+
+
+def test_raw_baseline_equals_baseline_for_a_task_latent_of_norm_sqrt_d(medium_model):
+    obs = frozen.load_dataset(MEDIUM, "val")["observations"][:: 50_000][:4]
+    z = np.random.default_rng(0).normal(size=medium_model.latent_dim)
+    task = TaskSpec(MEDIUM, 1, z / np.linalg.norm(z) * np.sqrt(z.size), np.zeros(2))
+    baseline, raw = (resolve_controller(m)(medium_model) for m in ("baseline", "baseline_raw"))
+    for controller in (baseline, raw):
+        controller.reset(task, seed=0)
+    for o in obs:
+        np.testing.assert_allclose(raw.act(o), baseline.act(o), atol=1e-5)
 
 
 def test_cli_writes_one_record_per_episode(medium_model, tmp_path):

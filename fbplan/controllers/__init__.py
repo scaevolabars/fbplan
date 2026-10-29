@@ -16,6 +16,7 @@ ControllerFactory = Callable[..., Controller]
 
 ALIASES = {
     "baseline": "fbplan.controllers.baseline:BaselineController",
+    "baseline_raw": "fbplan.controllers.baseline:RawBaselineController",
     "nonhier": "fbplan.controllers.baseline:NonHierController",
     "oracle": "fbplan.controllers.oracle:make_oracle",
     "planner": "fbplan.controllers.planner:make_planner",
