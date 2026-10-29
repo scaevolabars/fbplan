@@ -9,7 +9,9 @@ rho is now clipped to [0, gamma] for distinct states (design.md §3); trust uses
 so decision 1 still holds. New: a switch to re-plan every step (design.md §4.A),
 `analysis/planner_routes.py`, tests on b-theory's tabular fake. With the merged loader (MuJoCo
 3.1.6), 5 tasks × 6 paired medium episodes: baseline 24/30, planner (defaults) 17–22/30
-depending on the landmark set. Open, for the user: region-mean landmark latents (d-eval finding).
+depending on the landmark set. Region-mean landmark latents (user-approved, now the default)
+did not help on 100 held-out medium episodes: single-state 68/100, region 59/100, baseline 92/100.
+Open, for the user: which latent default to keep.
 
 Approach A is implemented, tested and runs on the real medium model. With the approved guards,
 the planned routes are clean (they follow the corridors and end at the goal). Waypoint following,
@@ -51,7 +53,7 @@ uncommitted loader; the section "After the merge" uses the merged one.
   Defaults changed by c-planner after a held-out check (user approved 1.5 before; not yet
   confirmed; design.md §4.A still says 1.5): `reached_xy = 3.0` and `lookahead = True`
   (79/100 against 56/100 for 1.5 without look-ahead; after the merge 22/30 against 13/30).
-- Tests: 173 pass in the merged tree (`uv run pytest`), ruff clean. My tests use two fakes:
+- Tests: 179 pass in the merged tree (`uv run pytest`), ruff clean. My tests use two fakes:
   b-theory's `fbplan/tabular/fake_fb.py` for ground truth on the medium maze (rho equals the
   exact hitting discount; the planner solves all tasks with the exact model and beats the task
   policy under rho noise 0.02, 27 against 7 of 45 episodes), and `tests/planner_fakes.py` for
@@ -181,9 +183,33 @@ Paired medium episodes (design.md §5 reset), 5 tasks × 6, seeds 1000·task + 0
 - d-eval (5 eval seeds): baseline 79.4 % [77.2, 81.6]; oracle with region-mean latents 83.1 %.
   70–80 % of medium failures are the ant flipping over, so the headroom on medium is small.
 
+## Region-mean landmark latents (user-approved 2026-10-29, now the default)
+
+`LandmarkConfig.latent = "region"`: z_w = mean of raw B over the pool states within
+`region_xy = 0.5` of the landmark, used for rho, V_H and the action. `latent = "state"` keeps B(w).
+Held-out medium episodes, merged loader, design.md §5 reset, seeds 1000·task + 30..49 (not used
+for tuning), 300 landmarks from the train split:
+
+| Method | Success | Per task 1–5 | Median steps | Replans |
+|---|---|---|---|---|
+| baseline pi_h | 92/100 | .95 1.0 .85 .85 .95 | 406 | – |
+| planner pi_l, single-state latents | 68/100 | .55 .70 .80 .60 .75 | 656 | 21 |
+| planner pi_l, region latents (default now) | 59/100 | .40 .70 .65 .65 .55 | 790 | 42 |
+| planner pi_l, plan single-state, act region (probe) | 59/100 | .65 .55 .60 .45 .70 | 810 | 22 |
+| planner pi_h, region latents | 62/100 | .65 .65 .75 .60 .45 | 772 | 36 |
+
+- The 9-point gap is about 2 standard errors: suggestive, not conclusive.
+- With region latents rho is higher and flatter (pairs within 6 xy: median raw rho 0.73 against
+  0.58), and 8.4 % of them reach raw rho >= 1 and become untrusted (single-state: 2.2 %).
+  "Reach the region" looks easy from farther away, so rho separates near and far landmarks less.
+- d-eval's oracle gained from region latents with waypoints 2 cells (8 xy units) ahead on the
+  true shortest path; my waypoints are at most 6 xy units away and switch at 3.
+- The planner is far below the baseline on this set (68 against 92). The landmark set also moves
+  it by several points (see "After the merge").
+
 ## Next
 
-1. Waiting for the user: region-mean landmark latents (d-eval finding 1). Proposal sent in the tab.
+1. Waiting for the user: keep region latents as the default, or go back to single-state.
 2. Large: find why the agent leaves the route (route switching between near-equal ways around a
    loop?). Candidate fix: hysteresis.
 3. Near the goal: the agent circles landmarks next to the goal (see above).
