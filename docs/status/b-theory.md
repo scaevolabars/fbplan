@@ -1,6 +1,6 @@
 # Status: b-theory
 
-Last update: 2026-10-29. Branch merged with `main` 28f6aba. Item 15 (bonus mazes) done: all
+Last update: 2026-10-29. Branch merged with `main` eaf51df. Item 15 (bonus mazes) done: all
 final numbers are d-eval's Linux runs, theory.md §11 uses them. Review: first pass (B1–B15, X2,
 X13, X7 my part, K2) and second pass (B16–B21) done.
 
@@ -125,8 +125,9 @@ episode whose final goal distance is within 2 xy units of the trap centre's.
   still walk into entry (4,6) next to the start of tasks 3 and 5 (37–39 % trapped there), and
   the long safe walks time out. On task 2 (no entry on the route) it gains +16.8 pp
   [+8.0, +25.6] with π_h.
-- Giant: no planner gain. Even privileged waypoints give 2.5 %: π_l covers 5–15.5 cells in
-  1,000 steps (Mac replay, eval seed 0), and the walks are 17–30 cells. FB distance grows with
+- Giant: no planner gain. Even privileged waypoints give 2.5 %: 77.6 % of the oracle's failures
+  are still moving at the time limit, 21.7 % are flips (Linux, `results/giant/failures/`). π_l
+  covers 5–15.5 cells in 1,000 steps (Mac replay, eval seed 0), and the walks are 17–30 cells. FB distance grows with
   the walk at 1.2–1.7 times the walk time, but from 5 cells on, the upper quartile is at the
   cap (`ρ̂` < 0.05).
 
@@ -177,8 +178,6 @@ Docs figures and tables (Mac, light):
 - When d-eval fixes the slit leak in `MazeGeometry.geodesic_distances` (Requests): run the two
   calibration commands again, and replace the raster-check numbers in theory.md §11.1–11.2 with
   the bins of the fixed figure.
-- If d-eval commits the Linux failure classes of the giant oracle: replace the Mac replay facts
-  in theory.md §11.2.
 
 ## Blockers
 
