@@ -1,5 +1,7 @@
 """Tests for fbplan.learned.checkpoint: folders, the trained-modules format, export, loaders."""
 
+import hashlib
+import io
 import json
 import pickle
 
@@ -107,21 +109,30 @@ def test_cache_relative_keeps_other_text():
 
 
 def test_a_missing_file_is_downloaded_by_its_key(monkeypatch, tmp_path):
-    calls = []
-
-    def fake_download(key, target):
-        calls.append((key, target))
-        target.mkdir(parents=True, exist_ok=True)
-        (target / "value.pkl").write_bytes(pickle.dumps({"w": np.ones(2)}))
-        return target
-
-    monkeypatch.setattr(frozen, "download_trained", fake_download)
+    """The real frozen.download_trained runs; only the network call is replaced."""
     key = "approach_b/medium/value-single/seed0"
-    loaded = load_trained_file(key, tmp_path / "seed0", "value.pkl")
+    files = {
+        "value.pkl": pickle.dumps({"w": np.ones(2)}),
+        "flags.json": json.dumps({"seed": 0}).encode(),
+    }
+    pinned = {name: ("v0", hashlib.sha256(data).hexdigest()) for name, data in files.items()}
+    by_url = {f"/{frozen._asset_name(key, name)}": data for name, data in files.items()}
+    urls = []
+
+    def fake_urlopen(url):
+        urls.append(url)
+        return io.BytesIO(next(d for suffix, d in by_url.items() if url.endswith(suffix)))
+
+    monkeypatch.setitem(frozen._TRAINED_FILES, key, pinned)
+    monkeypatch.setattr(frozen.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setenv("FBPLAN_APPROACH_B_DIR", str(tmp_path))
+
+    loaded = load_trained_file(key, "value.pkl")
     np.testing.assert_array_equal(loaded["w"], np.ones(2))
-    assert calls == [(key, tmp_path / "seed0")]
-    load_trained_file(key, tmp_path / "seed0", "value.pkl")
-    assert len(calls) == 1  # present now: no second download
+    assert (tmp_path / "medium/value-single/seed0/value.pkl").exists()
+    assert len(urls) == 2
+    load_trained_file(key, "value.pkl")
+    assert len(urls) == 2  # present now: no second download
 
 
 def test_real_checkpoint_retrains_and_reloads_as_a_baseline(tmp_path, monkeypatch):
