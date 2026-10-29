@@ -24,7 +24,7 @@ Lens: representations and the task latent (brief `docs/briefs/hypotheses.md`).
 
 ## Next
 
-- Wait for the coordinator.
+- Nothing. The coordinator closed this session (2026-10-30).
 
 ## Blockers
 
@@ -32,7 +32,6 @@ Lens: representations and the task latent (brief `docs/briefs/hypotheses.md`).
 
 ## Requests to the coordinator
 
-- The medium bar (`docs/hypotheses/h-repr.md` §4): `baseline` and `baseline_raw` are one policy
-  at two values of the input norm, and they do not differ on held-out goals. Decide whether to
-  re-run both rows on 5 more eval seeds before the bar decides any hypothesis.
-- For d-eval: the `z_r` of large held-out goals 102 and 103 averages mostly flipped states.
+- None open. Answered (2026-10-30): both baseline rows and every evaluated family get eval
+  seeds 5-9 on Linux, and every final test uses 10 eval seeds, paired against both rows
+  (design.md §8, main e3f7438). The note on large held-out goals 102 and 103 went to d-eval.
