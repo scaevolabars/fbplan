@@ -125,6 +125,52 @@
   with the provided pi_h 0.945-0.956. Command with the current code (bit-identical), per seed k:
   `uv run python -m fbplan.learned.train_b policy --env antmaze-medium-navigate-v0 --seed k --variant clean`.
 
+## Analysis: the seed split of B-clean (for the report; no new training)
+
+Success per training seed (d-eval, `results/medium/b_clean/seed*.csv` and
+`results/medium/baseline_retrained/*.csv`, 1250 episodes each):
+
+| seed | 0 | 1 | 2 | 3 | 4 | spread |
+|---|---|---|---|---|---|---|
+| B-clean | 81.9 | 75.5 | 83.0 | 75.8 | 80.5 | 7.5 pp |
+| retrained baseline | 79.1 | 79.7 | 77.5 | 76.6 | 78.4 | 3.1 pp |
+| AWR temperature of B (matched) | 0.229 | 0.131 | 0.195 | 0.111 | 0.144 | |
+| upstream advantage std in the calibration | 36.6 | 20.5 | 30.6 | 17.4 | 22.5 | |
+| switch advantage std in the calibration | 15.97 | 15.66 | 15.74 | 15.70 | 15.65 | |
+| V_H per-goal rank corr. with distance (V_1: -0.613) | -0.559 | -0.573 | -0.567 | -0.558 | -0.563 | |
+| V_H mean gain at s / share of targets above V_1 | 2.76 / 0.364 | 2.77 / 0.364 | 2.76 / 0.364 | 2.77 / 0.364 | 2.77 / 0.364 | |
+| B task 4 (longest task) success | 71.6 | 60.8 | 72.4 | 60.4 | 68.4 | |
+
+What explains the split:
+- Not the shared seed: B seed k and baseline seed k share the pi_h init, and their results do not
+  move together (seed 1: baseline 79.7, B 75.5).
+- Not the critic: the five V_H are almost the same (gain 2.76-2.77, 36.4 % of targets above V_1,
+  per-goal ordering -0.558 to -0.573), and the ordering does not follow success (seed 3 orders
+  best and scores 75.8).
+- The AWR temperature does: it varies 2x between seeds, and success follows it (rank correlation
+  +0.8; n = 5, so suggestive, not significant). The two low seeds have the two lowest
+  temperatures and lose mainly on task 4.
+- Why the temperature varies: `alpha = 0.1 * std(upstream advantage) / std(switch advantage)`.
+  The switch spread is stable (15.7 +- 0.2), the upstream spread is not (17-37). The upstream
+  proxy advantage divides by F(w, z_w)^T B(w), which can be near 0, so its std is heavy-tailed.
+  CPU check: on one fixed batch, 10 draws of the task latents give 14-32; the same calibration
+  on CPU and on the GPU (TF32) gives different values (seed 2: 98 against 31). So each seed's
+  temperature came from one noisy draw of an unstable statistic.
+- Consequence for the report: B-clean's mean gain (+1.1 pp, CI -2.4 to +4.5) is within the noise
+  that the temperature choice adds. "Only the critic changes" held for the network, data and
+  optimizer, but not fully for the AWR weighting: B's temperature (mean 0.162) was larger than the
+  baseline's 0.1 and differed per seed. A fixed temperature, or a robust spread (median absolute
+  deviation, new latents per batch, pooled over seeds), would remove this; not run (B stopped).
+
+How the numbers were made: success from the d-eval CSVs (mean of `success` per
+`checkpoint_seed` and `task_id`); temperatures and spreads from `approach_b.calibration` in
+`approach_b/medium/clean/seed<k>/flags.json`; V_H rows from
+`uv run python -m fbplan.learned.diagnostics --env antmaze-medium-navigate-v0 --value value-single --seeds 0 1 2 3 4`
+(after merging main 657acfe; the shared maze-geometry change moved them in the third decimal) and the
+last 10 rows of `runs/train_b/medium/value-single/seed<k>/train.csv`; the CPU check calls
+upstream `total_loss` on the calibration batches with the agent's rng fixed or replaced
+(scratch script, not committed).
+
 ## Review findings, first pass (E1-E14, X3, X9, X12)
 
 | Item | What I did |
@@ -194,7 +240,7 @@ What ran on 58234389:
 | 18:10 | 19:23 | value-region seeds 0-4 (queue-b1) |
 | 19:24 | 20:32 | value expectile 0.7 seeds 0-4 |
 | 20:32 | 21:29 | policy clean seeds 0-4 (queue-b1 resumed) |
-| 21:29 | | policy wide seeds 0-4, then region, then value rho cap 1.0 |
+| 21:29 | | policy wide seeds 0-4, then region (rho cap 1.0 cancelled at 22:34 MSK, coordinator decision: B stops) |
 | 18:58 | | ablations approved (coordinator for the user): queue `runs/queue-ablations.sh` (below) holds queue-b1, then runs value expectile 0.7, resumes queue-b1 (policy clean, wide, region), then value rho cap 1.0 |
 
 The ablation queue. The instance runs code a189a49, which has no `--name`; each ablation writes
