@@ -6,11 +6,15 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-if ! command -v tmux >/dev/null || ! command -v curl >/dev/null; then
-  apt-get update -qq && apt-get install -y -qq tmux curl ca-certificates >/dev/null
+packages=(tmux curl ca-certificates libosmesa6)
+if ! dpkg -s "${packages[@]}" >/dev/null 2>&1; then
+  apt-get update -qq && apt-get install -y -qq "${packages[@]}" >/dev/null
 fi
 command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
+# The OGBench maze env builds a MuJoCo renderer, which needs an OpenGL context. The instance has
+# no display and its CUDA image has no NVIDIA EGL, so use software OpenGL (OSMesa).
+export MUJOCO_GL=osmesa
 
 # On Linux, pyproject.toml selects jax[cuda12], so this installs the CUDA build.
 uv sync --frozen
@@ -25,4 +29,7 @@ mazes = sys.argv[1:] or ["medium", "large"]
 ogbench.download_datasets([f"antmaze-{m}-navigate-v0" for m in mazes])
 EOF
 
-uv run pytest -q
+# The tests compare with upstream at CPU tolerances. On Ampere and newer GPUs, JAX multiplies
+# float32 matrices in TF32 by default (differences of about 1e-3), so test at full precision.
+# Training keeps the JAX default, as upstream main.py does (it does not set the precision).
+JAX_DEFAULT_MATMUL_PRECISION=highest uv run pytest -q
