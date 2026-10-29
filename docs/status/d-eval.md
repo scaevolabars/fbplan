@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-30, 02:15. Branch merged with `main` at 3e36461.
+Last update: 2026-10-30, 02:20. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -430,8 +430,12 @@ episodes); ensembles are single runs (T1, code 0be1249). Paired on the same 2,50
 | T1 ensemble, retrained | 77.9 [76.3, 79.5] | −0.5 [−2.8, +1.7], p 0.68 | −2.6 [−4.8, −0.4], p 0.023 |
 | T1 ensemble, B clean | 80.0 [78.4, 81.6] | +1.6 [−0.6, +3.7], p 0.17 | −0.5 [−2.6, +1.7], p 0.69 |
 | T1 ensemble, B region | 81.0 [79.4, 82.5] | +2.5 [+0.4, +4.6], p 0.024 | +0.5 [−1.7, +2.6], p 0.69 |
+| oracle (privileged, region r 0.5, lookahead 2) | 81.5 [80.0, 83.0] | +3.1 [+0.9, +5.3], p 0.0069 | +1.0 [−1.2, +3.2], p 0.37 |
 
 - With 10 eval seeds, baseline_raw − baseline = +2.0 pp (p 0.07); with 5 seeds it was +3.8.
+- Headroom bound (f-report): the privileged oracle on eval seeds 0–9 is +3.1 pp over the
+  baseline and +1.0 pp (not significant) over baseline_raw; seeds 5–9 ran in the main tree
+  (84a8127), the code of its seeds 0–4.
 - T1 (design.md §8 reading): B region ensemble − retrained ensemble = +3.0 [+0.9, +5.3]
   (p 0.0068; B clean ensemble +2.1, p 0.071). The B region ensemble gains against the baseline
   (+2.5, p 0.024) but not against baseline_raw (+0.5, p 0.69), so it does not pass the gain rule;
