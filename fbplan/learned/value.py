@@ -17,7 +17,7 @@ import json
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import flax
 import flax.linen as nn
@@ -43,6 +43,9 @@ class ValueConfig:
     expectile: tau of the in-sample soft max over w (1 would be a hard max).
     ema: rate of the target network, as upstream's tau for F and B.
     hop_cost: subtracted once per switch.
+    critic: the value of the switch target and the advantage. "v_h" is the learned V_H; "v_1"
+        uses V_1 instead (no learned critic), the attribution control of h-learn's H1. Only
+        stage 2 sets it; V_H is always fit with "v_h".
     """
 
     option: OptionConfig = field(default_factory=OptionConfig)
@@ -51,6 +54,7 @@ class ValueConfig:
     expectile: float = 0.9
     ema: float = 0.005
     hop_cost: float = 0.0
+    critic: Literal["v_h", "v_1"] = "v_h"
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ValueConfig:
@@ -99,6 +103,12 @@ class ValueState(flax.struct.PyTreeNode):
         """V_H(s, z) = V_1(s, z) + min_j gain_j(s, z), given V_1(s, z). [N]."""
         return v1 + self.gain(obs, z, params).min(axis=0)
 
+    def critic(
+        self, v1: jax.Array, obs: jax.Array, z: jax.Array, config: ValueConfig, params: Any = None
+    ) -> jax.Array:
+        """The value that targets and advantages use: V_H, or V_1 when config.critic is "v_1"."""
+        return self.value(v1, obs, z, params) if config.critic == "v_h" else v1
+
 
 def multi_switch_value(
     agent: Agent, value: ValueState, obs: jax.Array, z: jax.Array
@@ -123,7 +133,7 @@ def switch_targets(
     f_s_zw, f_w_zw = forward(agent, s, z_w), forward(agent, w, z_w)
     distinct = jnp.any(s != w, axis=-1)
     terms = option_terms(f_s_zw, f_w_zw, z_w, z, batch.is_goal, distinct, config.option)
-    v_w = value.value(direct_value(forward(agent, w, z), z), w, z, params)
+    v_w = value.critic(direct_value(forward(agent, w, z), z), w, z, config, params)
     y = switch_target(terms.reward, terms.rho, v_w, config.hop_cost)
     return y, direct_value(forward(agent, s, z), z), terms
 

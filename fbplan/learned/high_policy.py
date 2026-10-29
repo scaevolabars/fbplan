@@ -28,7 +28,7 @@ def switch_advantage(
 ) -> tuple[jax.Array, jax.Array]:
     """(A, valid) per sample, with the trained V_H at s and at w."""
     y, v1_s, terms = switch_targets(agent, value, value.params, batch, config)
-    return y - value.value(v1_s, batch.observations, batch.task_latents), terms.valid
+    return y - value.critic(v1_s, batch.observations, batch.task_latents, config), terms.valid
 
 
 def masked_mean_std(x: jax.Array, mask: jax.Array) -> tuple[jax.Array, jax.Array]:

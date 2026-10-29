@@ -174,6 +174,39 @@ def test_switch_targets_assemble_the_option_terms_of_s_and_w(agent, value, split
     np.testing.assert_array_equal(terms.valid, expected.valid)
 
 
+def test_the_v1_control_replaces_v_h_by_v1_in_target_and_advantage(agent, value, split):
+    """critic="v_1" (h-learn H1): the learned gain enters neither y nor the advantage."""
+    control = dataclasses.replace(TINY_VALUE, critic="v_1")
+    batch = split.batch(jax.random.PRNGKey(7), STAGE)
+    y, v1_s, terms = switch_targets(agent, value, value.params, batch, control)
+    w, z = batch.subgoals, batch.task_latents
+    v1_w = direct_value(forward(agent, w, z), z)
+    np.testing.assert_allclose(y, terms.reward + terms.rho * v1_w, rtol=1e-5, atol=1e-5)
+    adv, _ = switch_advantage(agent, value, batch, control)
+    np.testing.assert_allclose(adv, y - v1_s, rtol=1e-5, atol=1e-5)
+    learned, _ = switch_advantage(agent, value, batch, TINY_VALUE)
+    assert not np.allclose(adv, learned)  # the gain is not zero, so the two paths differ
+    args = parse_args(
+        [
+            "policy",
+            "--env",
+            MEDIUM,
+            "--seed",
+            "0",
+            "--variant",
+            "clean",
+            "--critic",
+            "v_1",
+            "--name",
+            "clean-v1-awr2x",
+        ]
+    )
+    assert (args.critic, args.value_name) == ("v_1", "value-single")
+    stored = dataclasses.asdict(TINY_VALUE)
+    del stored["critic"]  # flags.json of a V_H trained before the field existed
+    assert ValueConfig.from_dict(stored).critic == "v_h"
+
+
 def test_expectile_loss_weights_errors_above_more():
     diff = jnp.array([1.0, -1.0])
     np.testing.assert_allclose(expectile_loss(diff, 0.9), [0.9, 0.1])

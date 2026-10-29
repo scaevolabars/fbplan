@@ -347,6 +347,7 @@ def train_policy(args: argparse.Namespace, model: frozen.FrozenFBModel, run_dir:
     value, config = load_value(
         args.env, args.value_name, args.seed, train_split.obs_dim, model.latent_dim
     )
+    config = dataclasses.replace(config, critic=args.critic)
     agent = with_fresh_high_actor(model.agent, args.seed)
     stage = policy_stage(agent, args.variant, config)
 
@@ -427,6 +428,12 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         "--variant", choices=tuple(VARIANTS), required=True, help="see the module docstring"
     )
     policy.add_argument("--value-name", help="V_H folder to load; default value-<latents>")
+    policy.add_argument(
+        "--critic",
+        choices=("v_h", "v_1"),
+        default="v_h",
+        help="v_1: use V_1 where the targets use V_H (control without a learned critic)",
+    )
     temperature = policy.add_mutually_exclusive_group()
     temperature.add_argument("--alpha", type=float, help="AWR temperature; default: per seed")
     temperature.add_argument(
