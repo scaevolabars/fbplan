@@ -367,6 +367,26 @@ def test_builtin_controllers_run_an_episode_on_the_real_model(medium_model, meth
     assert 1 <= record.steps <= 1000
 
 
+def test_raw_ensemble_of_one_member_acts_as_baseline_raw(medium_model):
+    from fbplan.controllers.baseline import (
+        EnsembleConfig,
+        RawBaselineController,
+        RawEnsembleBaselineController,
+    )
+
+    obs = frozen.load_dataset(MEDIUM, "val")["observations"][:: 25_000]
+    z_r = medium_model.infer_task_latent(2)  # raw upstream z_r, norm below sqrt(d)
+    task = TaskSpec(MEDIUM, 2, z_r, np.zeros(2))
+    raw = RawBaselineController(medium_model)
+    ensemble = RawEnsembleBaselineController(
+        medium_model, [medium_model], EnsembleConfig("provided", 1)
+    )
+    for controller in (raw, ensemble):
+        controller.reset(task, seed=0)
+    for o in obs:
+        np.testing.assert_allclose(ensemble.act(o), raw.act(o), atol=1e-5)
+
+
 def test_ensemble_of_the_retrained_seeds_runs_an_episode(medium_model):
     folders = [trained.trained_dir("baselines", MEDIUM, k) for k in range(5)]
     if not all((f / "high_actor.pkl").exists() for f in folders):

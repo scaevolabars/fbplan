@@ -8,7 +8,8 @@ reference against upstream `utils/evaluation.evaluate`.
 normalization (a reference row, docs/design.md §8).
 `NonHierController` drops pi_h and gives the task latent z_r directly to pi_l.
 `EnsembleBaselineController` averages the intentions of the pi_h of several training seeds
-(test-time ensemble, docs/hypotheses/h-learn.md H3).
+(test-time ensemble, docs/hypotheses/h-learn.md H3); `RawEnsembleBaselineController` does the
+same through baseline_raw's input path (T4 of docs/design.md §8).
 All act at temperature 0 (deterministic), as the upstream evaluation default.
 """
 
@@ -16,6 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import jax
 import numpy as np
@@ -105,16 +107,50 @@ class EnsembleBaselineController(_TaskLatentController):
         self.config = config
 
     def act(self, obs: np.ndarray) -> np.ndarray:
-        intentions = [
-            np.asarray(member.high_latent(obs[None], self._z_r[None]))[0]
-            for member in self._members
-        ]
+        intentions = [self._intention(member, obs) for member in self._members]
         z = normalize_z(np.mean(intentions, axis=0), self._model.latent_dim)
         return np.asarray(self._model.low_action(obs[None], z[None])[0])
 
+    def _intention(self, member: FBModel, obs: np.ndarray) -> np.ndarray:
+        """The member's normalized intention, pi_h given the normalized z_r (FBModel)."""
+        return np.asarray(member.high_latent(obs[None], self._z_r[None]))[0]
 
-def make_ensemble(model: FBModel, family: str = "retrained", seeds: int = 5) -> Controller:
-    """Ensemble of the pi_h of seeds 0..seeds-1 of `family`, loaded like --checkpoint."""
+
+class RawEnsembleBaselineController(EnsembleBaselineController):
+    """As EnsembleBaselineController, but each member's pi_h gets the raw z_r, as upstream
+    sample_actions does (baseline_raw's input path). Members must be FrozenFBModel."""
+
+    name = "baseline_ensemble_raw"
+
+    def __init__(
+        self, model: FBModel, members: Sequence[FrozenFBModel], config: EnsembleConfig
+    ) -> None:
+        super().__init__(model, members, config)
+        self._key = jax.random.PRNGKey(0)  # temperature 0: the key does not matter
+
+    def _intention(self, member: FBModel, obs: np.ndarray) -> np.ndarray:
+        agent = member.agent  # type: ignore[attr-defined]
+        return np.asarray(_raw_intention(agent, obs[None], self._z_r[None], self._key))[0]
+
+
+@jax.jit
+def _raw_intention(agent: Any, obs: jax.Array, z_r: jax.Array, key: jax.Array) -> jax.Array:
+    """The pi_h half of upstream FBpiSwitchAgent.sample_actions at temperature 0."""
+    high_key, _ = jax.random.split(key)
+    dist = agent.network.select("high_actor")(obs, z_r, goal_encoded=True, temperature=0.0)
+    return agent.normalize_z(dist.sample(seed=high_key))
+
+
+def make_ensemble(
+    model: FBModel, family: str = "retrained", seeds: int = 5, z_input: str = "normalized"
+) -> Controller:
+    """Ensemble of the pi_h of seeds 0..seeds-1 of `family`, loaded like --checkpoint.
+
+    z_input: "normalized" (T1, the FBModel path) or "raw" (T4, baseline_raw's path).
+    """
+    if z_input not in ("normalized", "raw"):
+        raise ValueError(f"z_input must be normalized or raw, not {z_input!r}")
     config = EnsembleConfig(family, seeds)
     members = [Checkpoint.parse(f"{family}:{k}").load(model.env_name) for k in range(seeds)]
-    return EnsembleBaselineController(model, members, config)
+    cls = RawEnsembleBaselineController if z_input == "raw" else EnsembleBaselineController
+    return cls(model, members, config)
