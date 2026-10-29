@@ -10,6 +10,7 @@ from fbplan.stats import (
     mcnemar_p_value,
     paired_comparison,
     paired_table,
+    pool_label,
     success_ci,
     summary_table,
     unpaired_comparison,
@@ -115,6 +116,23 @@ def test_load_results_concatenates_csv_files(tmp_path):
     df = load_results([tmp_path / "a.csv", tmp_path / "b.csv"])
     assert df["task_id"].tolist() == [1, 2, 2]
     assert df["success"].dtype == bool
+
+
+def test_load_results_with_label_root_names_methods_by_csv_path(tmp_path):
+    (tmp_path / "planner").mkdir()
+    write_csv([_record(1, 0, True)], tmp_path / "baseline.csv")
+    write_csv([_record(1, 0, False)], tmp_path / "planner" / "l0.csv")
+    write_csv([_record(1, 0, True)], tmp_path / "planner" / "l1.csv")
+    paths = [tmp_path / "baseline.csv", *sorted((tmp_path / "planner").glob("*.csv"))]
+    assert load_results(paths)["method"].tolist() == ["m", "m", "m"]
+    labelled = load_results(paths, label_root=tmp_path)
+    assert labelled["method"].tolist() == ["baseline", "planner/l0", "planner/l1"]
+
+
+def test_pool_label_drops_the_config_part_of_a_row_label():
+    assert [pool_label(x) for x in ("planner/l0", "baseline@1a2b3c4d", "baseline")] == [
+        "planner", "baseline", "baseline"
+    ]
 
 
 def test_summary_table_rejects_results_from_two_envs():
