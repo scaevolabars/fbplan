@@ -127,17 +127,30 @@ class HeldoutGoal:
 
 
 def select_heldout_goals(
-    env: gym.Env, count: int = 10, min_cells: int = 2, seed: int = 0
+    env: gym.Env,
+    dataset_xy: np.ndarray,
+    count: int = 10,
+    min_cells: int = 2,
+    min_states: int = 50,
+    seed: int = 0,
 ) -> list[HeldoutGoal]:
     """Goals far from the 5 eval goals, with start cells as far from them as the eval tasks'.
 
     A start cell of a goal is a free cell whose distance to the goal (maze moves between
     4-connected cells) lies in the range of the eval tasks' start-to-goal distances. Goal cells:
-    `count` free cells, drawn without replacement (seeded) from those at least `min_cells` moves
-    from every eval goal that have a start cell. Start cell of each goal: a seeded draw. The goal
-    is the cell centre, as in OGBench's own tasks, and success uses OGBench's goal radius.
+    `count` free cells, drawn without replacement (seeded) from those that are at least
+    `min_cells` moves from every eval goal, have a start cell, and have at least `min_states`
+    of `dataset_xy` within the goal radius. dataset_xy: xy of the states that make z (the
+    validation split, see goal_latent); few states give a noisy z. Start cell of each goal: a
+    seeded draw. The goal is the cell centre, as in OGBench's own tasks, and success uses
+    OGBench's goal radius.
     """
     maze, infos = MazeGeometry.from_env(env), env.unwrapped.task_infos
+    radius = env.unwrapped._goal_tol
+
+    def states_near(cell: Cell) -> int:
+        centre = np.asarray(env.unwrapped.ij_to_xy(cell))
+        return int((np.linalg.norm(dataset_xy - centre, axis=1) <= radius).sum())
     to_eval_goals = [maze.bfs_steps(tuple(info["goal_ij"])) for info in infos]
     lengths = [
         steps[tuple(info["init_ij"])] for steps, info in zip(to_eval_goals, infos, strict=True)
@@ -149,7 +162,11 @@ def select_heldout_goals(
         return [c for c in free if min(lengths) <= steps[c] <= max(lengths)]
 
     candidates = [
-        c for c in free if min(steps[c] for steps in to_eval_goals) >= min_cells and starts(c)
+        c
+        for c in free
+        if min(steps[c] for steps in to_eval_goals) >= min_cells
+        and starts(c)
+        and states_near(c) >= min_states
     ]
     if not candidates:
         raise ValueError("no free cell is far enough from the eval goals")
