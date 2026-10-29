@@ -14,16 +14,23 @@
 - Tests: `tests/test_learned_sampling.py`, `tests/test_learned_train_high.py` (frozen modules stay
   bit-identical, `π_h` init depends only on the seed, checkpoint round trip, CSV log).
 - Speed: full-size step on Apple M2 Pro CPU = 34 ms, so 500k steps = 4.8 h per seed. Needs a GPU.
+- GPU: the user chose vast.ai. `scripts/gpu/vast.sh` (run locally:
+  offers, create, push, train, status, pull, ssh, destroy), `remote_setup.sh` (uv, CUDA JAX,
+  OGBench data, tests), `train_baselines.sh` (5 seeds in parallel on one GPU, in tmux).
+  The instance gets the committed tree at HEAD plus a `REVISION` file; each checkpoint records it.
+  OGBench data for medium + large = 534 MB, downloaded on the instance.
 
 ## Next
 
-- GPU setup script in `scripts/gpu/` (waiting for the user: how to reach the GPU machine).
 - Draft `docs/plans/approach-b.md` for the user to approve.
+- First GPU job (medium, seeds 0-4) when a-frozen is on main. Ask the user before it starts.
 
 ## Blockers
 
 - `fbplan.frozen` is still a stub. `train_high.main()` needs `load_agent` and `load_dataset`.
 - No checkpoints and no OGBench data on this machine yet.
+- vast.ai: the `vastai` CLI is installed, but no API key is set and the SSH key is not checked.
+  The user runs `vastai set api-key <key>` and adds `~/.ssh/id_rsa.pub` in the vast.ai console.
 
 ## Requests to the coordinator
 

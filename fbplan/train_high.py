@@ -142,9 +142,15 @@ def save_checkpoint(agent: Agent, flags: dict[str, Any], out_dir: Path) -> None:
 
 
 def git_commit() -> str:
-    """Commit of this repository, recorded with each checkpoint for reproducibility."""
-    out = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True)
-    return out.stdout.strip() or "unknown"
+    """Commit of this code, recorded with each checkpoint for reproducibility.
+
+    On a GPU instance the code arrives without .git: scripts/gpu/vast.sh writes REVISION.
+    """
+    repo = Path(__file__).resolve().parents[1]
+    if (repo / "REVISION").exists():
+        return (repo / "REVISION").read_text().strip()
+    cmd = ["git", "-C", str(repo), "rev-parse", "HEAD"]
+    return subprocess.run(cmd, capture_output=True, text=True).stdout.strip() or "unknown"
 
 
 def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
