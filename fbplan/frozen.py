@@ -1,8 +1,8 @@
 """Frozen checkpoints, environments and offline data.
 
 Owner: component a-frozen. Other components import only the public names below.
-All access to upstream code (third_party/ssm) goes through `_upstream`, so the rest of fbplan
-does not depend on the upstream sys.path layout.
+All access to upstream code (third_party/ssm) goes through `upstream_module`, so the rest of
+fbplan does not depend on the upstream sys.path layout.
 
 Download the checkpoints with `uv run python -m fbplan.frozen [env_name ...]`.
 OGBench dataset files download on the first `load_dataset` call.
@@ -172,12 +172,14 @@ def load_numpy_pickle(path: Path) -> Any:
         return _NumpyOnlyUnpickler(file).load()
 
 
-def _upstream(module: str) -> ModuleType:
+def upstream_module(module: str) -> ModuleType:
     """Import a module of the upstream repo, for example "agents.fbpiswitch".
 
-    Upstream code imports its top-level packages `agents` and `utils` as if main.py runs from
-    third_party/ssm. That folder goes first on sys.path, and the check below makes sure that a
-    different package named `utils` did not win.
+    Other components use this function for upstream code (for example utils.evaluation or the
+    pi_h training recipe) instead of their own sys.path changes. Upstream code imports its
+    top-level packages `agents` and `utils` as if main.py runs from third_party/ssm. That folder
+    goes first on sys.path, and the check below makes sure that a different package named
+    `utils` did not win.
     """
     if not (_UPSTREAM_DIR / "agents").is_dir():
         raise ImportError(f"{_UPSTREAM_DIR} is empty: run `git submodule update --init`")
@@ -201,7 +203,7 @@ def load_model(env_name: str) -> FrozenFBModel:
         raise ValueError(f"{ckpt} holds a checkpoint for {flags['env_name']}, not for {env_name}")
     state = load_numpy_pickle(ckpt / "params.pkl")["agent"]
 
-    fbpiswitch = _upstream("agents.fbpiswitch")
+    fbpiswitch = upstream_module("agents.fbpiswitch")
     config = fbpiswitch.get_config()
     config.update(flags["agent"])
     agent = fbpiswitch.FBpiSwitchAgent.create(0, _example_batch(state), config)
@@ -272,7 +274,7 @@ class FrozenFBModel:
         """
         env = make_env(self.env_name)
         env.reset(options={"task_id": task_id})
-        relabel = _upstream("utils.env_utils").relabel_dataset
+        relabel = upstream_module("utils.env_utils").relabel_dataset
         relabeled = relabel(f"ogbench-{self.env_name}", env, self._val_dataset)
         n = self.agent.config["num_zero_shot_samples"]
         if relabeled.size < n:
@@ -283,7 +285,9 @@ class FrozenFBModel:
     @cached_property
     def _val_dataset(self) -> Any:
         """Validation split as an upstream Dataset, the type that upstream relabel_dataset takes."""
-        return _upstream("utils.datasets").Dataset.create(**load_dataset(self.env_name, "val"))
+        return upstream_module("utils.datasets").Dataset.create(
+            **load_dataset(self.env_name, "val")
+        )
 
 
 def _sampling_key(seed: jax.Array | None, temperature: float) -> jax.Array:
@@ -332,7 +336,9 @@ def make_env(env_name: str) -> gym.Env:
     EpisodeMonitor wrapper, no frame stack) and then turns goal noise off, so all episodes of a
     task share one goal. env_only=True builds the same wrappers without loading the datasets.
     """
-    env = _upstream("utils.env_utils").make_env_and_datasets(f"ogbench-{env_name}", env_only=True)
+    env = upstream_module("utils.env_utils").make_env_and_datasets(
+        f"ogbench-{env_name}", env_only=True
+    )
     env.unwrapped._add_noise_to_goal = False
     return env
 
