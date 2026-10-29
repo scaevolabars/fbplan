@@ -393,7 +393,8 @@ here. The graph planner with `R̂ = 0` maximises `Π ρ̂ = E[γ^H]` of the chai
 xy cap (6 units) removes every jump edge, because the exits are far from the entries in xy, so it
 plans walks; this guard works against risk by accident. Remedies within the frozen setting: a
 larger γ (it costs accuracy, see giant), FB at several γ to bound `P(H ≤ T)`, or an explicit
-penalty on edges whose successor measure has mass on an absorbing region (the trap).
+penalty on edges whose successor measure has mass on an absorbing region (the trap). §11.4
+tests such a penalty in the intention (T3).
 
 ### 11.2 Giant: the time limit and ρ at long range
 
@@ -520,3 +521,93 @@ successes are on task 5, the shortest walk (17 cells; it fits at ≤ 59 steps pe
 planner_high reaches 3.5 % there against 1.2 % for the baseline (+2.3 pp [−0.1, +4.8], paired,
 episode bootstrap over the pooled sets), and the oracle 5.2 %. A planner can at most supply the
 route, and the oracle shows that the route alone is worth about +2 points here.
+
+### 11.4 Time-aware trap avoidance (T3)
+
+T3 of design.md §8 (h-exec H1) tests the last remedy of §11.1 in the intention: a penalty on the
+absorbing trap, applied only while a walk still fits in the steps left. Controller:
+`fbplan/controllers/trap_aware.py`; tests on the exact tabular maze:
+`tests/test_tabular_trap_aware.py`.
+
+- `z_t = normalize(π_h(s,z_r) − λ·g(s,t)·ẑ_trap)`. `ẑ_trap` is the centred mean of B over the
+  train states that follow a trajectory's last jump (xy step > 2) and stay within a radius of
+  their mean. The rule reads no map; at radius 2.5–4.0 it marks all 247 train trajectories
+  that end in the trap. The radius hardly matters: `ẑ_trap` at radius 1.5, 2.5 and 4.0 have
+  cosines ≥ 0.997.
+- The gate g is open while `log ρ̂_walk / log γ ≤ 1000 − t`, with
+  `ρ̂_walk = min_h F_h(s,z_c)ᵀẑ_r / F_goal` and `z_c = normalize(ẑ_r − λẑ_trap)`.
+- On the tabular maze (exact F and B) the controller walks where the walk fits (success 1.0,
+  trap 0, against a trap share of 0.42–0.72 for the baseline) and hands back to the baseline
+  where it does not. ✓
+
+**Selection on the 10 teleport held-out goals** (Linux, eval seeds 0–2, 600 episodes per row).
+The rule was fixed before the runs: the gated row with the highest success. Success (%) and the
+paired difference against the baseline (pp):
+
+| teleport held-out | λ = 0.5 | λ = 1 | λ = 2 |
+|---|---|---|---|
+| gated, radius 1.5 | 46.5 (−1.7 [−6.2, +2.8]) | 40.2 (−8.0 [−12.2, −3.8]) | 27.2 (−21.0) |
+| gated, radius 2.5 | 44.7 (−3.5 [−7.8, +1.0]) | 39.8 (−8.3 [−12.7, −4.0]) | 29.7 (−18.5) |
+| ungated (control) | 44.2 (−4.0 [−8.3, +0.5]) | 37.8 (−10.3 [−14.8, −5.7]) | 29.8 (−18.3) |
+
+The baseline has 48.2 % and baseline_raw 46.5 %. The rule selects λ = 0.5, radius 1.5. No row
+beats the baseline.
+
+**Final run** (5 eval tasks, eval seeds 0–9, 2,500 episodes per row, paired; d-eval):
+
+| teleport, 10 seeds | task 1 | task 2 | task 3 | task 4 | task 5 | all | vs. baseline (pp) | vs. baseline_raw (pp) |
+|---|---|---|---|---|---|---|---|---|
+| baseline | 24.6 | 43.4 | 27.4 | 23.4 | 19.2 | 27.6 [25.9, 29.3] | – | +2.5 [+0.6, +4.4] |
+| baseline_raw | 20.2 | 42.0 | 25.8 | 20.6 | 17.0 | 25.1 [23.5, 26.8] | −2.5 [−4.4, −0.6] | – |
+| trap_aware (λ 0.5, r 1.5) | 13.8 | 30.0 | 17.2 | 17.2 | 11.4 | 17.9 [16.4, 19.4] | −9.7 [−11.6, −7.7] | −7.2 [−9.2, −5.2] |
+
+| teleport, 10 seeds | success | trap | other failures | median steps of successes |
+|---|---|---|---|---|
+| baseline | 27.6 % | 54.8 % | 17.6 % | 502 |
+| baseline_raw | 25.1 % | 56.5 % | 18.4 % | 471 |
+| trap_aware | 17.9 % | 51.8 % | 30.2 % | 574 |
+
+T3 fails the rule of design.md §8 (a significant gain over both baseline rows). The reasons:
+
+- **The penalty moves 3 points from the trap to the time limit.** The trap share falls from
+  54.8 to 51.8 %. The other failures rise from 17.6 to 30.2 %; all of them run to the 1,000-step
+  limit (flips and slow walks; the CSV cannot separate them), with a median final distance of
+  17.7 xy units (baseline 21.7). Successes are slower (median 502 → 574 steps). This is the
+  trade-off of §11.1 and h-exec M11: an episode that does not jump must walk, and the safe walks
+  do not fit at π_l's pace.
+- **The penalty also costs where there is nothing to avoid.** On the 4 held-out goals where at
+  most 10 % of the baseline episodes end in the trap (104, 105, 106, 108), λ = 0.5 loses 7.1 pp
+  (63.7 → 56.7 %) and λ = 1 loses 17.1 pp; the trap share does not fall there (3.3 → 5.8 %). On
+  the other 6 goals λ = 0.5 gains 1.9 pp (trap 38.3 → 31.1 %). The penalised intention is a
+  different instruction for π_l on every route, and π_l follows it less well.
+- **The time gate has no measurable effect.** Gated against ungated on the held-out goals:
+  +2.3 pp [−2.0, +6.7] at λ = 0.5 (p 0.33) and +2.3 pp at λ = 1 (p 0.34). At the start states
+  of the eval tasks (controller reset only, 5 reset seeds), the gate's walk estimate is 58–77
+  steps on tasks 3, 4 and 5, whose safe walks are 14, 25 and 27 cells (about 560–1,100 steps at
+  40 steps per cell). On tasks 1 and 2, `ρ̂_walk ≤ 0` and the gate is closed. 58–77 steps is the
+  jump route: tasks 3–5 start 1–2 cells from an entry, and a good exit is next to the goal.
+- **F does not model the trap-averse route.** For λ from 0 to 4 in `z_c`, the walk estimate at
+  the start of tasks 3–5 stays at 58–77 steps, and F's trap occupancy `F(s,z_c)ᵀẑ_trap / d`
+  falls only from 0.15 to 0.11. But π_l does change its route under the penalty (the trap share
+  falls by 3 points here, by half at λ = 1 in h-exec M11). So the gate stays open on the long
+  walks of tasks 4 and 5, where it should close. The other failures rise most on tasks 3 and 4
+  (8.2 → 21.4 % and 9.2 → 21.8 %).
+- **The held-out grid under-predicted the cost** (−1.7 pp against −9.7 pp on the eval tasks).
+  The held-out goals are easier (baseline 48 % against 28 %), and only 3 of the 10 have an entry
+  on the plain route. The selection could find the smallest λ, but not its cost on long walks.
+
+**Consequence.** Three ways to walk instead of jump are now measured on teleport: the planner
+(−9.1 pp, 5 seeds), the teleport-aware oracle with π_h (−6.3 pp, 5 seeds) and T3 (−9.7 pp,
+10 seeds). None beats the baseline. The frozen π_l walks too slowly for the long safe walks,
+and FB cannot tell where a walk fits: at long range its F holds the value of the jump (§11.1),
+also for a trap-averse `z_c`. I see no other high-level remedy for teleport in the frozen
+setting that the measurements support. A faster π_l (h-exec H2, out of scope for now) comes
+first.
+
+Numbers: `uv run python analysis/tables.py results/teleport/heldout/*.csv
+results/teleport/heldout/trap_aware/*.csv --label-root results/teleport/heldout --reference
+baseline trap_aware/w0.5_ungated trap_aware/w1.0_ungated` and `uv run python analysis/tables.py
+results/teleport_10seeds/*.csv --label-root results/teleport_10seeds --reference baseline
+baseline_raw`. Trap and other failures: the CSV rule of §11.3 (for the held-out goals, the
+trap distance is from each goal's xy; the rule is less exact there). The gate check at the
+start states: `docs/status/b-theory.md`.

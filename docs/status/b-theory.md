@@ -1,11 +1,10 @@
 # Status: b-theory
 
-Last update: 2026-10-30 (after the 00:46 restart). Branch merged with `main` cc11eb3. Current
-work: T3 of wave 1 (design.md §8), the trap-aware controller on teleport: code and tests done; the
-held-out grid and the final run wait for d-eval (commands below; option A of my question, the
-registered T3, as the coordinator's resume message says to continue). Item 15 (bonus mazes) done:
-all final numbers are d-eval's Linux runs, theory.md §11 uses them. Review: first pass (B1–B15,
-X2, X13, X7 my part, K2) and second pass (B16–B21) done.
+Last update: 2026-10-30 (after d-eval's T3 runs). Branch merged with `main` 416d90c. Current
+work: none open. T3 of wave 1 (design.md §8), the trap-aware controller on teleport, is done and
+fails: −9.7 pp [−11.6, −7.7] against the baseline on eval seeds 0–9 (result below, theory.md
+§11.4). Item 15 (bonus mazes) done: all final numbers are d-eval's Linux runs, theory.md §11 uses
+them. Review: first pass (B1–B15, X2, X13, X7 my part, K2) and second pass (B16–B21) done.
 
 ## T3: trap-aware controller (teleport, wave 1)
 
@@ -77,9 +76,11 @@ The ungated rows and the baselines are not candidates.
 
 Step 3, final run with the selected W and R:
 
-    uv run python -m fbplan.evaluate --env antmaze-teleport-navigate-v0 --tasks 1 2 3 4 5 --seeds 0 1 2 3 4 5 6 7 8 9 --episodes 50 --workers N --method fbplan.controllers.trap_aware:make_trap_aware --opt weight=W trap_radius=R --out results/teleport/trap_aware.csv
+    uv run python -m fbplan.evaluate --env antmaze-teleport-navigate-v0 --tasks 1 2 3 4 5 --seeds 0 1 2 3 4 5 6 7 8 9 --episodes 50 --workers N --method fbplan.controllers.trap_aware:make_trap_aware --opt weight=W trap_radius=R --out results/teleport_10seeds/trap_aware.csv
 
 It pairs with baseline and baseline_raw on eval seeds 0–9 (d-eval adds seeds 5–9 to both rows).
+d-eval ran it with W = 0.5, R = 1.5 and wrote it next to the 10-seed baselines in
+`results/teleport_10seeds/` (the path above is the one used).
 
 Check on the 10 teleport held-out goals (Mac, no episodes; controller reset and the gate at the
 start state, weight 1):
@@ -90,6 +91,36 @@ start state, weight 1):
 - The gate's walk estimates at the start do not follow the safe walks (10–23 cells): goal 110
   (23 cells) gets 61 steps, goal 109 (10 cells) 772, goals 104, 107 and 108 no estimate
   (ρ̂ ≤ 0). The data-only goal states lie 1.5–3.9 xy from the goal (103: 6.8).
+
+### T3 result (d-eval, Linux; analysis on the Mac, no episodes)
+
+- Held-out grid (`results/teleport/heldout/`, 600 episodes per row): baseline 48.2 %,
+  baseline_raw 46.5 %; gated λ 0.5 46.5 / 44.7 % (radius 1.5 / 2.5), λ 1 40.2 / 39.8 %, λ 2
+  27.2 / 29.7 %; ungated λ 0.5 / 1 / 2: 44.2 / 37.8 / 29.8 %. The rule selects λ = 0.5, radius
+  1.5 (d-eval applied it; I checked it). No row beats the baseline (best −1.7 pp [−6.2, +2.8]).
+- Final run (`results/teleport_10seeds/trap_aware.csv`, 2,500 episodes, paired): 17.9 %
+  [16.4, 19.4] against 27.6 % (baseline, −9.7 pp [−11.6, −7.7], p 3e-21) and 25.1 %
+  (baseline_raw, −7.2 pp [−9.2, −5.2], p 8e-13). Trap 54.8 → 51.8 %, other failures 17.6 →
+  30.2 %, median steps of successes 502 → 574. T3 fails the rule.
+- Mechanism (theory.md §11.4):
+  - The penalty moves 3 points from the trap to the time limit, and it costs 7.1 pp on the 4
+    held-out goals where the baseline rarely ends in the trap (nothing to avoid there).
+  - The time gate has no measurable effect: gated − ungated = +2.3 pp (p 0.33) at λ 0.5.
+  - At the start states of eval tasks 3–5 the gate's walk estimate is 58–77 steps (the jump
+    route; safe walks 14–27 cells), at every λ from 0 to 4 in `z_c`; on tasks 1 and 2 it has
+    no estimate (ρ̂ ≤ 0). F's trap occupancy under `z_c` falls only from 0.15 to 0.11. So F
+    does not model the trap-averse route, and the gate stays open on the long walks.
+  - The held-out goals are easier (48 % against 28 %), so they under-predicted the cost
+    (−1.7 against −9.7 pp).
+- Gate check at the eval starts: `make_trap_aware(model, weight=λ, trap_radius=1.5)`, `reset`
+  on each eval task, `walk_steps` at the env reset state for reset seeds
+  `reset_seed(0, task, s)`, s = 0–4; λ set to 0, 0.5, 1, 2, 4. Scripts (not committed):
+  `/private/tmp/claude-501/-Users-ssbars-Documents-work-tbank-robots--worktrees-b-theory/9eb5871f-f0ef-430e-94a3-2c926e648b0f/scratchpad/t3/eval_gate.py`
+  and `gate_weight.py` in the same folder; `split.py` there gives the trap / other split. I can
+  commit them if you want them in the repo.
+- Reading: three ways to walk instead of jump now lose to the baseline on teleport (planner,
+  teleport-aware oracle, T3). The frozen π_l is too slow for the safe walks, and FB cannot tell
+  where a walk fits. I do not propose a T3 variant; a faster π_l (h-exec H2) comes first.
 
 ## Done
 
@@ -262,8 +293,7 @@ Docs figures and tables (Mac, light):
 
 ## Next
 
-- T3: when d-eval commits the teleport held-out CSVs, apply the selection rule above and send
-  d-eval the final command (eval seeds 0–9).
+- None for T3 (done).
 - When d-eval fixes the slit leak in `MazeGeometry.geodesic_distances` (Requests): run the two
   calibration commands again, and replace the raster-check numbers in theory.md §11.1–11.2 with
   the bins of the fixed figure.
@@ -277,16 +307,8 @@ Docs figures and tables (Mac, light):
 - Please assign `tests/test_oracle_teleport.py` and `fbplan/controllers/trap_aware.py` to
   b-theory in design.md §6 (line 157 lists neither). The T3 tests are in
   `tests/test_tabular_trap_aware.py`, which my `tests/test_tabular*.py` already covers.
-- T3, decision (QUESTION FOR COORDINATOR): the pre-registered FB gate cannot see the walk early in
-  an episode (T3 section above). Early on it opens where ρ̂ > 0 and closes where ρ̂ ≤ 0, not
-  where the walk fits, so the gated rows will be close to the ungated ones on some goals and to
-  the baseline on others. (A) Run T3 as fixed: the held-out grid above, then eval seeds 0–9. (B) First
-  replace the gate's walk estimate with a data-based one (step counts along train trajectories
-  without jumps, times a pace factor tuned on the held-out goals in place of the radius). B
-  changes the pre-registered gate, needs about half a day on the Mac, and my first try was too
-  optimistic (6–16 steps per cell). Recommendation: A now (cheap, as registered; its ungated
-  control rows show whether the penalty helps on held-out goals at all), and B only if a
-  held-out row beats the baseline.
+- T3, A/B question: closed. A ran as registered. B was to follow only if a held-out row beat
+  the baseline; none did, so B is not needed.
 - g-release (X11 flag renames): `scripts/reproduce.sh:272-273` still use the old flags and fail
   with the current CLIs. They become `py -m fbplan.tabular.study_plots "$theory_dir"` and
   `py -m fbplan.tabular.time_limit --out-dir "$theory_dir"`. The giant and teleport runs are in
