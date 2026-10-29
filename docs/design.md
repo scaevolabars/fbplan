@@ -202,6 +202,17 @@ Shared contracts: `fbplan/contracts.py` (`FBModel`, `Controller`, `TaskSpec`, `E
   tasks, the selected seed of each family paired against the selected retrained baseline and
   against `baseline_raw`, next to the pooled rows. The rule applies to all families in the same
   way, and nothing else is tuned on the held-out goals. No selection on the eval tasks.
+  Result: no gain by the rule (selected B clean vs `baseline_raw`: +2.2 pp [−1.0, +5.1]).
+- AWR sharpness at 2× (fixed on 2026-10-29 at 23:00 MSK, before any result). Motivation: the B
+  clean seeds split by their AWR temperature, which each seed calibrates from one noisy draw;
+  sharper seeds score higher on the eval tasks and on the held-out goals. Experiment: retrain
+  both families on medium with the AWR weighting twice as sharp as upstream, 5 seeds each: the
+  baseline `π_h` with `high_alpha = 0.2`; B clean with its temperature calibrated, from one stable
+  estimate shared by all seeds, to the same spread of `α·A` as that baseline. Evaluate on Linux,
+  5 eval seeds, pooled over training seeds. Reading: B at 2× beats the baseline at 2× and
+  `baseline_raw` → chaining adds value at matched sharpness; both rise together → the gain is a
+  `π_h` tuning effect, reported as such and not as a gain of chaining; neither → B stays
+  negative. No other change and no tuning on the eval tasks.
 
 Closed:
 
