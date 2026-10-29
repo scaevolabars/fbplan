@@ -14,7 +14,7 @@ from fbplan.controllers.planner import (
     trusted_edges,
 )
 from fbplan.graph import DIRECT, GraphSolution
-from fbplan.landmarks import LandmarkConfig, region_latents
+from fbplan.landmarks import LandmarkConfig, RegionField, region_latents
 from fbplan.option_model import OptionModelConfig
 from fbplan.tabular.env import rollout as rollout_tabular
 from fbplan.tabular.fake_fb import FakeFBConfig, TabularFB
@@ -439,6 +439,69 @@ def test_lookahead_ends_on_a_cycle_of_tied_route_stops():
     assert ctrl.step_info()["advances"] == len(landmarks)
 
 
+class LatentSpy:
+    """Wraps an FBModel and keeps the last latent given to pi_l and to pi_h."""
+
+    def __init__(self, fb: GridFB) -> None:
+        self.fb, self.low_z, self.high_z = fb, None, None
+
+    def __getattr__(self, name: str):
+        return getattr(self.fb, name)
+
+    def low_action(self, obs, z, temperature=0.0, seed=None):
+        self.low_z = np.asarray(z)[0]
+        return self.fb.low_action(obs, z)
+
+    def high_latent(self, obs, z_task, temperature=0.0, seed=None):
+        self.high_z = np.asarray(z_task)[0]
+        return self.fb.high_latent(obs, z_task)
+
+
+def act_ahead_planner(fb, ahead: float, cls=GraphPlannerController) -> GraphPlannerController:
+    """SHORT_HOPS landmarks; the plan from START is (1, 1) -> (3, 1) -> (5, 2) -> task policy."""
+    landmarks = np.stack([fb.obs(c) for c in SHORT_HOPS])
+    field = RegionField(fb.all_obs()[:, :2], fb.backward(fb.all_obs()), radius=0.5)
+    cfg = replace(HORIZON_CFG, act_ahead_xy=ahead)
+    ctrl = cls(fb, landmarks, cfg, region_field=field)
+    ctrl.reset(task(fb), seed=0)
+    return ctrl
+
+
+@pytest.mark.parametrize(("ahead", "point"), [(2.0, (1.0, 2.0)), (4.0, (2.0, 1.0))])
+def test_act_ahead_gives_pi_l_the_region_latent_of_the_route_point_ahead(ahead, point):
+    # From START (1, 4) the route runs to (1, 1) (3 xy), then to (3, 1).
+    fb = LatentSpy(GridFB(horizon=4))
+    ctrl = act_ahead_planner(fb, ahead)
+    ctrl.act(fb.obs(START))
+    assert SHORT_HOPS[ctrl.step_info()["waypoint"]] == (1, 1)
+    np.testing.assert_allclose(fb.low_z, ctrl.region_field.at(np.array(point)))
+
+
+def test_act_ahead_acts_with_the_task_latent_when_the_route_is_shorter():
+    fb = LatentSpy(GridFB(horizon=4))
+    ctrl = act_ahead_planner(fb, ahead=100.0)
+    ctrl.act(fb.obs(START))
+    np.testing.assert_allclose(fb.low_z, fb.infer_task_latent(1))
+
+
+def test_act_ahead_gives_pi_h_the_region_latent_as_its_task():
+    fb = LatentSpy(GridFB(horizon=4))
+    ctrl = act_ahead_planner(fb, 2.0, cls=GraphPlusHighController)
+    ctrl.act(fb.obs(START))
+    np.testing.assert_allclose(fb.high_z, ctrl.region_field.at(np.array([1.0, 2.0])))
+
+
+def test_from_dataset_builds_the_region_field_only_for_act_ahead():
+    fb = GridFB()
+    data = np.tile(fb.all_obs(), (3, 1))
+    base = PlannerConfig(landmarks=LandmarkConfig(count=5))
+    plain = GraphPlannerController.from_dataset(fb, data, base)
+    cfg = replace(base, act_ahead_xy=4.0, act_region_xy=0.7)
+    ahead = GraphPlannerController.from_dataset(fb, data, cfg)
+    assert plain.region_field is None
+    assert ahead.region_field.radius == 0.7 and len(ahead.region_field.xy) == len(data)
+
+
 def test_replan_every_step_rescores_all_landmarks_at_each_step():
     fb = GridFB(horizon=4)
     ctrl = planner(fb, replace(HORIZON_CFG, replan_every_step=True))
@@ -470,6 +533,17 @@ def test_planner_beats_the_task_policy_under_fb_noise_on_the_tabular_maze():
         planner_wins += successes(GraphPlannerController(fb, fb.maze.xy), fb)
         direct_wins += successes(NonHierController(fb), fb)
     assert planner_wins >= direct_wins + 10
+
+
+def test_planner_acting_ahead_on_region_latents_solves_every_task_of_the_exact_tabular_maze():
+    fb = TabularFB()
+    # Fine cells are 2 xy apart: act 4 xy (two cells) ahead, on a region of a cell and its
+    # neighbours.
+    cfg = PlannerConfig(
+        landmarks=LandmarkConfig(count=60), act_ahead_xy=4.0, act_region_xy=2.1
+    )
+    ctrl = GraphPlannerController.from_dataset(fb, fb.maze.xy, cfg)
+    assert successes(ctrl, fb) == 15
 
 
 class RoundedFB(TabularFB):

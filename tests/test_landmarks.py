@@ -4,6 +4,7 @@ from planner_fakes import GridFB
 
 from fbplan.landmarks import (
     LandmarkConfig,
+    RegionField,
     farthest_point_sampling,
     region_latents,
     select_landmarks,
@@ -69,3 +70,27 @@ def test_select_landmarks_gives_region_latents_on_request():
 def test_region_latents_need_a_model():
     with pytest.raises(ValueError):
         select_landmarks(dataset_obs(GridFB()), LandmarkConfig(count=3, latent="region"))
+
+
+def test_region_field_averages_b_within_the_radius_of_any_point():
+    fb = GridFB()
+    obs = dataset_obs(fb, repeats=1)
+    field = RegionField.from_data(fb, obs, radius=1.0)
+    expected = region_latents(fb, obs, np.array([[1.0, 1.0]]), radius=1.0)[0]
+    np.testing.assert_allclose(field.at(np.array([1.0, 1.0])), expected)
+
+
+def test_region_field_takes_the_region_of_the_nearest_state_for_a_point_off_the_data():
+    fb = GridFB()
+    field = RegionField.from_data(fb, dataset_obs(fb, repeats=1), radius=0.5)
+    # (3, 2) is inside the wall block of the U maze; the nearest cell is (3, 1).
+    np.testing.assert_allclose(field.at(np.array([3.0, 2.0])), fb.backward(fb.obs((3, 1))[None])[0])
+
+
+def test_region_field_from_data_uses_the_landmark_pool():
+    fb = GridFB()
+    obs = dataset_obs(fb)
+    field = RegionField.from_data(fb, obs, radius=0.5, pool_size=20, seed=3)
+    marks = select_landmarks(obs, LandmarkConfig(count=4, pool_size=20, seed=3))
+    pool = {tuple(row) for row in field.xy}
+    assert len(field.xy) == 20 and all(tuple(row[:2]) in pool for row in marks.observations)

@@ -74,8 +74,8 @@ def select_landmarks(
 ) -> Landmarks:
     """Choose landmarks from dataset observations [P, obs_dim]."""
     rng = np.random.default_rng(config.seed)
-    pool_size = min(config.pool_size, len(observations))
-    rows = rng.choice(len(observations), size=pool_size, replace=False)
+    rows = _draw_pool(rng, len(observations), config.pool_size)
+    pool_size = len(rows)
     pool = observations[rows]
     if config.latent == "region" and fb is None:
         raise ValueError("region latents need an FB model")
@@ -85,6 +85,39 @@ def select_landmarks(
     if config.latent == "region":
         latents = region_latents(fb, pool, pool[picked, :2], config.region_xy)
     return Landmarks(pool[picked], latents)
+
+
+@dataclass(frozen=True, eq=False)
+class RegionField:
+    """Region-mean latents at any xy point: the mean of raw B over the data states within
+    `radius` xy units of it, as upstream builds z_r from a goal region. A point with no state that
+    close (a straight route segment can cut a wall corner) takes the region of its nearest state.
+    """
+
+    xy: np.ndarray  # [P, 2] xy of the data states
+    b: np.ndarray  # [P, d] their raw B
+    radius: float
+
+    @classmethod
+    def from_data(
+        cls,
+        fb: FBModel,
+        observations: np.ndarray,
+        radius: float,
+        pool_size: int = 100_000,
+        seed: int = 0,
+    ) -> RegionField:
+        """From the same random pool of dataset states as select_landmarks with this pool_size
+        and seed."""
+        pool = observations[_draw_pool(np.random.default_rng(seed), len(observations), pool_size)]
+        return cls(pool[:, :2], batched_backward(fb, pool), radius)
+
+    def at(self, point: np.ndarray) -> np.ndarray:
+        """The region-mean latent around the xy point. [d]"""
+        dist2 = np.sum((self.xy - point) ** 2, axis=1)
+        if dist2.min() > self.radius**2:
+            dist2 = np.sum((self.xy - self.xy[np.argmin(dist2)]) ** 2, axis=1)
+        return self.b[dist2 <= self.radius**2].mean(axis=0)
 
 
 def region_latents(
@@ -102,3 +135,8 @@ def region_latents(
             raise ValueError(f"no observation within {radius} of {centre}")
         out[i] = b[inside].mean(axis=0)
     return out
+
+
+def _draw_pool(rng: np.random.Generator, n: int, pool_size: int) -> np.ndarray:
+    """Rows of a random pool of min(pool_size, n) dataset states, drawn first from rng."""
+    return rng.choice(n, size=min(pool_size, n), replace=False)
