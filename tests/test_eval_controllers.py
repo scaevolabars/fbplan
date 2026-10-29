@@ -186,6 +186,34 @@ def test_geodesic_distances_are_symmetric_and_bounded_by_cell_paths():
     assert np.all(dist <= MEDIUM.unit * cell_steps + 1e-9)
 
 
+# Wall cells (2, 2) and (3, 3) touch only at a corner: a pinch the ant cannot pass.
+PINCH = MazeGeometry(
+    maze_map=np.array([
+        [1, 1, 1, 1, 1],
+        [1, 0, 0, 0, 1],
+        [1, 0, 1, 0, 1],
+        [1, 0, 0, 1, 1],
+        [1, 1, 1, 1, 1],
+    ]),
+    unit=4.0,
+    offset_xy=(4.0, 4.0),
+)
+
+
+def test_geodesic_distance_does_not_pass_between_walls_that_touch_at_a_corner():
+    a, b = PINCH.centre((2, 3)), PINCH.centre((3, 2))  # 4 sqrt(2) apart through the pinch
+    # around wall (2, 2): over its top edge and down its left edge
+    expected = 8 + 4 * np.sqrt(2)
+    np.testing.assert_allclose(PINCH.geodesic_distances(a[None], b[None]), [[expected]])
+
+
+def test_geodesic_distance_is_infinite_when_only_a_pinch_joins_two_cells():
+    maze = MazeGeometry(np.array([[1, 1, 1, 1], [1, 0, 1, 1], [1, 1, 0, 1], [1, 1, 1, 1]]),
+                        4.0, (4.0, 4.0))
+    a, b = maze.centre((1, 1)), maze.centre((2, 2))
+    assert np.isinf(maze.geodesic_distances(a[None], b[None])).all()
+
+
 def test_region_latents_average_b_over_states_within_the_radius():
     obs = np.stack([_obs_at(xy) for xy in ([0.2, 0.0], [-0.2, 0.4], [3.0, 3.0], [8.0, 0.1])])
     latents = region_latents(_FakeFB(), obs, np.array([[0.0, 0.0], [8.0, 0.0]]), radius=1.0)
