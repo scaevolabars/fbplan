@@ -96,19 +96,21 @@ Last update: 2026-10-29.
 ## Next
 
 - Second review pass of c-planner and d-eval when their runs end.
-- Platform (coordinator's decision): the canonical numbers come from Linux x86_64 on CPU
-  (d-eval's cloud instance, `JAX_PLATFORMS=cpu`); the Mac CSVs move to a separate folder as a
-  cross-platform check. Done now: `reproduce.sh` sets `JAX_PLATFORMS=cpu` for every stage except
-  GPU training. Waiting for d-eval's move: the README paragraph on the platform and on chaotic
-  MuJoCo dynamics (written, held back because it is false until the Linux CSVs are committed),
-  the new paths in `RUNS`, and the smoke wording "on Linux x86_64 all of them do".
-- Smoke run of the new `RUNS` and stages (running), then commit.
-- Add a `RUNS` line for every CSV whose command an owner writes in its status file: large,
-  approach B, held-out goals.
-- Release of the retrained baselines (a-frozen): when it exists and
-  `python -m fbplan.frozen --trained` downloads it, check the download on a clean `HOME` and say
-  in the README that the retrained runs need no GPU. The README setup and the checkpoints stage
-  already call `--trained` (a no-op while nothing is published).
+- Platform (coordinator's decision): canonical CSVs in `results/<env>/` from Linux x86_64 on CPU;
+  the Mac CSVs moved to `results/macos/` (d-eval, 0b8e05e). Done: `JAX_PLATFORMS=cpu` for every
+  stage but GPU training; the README platform paragraph (chaotic MuJoCo, other platforms give
+  other episodes and the same success rates within noise); the smoke comparison uses
+  `results/macos/` on a Mac and the canonical file elsewhere, and says so when no committed CSV
+  exists yet. `RUNS` keeps its paths (d-eval keeps the file names). To do: add the large runs
+  when their CSVs land; d-eval's Mac-vs-Linux comparison must confirm "within noise" before
+  submission.
+- Release `baselines-v1` (retrained pi_h, medium and large, 5 seeds each) exists. Checked with
+  a clone of a-frozen's branch bfe4953 (not on main yet) and empty cache folders: `python -m
+  fbplan.frozen --trained` downloads 20 files (32 MB) in 38 s, hash-checked, and an evaluation
+  of the downloaded `retrained:3` (eval seed 0, 2 episodes) gives 10 of 10 episodes of
+  `results/macos/medium/baseline_retrained/seed3.csv`: the release holds the models behind the
+  results. When a-frozen's pins reach main: README "none is published yet" becomes "the
+  retrained baselines are published; approach B follows".
 
 ## Blockers
 
