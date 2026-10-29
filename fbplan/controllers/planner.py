@@ -10,12 +10,14 @@ a timeout, and acts with pi_l(a | s, B(w*)) (or pi_l(a | s, z_r) on the task pol
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, is_dataclass, replace
 from functools import cached_property
+from typing import TypeVar
 
 import numpy as np
 
 from fbplan.contracts import FBModel, TaskSpec
+from fbplan.frozen import load_dataset
 from fbplan.graph import (
     DIRECT,
     GraphSolution,
@@ -193,3 +195,43 @@ class GraphPlusHighController(GraphPlannerController):
     def _action(self, obs: np.ndarray, z: np.ndarray) -> np.ndarray:
         intention = self.fb.high_latent(obs[None], z[None])
         return np.asarray(self.fb.low_action(obs[None], intention))[0]
+
+
+C = TypeVar("C", bound=GraphPlannerController)
+
+
+def config_from_options(options: dict[str, object]) -> PlannerConfig:
+    """PlannerConfig from flat CLI options; a dotted key ("landmarks.count") sets a nested field.
+
+    Unknown keys raise TypeError, so that a typo cannot silently fall back to a default.
+    """
+    base = PlannerConfig()
+    top: dict[str, object] = {}
+    groups: dict[str, dict[str, object]] = {}
+    for key, value in options.items():
+        group, _, name = key.rpartition(".")
+        if group:
+            groups.setdefault(group, {})[name] = value
+        else:
+            top[key] = value
+    for group, values in groups.items():
+        nested = getattr(base, group, None)
+        if not is_dataclass(nested):
+            raise TypeError(f"unknown option group {group!r}")
+        top[group] = replace(nested, **values)
+    return replace(base, **top)
+
+
+def make_planner(model: FBModel, **options: object) -> GraphPlannerController:
+    """Controller factory for the evaluation CLI: landmarks from the env's training data."""
+    return _from_train_data(GraphPlannerController, model, options)
+
+
+def make_planner_high(model: FBModel, **options: object) -> GraphPlusHighController:
+    """Controller factory for the evaluation CLI, with pi_h after the waypoint."""
+    return _from_train_data(GraphPlusHighController, model, options)
+
+
+def _from_train_data(cls: type[C], model: FBModel, options: dict[str, object]) -> C:
+    observations = load_dataset(model.env_name, "train")["observations"]
+    return cls.from_dataset(model, observations, config_from_options(options))

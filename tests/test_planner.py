@@ -1,6 +1,7 @@
 from dataclasses import replace
 
 import numpy as np
+import pytest
 from planner_fakes import GridFB
 
 from fbplan.contracts import TaskSpec
@@ -8,6 +9,7 @@ from fbplan.controllers.planner import (
     GraphPlannerController,
     GraphPlusHighController,
     PlannerConfig,
+    config_from_options,
 )
 from fbplan.landmarks import LandmarkConfig
 from fbplan.option_model import OptionModelConfig
@@ -169,3 +171,15 @@ def test_route_lists_the_waypoints_that_the_rollout_visits():
 def test_route_is_empty_when_the_task_policy_is_best():
     fb = GridFB(horizon=4)
     assert planner(fb).route(fb.obs((5, 3))) == []
+
+
+def test_config_from_options_sets_top_level_and_nested_fields():
+    cfg = config_from_options({"rho_min": 0.5, "landmarks.count": 40, "options.head_agg": "mean"})
+    assert (cfg.rho_min, cfg.landmarks.count, cfg.options.head_agg) == (0.5, 40, "mean")
+    assert cfg.landmarks.space == PlannerConfig().landmarks.space
+
+
+def test_config_from_options_rejects_unknown_keys():
+    for bad in ({"rho_mn": 0.5}, {"landmark.count": 3}, {"landmarks.cnt": 3}):
+        with pytest.raises(TypeError):
+            config_from_options(bad)

@@ -12,7 +12,10 @@ Last update: 2026-10-29.
 - `fbplan/controllers/planner.py`: `GraphPlannerController`, `GraphPlusHighController`,
   `PlannerConfig` (frozen dataclass). Edge table cached per env, plan cached per task.
   `route(obs)` gives the planned landmark sequence for route plots.
-- Tests: 50 pass (`uv run pytest`), ruff clean. They run on an exact tabular fake,
+- CLI factories for d-eval's `fbplan.evaluate`: `fbplan.controllers.planner:make_planner` and
+  `:make_planner_high`. Options are `key=value`; a dotted key sets a nested field, for example
+  `--opt rho_min=0.4 landmarks.count=500 options.head_agg=mean`. Unknown keys raise an error.
+- Tests: 52 pass (`uv run pytest`), ruff clean. They run on an exact tabular fake,
   `tests/planner_fakes.py` (`rho = gamma^distance`; knobs for one-head wormholes and a horizon
   beyond which FB and `pi_z` fail). Closed loop on the fake: the planner reaches a goal 10 steps
   away with 4-step edges via 2 waypoints, where the task policy alone stands still.
@@ -48,7 +51,8 @@ Last update: 2026-10-29.
 
 - `fbplan/controllers/__init__.py` belongs to d-eval. Until it exists, `fbplan.controllers.planner`
   imports as a namespace package. That works; no action needed unless d-eval's `__init__` re-exports.
-- d-eval: `controller.config` is a frozen dataclass; `config_hash` can hash `dataclasses.asdict(config)`.
+- d-eval: please add aliases `planner` -> `fbplan.controllers.planner:make_planner` and
+  `planner_high` -> `fbplan.controllers.planner:make_planner_high` to `ALIASES`.
 - Landmark tests are in `tests/test_graph.py`, because my brief lists no `tests/test_landmarks.py`.
 - I need a file for the route-plot / edge-stats / smoke-run script. Proposal: `analysis/planner_routes.py`,
   owned by c-planner (d-eval owns the rest of `analysis/`).
