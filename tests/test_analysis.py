@@ -22,8 +22,8 @@ def _load(name: str) -> ModuleType:
     return module
 
 
-plots, tables, failures, calibration = (
-    _load(name) for name in ("plots", "tables", "failures", "calibration")
+plots, tables, failures, calibration, platform_check = (
+    _load(name) for name in ("plots", "tables", "failures", "calibration", "platform_check")
 )
 
 
@@ -144,3 +144,19 @@ def test_wormhole_table_counts_trust_and_the_xy_cap():
     )
     assert (row["wormholes"], row["wormholes_within_xy_cap"]) == (3, 2)
     assert row["wormhole_share"] == pytest.approx(3 / 5)
+
+
+def _platform_run(successes: list[int], steps: list[int]) -> pd.DataFrame:
+    return pd.DataFrame({
+        "method": "m", "env_name": "env", "task_id": 1, "eval_seed": 0,
+        "episode": range(len(successes)), "success": [bool(x) for x in successes], "steps": steps,
+    })
+
+
+def test_compare_platforms_gives_successes_the_unpaired_difference_and_identical_episodes():
+    linux = _platform_run([1, 1, 0, 0], [10, 20, 1000, 1000])
+    mac = _platform_run([1, 0, 0, 0], [10, 30, 1000, 1000])
+    row = platform_check.compare_platforms(linux, mac)
+    assert (row["linux"], row["macos"], row["episodes"]) == (0.5, 0.25, 4)
+    assert row["diff"] == pytest.approx(0.25)
+    assert row["same_outcome"] == 0.75 and row["same_steps"] == 0.75
