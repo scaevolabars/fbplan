@@ -404,7 +404,7 @@ medium,2,0.9,,laplacian,0.03,2,greedy,10,1,chained R=0,6,10,0.8705430608886451,3
 medium,2,0.9,,laplacian,0.03,2,greedy,10,1,chained R=0,11,15,0.6987485101311085,3356
 medium,2,0.9,,laplacian,0.03,2,greedy,10,1,chained R=0,16,23,0.6067415730337079,1246
 medium,2,0.9,,laplacian,0.03,2,greedy,10,1,"chained R=0, guarded",1,5,0.9967532467532467,2464
-medium,2,0.9,,laplacian,0.03,2,greedy,10,1,"chained R=0, guarded",6,10,0.8721886999451454,3646
+medium,2,0.9,,laplacian,0.03,2,greedy,10,1,"chained R=0, guarded",6,10,0.871914426769062,3646
 medium,2,0.9,,laplacian,0.03,2,greedy,10,1,"chained R=0, guarded",11,15,0.7032181168057211,3356
 medium,2,0.9,,laplacian,0.03,2,greedy,10,1,"chained R=0, guarded",16,23,0.5120385232744783,1246
 medium,2,0.9,,laplacian,0.03,2,greedy,10,2,direct,1,5,0.9918831168831169,2464
@@ -500,7 +500,7 @@ medium,2,0.9,,laplacian,0.04,2,greedy,10,0,chained R=0,6,10,0.6590784421283599,3
 medium,2,0.9,,laplacian,0.04,2,greedy,10,0,chained R=0,11,15,0.40047675804529204,3356
 medium,2,0.9,,laplacian,0.04,2,greedy,10,0,chained R=0,16,23,0.2696629213483146,1246
 medium,2,0.9,,laplacian,0.04,2,greedy,10,0,"chained R=0, guarded",1,5,0.9590097402597403,2464
-medium,2,0.9,,laplacian,0.04,2,greedy,10,0,"chained R=0, guarded",6,10,0.7205156335710368,3646
+medium,2,0.9,,laplacian,0.04,2,greedy,10,0,"chained R=0, guarded",6,10,0.71996708721887,3646
 medium,2,0.9,,laplacian,0.04,2,greedy,10,0,"chained R=0, guarded",11,15,0.46305125148986886,3356
 medium,2,0.9,,laplacian,0.04,2,greedy,10,0,"chained R=0, guarded",16,23,0.31942215088282505,1246
 medium,2,0.9,,laplacian,0.04,2,greedy,10,1,direct,1,5,0.9626623376623377,2464
@@ -524,7 +524,7 @@ medium,2,0.9,,laplacian,0.04,2,greedy,10,1,chained R=0,6,10,0.6450905101481075,3
 medium,2,0.9,,laplacian,0.04,2,greedy,10,1,chained R=0,11,15,0.3593563766388558,3356
 medium,2,0.9,,laplacian,0.04,2,greedy,10,1,chained R=0,16,23,0.16131621187800962,1246
 medium,2,0.9,,laplacian,0.04,2,greedy,10,1,"chained R=0, guarded",1,5,0.948051948051948,2464
-medium,2,0.9,,laplacian,0.04,2,greedy,10,1,"chained R=0, guarded",6,10,0.7103675260559518,3646
+medium,2,0.9,,laplacian,0.04,2,greedy,10,1,"chained R=0, guarded",6,10,0.7092704333516182,3646
 medium,2,0.9,,laplacian,0.04,2,greedy,10,1,"chained R=0, guarded",11,15,0.5035756853396901,3356
 medium,2,0.9,,laplacian,0.04,2,greedy,10,1,"chained R=0, guarded",16,23,0.32504012841091495,1246
 medium,2,0.9,,laplacian,0.04,2,greedy,10,2,direct,1,5,0.9484577922077922,2464
@@ -548,7 +548,7 @@ medium,2,0.9,,laplacian,0.04,2,greedy,10,2,chained R=0,6,10,0.7254525507405376,3
 medium,2,0.9,,laplacian,0.04,2,greedy,10,2,chained R=0,11,15,0.5324791418355185,3356
 medium,2,0.9,,laplacian,0.04,2,greedy,10,2,chained R=0,16,23,0.2520064205457464,1246
 medium,2,0.9,,laplacian,0.04,2,greedy,10,2,"chained R=0, guarded",1,5,0.9407467532467533,2464
-medium,2,0.9,,laplacian,0.04,2,greedy,10,2,"chained R=0, guarded",6,10,0.7430060340098739,3646
+medium,2,0.9,,laplacian,0.04,2,greedy,10,2,"chained R=0, guarded",6,10,0.7427317608337904,3646
 medium,2,0.9,,laplacian,0.04,2,greedy,10,2,"chained R=0, guarded",11,15,0.5309892729439809,3356
 medium,2,0.9,,laplacian,0.04,2,greedy,10,2,"chained R=0, guarded",16,23,0.3563402889245586,1246
 medium,2,0.9,,laplacian,0.04,2,greedy,10,3,direct,1,5,0.939935064935065,2464

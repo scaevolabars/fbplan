@@ -147,7 +147,8 @@ def test_chained_formula_equals_the_value_of_the_switching_policy(maze):
         assert value == pytest.approx(truth[start], abs=1e-8)
         proxy = chained_value(rho, v_options, v_direct, subgoals, start, [0, 1, 2, 3])
         gaps.append(abs(proxy - truth[start]))
-    assert max(gaps) > 0.3  # the check is not trivial: the proxy misses the chain value
+    # The check is not trivial: the proxy misses the chain value (theory.md §4 quotes these).
+    assert max(gaps) == pytest.approx({"medium": 0.561, "teleport": 0.355}[maze.name], abs=1e-3)
 
 
 def test_k_steps_of_graph_value_iteration_equal_the_best_chain_of_at_most_k_switches(maze):

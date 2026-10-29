@@ -1,6 +1,7 @@
 """Figures for docs/theory.md from the CSV tables of run_study.
 
-uv run python -m fbplan.tabular.study_plots    # reads and writes docs/figures/theory/
+uv run python -m fbplan.tabular.study_plots [csv_dir] [--out-dir DIR]
+    # default: reads and writes docs/figures/theory/
 """
 
 from __future__ import annotations
@@ -11,13 +12,13 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
-from fbplan.tabular.fake_fb import FakeFBConfig, TabularFB  # noqa: E402
-from fbplan.tabular.run_study import FAR, MAIN_PLANNERS, OUT_DIR  # noqa: E402
-from fbplan.tabular.study import LandmarkModel, rho_bound_wormholes  # noqa: E402
+from fbplan.tabular.fake_fb import FakeFBConfig, TabularFB
+from fbplan.tabular.run_study import FAR, MAIN_PLANNERS, OUT_DIR
+from fbplan.tabular.study import LandmarkModel, rho_bound_wormholes
 
 # Validated categorical slots (dataviz reference palette, light mode), in fixed order.
 SLOTS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"]
@@ -158,7 +159,7 @@ def plot_low_rank(rank: pd.DataFrame, holes: pd.DataFrame, out: Path) -> None:
     axes[2].set_title("wormholes: rho_hat > 2 gamma^dist")
     axes[2].set_xlabel("rank d of B")
     axes[2].set_ylabel("% of ordered state pairs")
-    axes[2].legend()
+    axes[2].legend(loc="upper right")
     _legend_on_top(fig, axes, ncol=6)
     fig.savefig(out / "low_rank.png")
     plt.close(fig)
@@ -237,26 +238,34 @@ def plot_dropped_term(reward: pd.DataFrame, out: Path) -> None:
     axes[2].set_yscale("symlog", linthresh=1.0)
     axes[2].set_xlabel("hops in the planned route (exact model)")
     axes[2].set_ylabel("predicted - true value")
-    axes[2].legend()
+    axes[2].legend(loc="lower right")
     fig.savefig(out / "dropped_term.png")
     plt.close(fig)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--dir", type=Path, default=OUT_DIR, help="folder with study_*.csv")
+    parser = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "csv_dir", type=Path, nargs="?", default=OUT_DIR, help="folder with the study_*.csv tables"
+    )
+    parser.add_argument("--out-dir", type=Path, help="folder for the figures (default: csv_dir)")
     args = parser.parse_args()
+    out_dir = args.out_dir or args.csv_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
     read = {
-        name: pd.read_csv(args.dir / f"study_{name}.csv")
+        name: pd.read_csv(args.csv_dir / f"study_{name}.csv")
         for name in ("noise", "guards", "rank", "wormholes", "reward")
     }
-    plot_success_vs_distance(read["noise"], args.dir)
-    plot_far_success_vs_noise(read["noise"], args.dir)
-    plot_guards(read["guards"], args.dir)
-    plot_low_rank(read["rank"], read["wormholes"], args.dir)
-    plot_calibration(args.dir)
-    plot_dropped_term(read["reward"], args.dir)
-    print(f"figures written to {args.dir}")
+    plot_success_vs_distance(read["noise"], out_dir)
+    plot_far_success_vs_noise(read["noise"], out_dir)
+    plot_guards(read["guards"], out_dir)
+    plot_low_rank(read["rank"], read["wormholes"], out_dir)
+    plot_calibration(out_dir)
+    plot_dropped_term(read["reward"], out_dir)
+    print(f"figures written to {out_dir}")
 
 
 if __name__ == "__main__":
