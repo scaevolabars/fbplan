@@ -27,8 +27,14 @@ def switch_advantage(
 ) -> tuple[jax.Array, jax.Array]:
     """(A, valid) per sample, with the trained V_H at s and at w."""
     y, v1_s, terms = switch_targets(agent, value, value.params, batch, config)
-    v_s = v1_s + value.gain(batch.observations, batch.task_latents).min(axis=0)
-    return y - v_s, terms.valid
+    return y - value.value(v1_s, batch.observations, batch.task_latents), terms.valid
+
+
+def masked_mean_std(x: jax.Array, mask: jax.Array) -> tuple[jax.Array, jax.Array]:
+    """Mean and std of x over the samples where mask is True."""
+    n = jnp.maximum(mask.sum(), 1)
+    mean = (x * mask).sum() / n
+    return mean, jnp.sqrt((((x - mean) * mask) ** 2).sum() / n)
 
 
 def policy_loss(
@@ -48,12 +54,13 @@ def policy_loss(
     )
     log_prob = dist.log_prob(target)
     loss = -(weight * log_prob).mean()
+    adv_mean, adv_std = masked_mean_std(adv, valid)
     return loss, {
         "actor_loss": loss,
-        "adv": adv.mean(),
-        "adv_std": adv.std(),
+        "adv": adv_mean,
+        "adv_std": adv_std,
         "valid": valid.mean(),
-        "saturated": (alpha * adv >= MAX_LOG_WEIGHT).mean(),
+        "saturated": (valid & (alpha * adv >= MAX_LOG_WEIGHT)).sum() / jnp.maximum(valid.sum(), 1),
         "bc_log_prob": log_prob.mean(),
         "mse": jnp.mean((dist.mode() - target) ** 2),
     }
