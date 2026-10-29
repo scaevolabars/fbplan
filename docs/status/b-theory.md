@@ -1,10 +1,11 @@
 # Status: b-theory
 
-Last update: 2026-10-30. Branch merged with `main` e3f7438. Current work: T3 of wave 1
-(design.md §8), the trap-aware controller on teleport: code and tests done, held-out selection
-waits for d-eval's teleport held-out goals. Item 15 (bonus mazes) done: all final numbers are
-d-eval's Linux runs, theory.md §11 uses them. Review: first pass (B1–B15, X2, X13, X7 my part,
-K2) and second pass (B16–B21) done.
+Last update: 2026-10-30 (after the 00:46 restart). Branch merged with `main` cc11eb3. Current
+work: T3 of wave 1 (design.md §8), the trap-aware controller on teleport: code and tests done; the
+held-out grid and the final run wait for d-eval (commands below; option A of my question, the
+registered T3, as the coordinator's resume message says to continue). Item 15 (bonus mazes) done:
+all final numbers are d-eval's Linux runs, theory.md §11 uses them. Review: first pass (B1–B15,
+X2, X13, X7 my part, K2) and second pass (B16–B21) done.
 
 ## T3: trap-aware controller (teleport, wave 1)
 
@@ -51,25 +52,44 @@ K2) and second pass (B16–B21) done.
   radius 2.5. Nothing else is tuned. Final run: that candidate on the 5 eval tasks, eval seeds
   0–9, 50 episodes, paired against baseline and baseline_raw on the same seeds (design.md §8).
 
-Held-out commands for d-eval (after `results/heldout_goals/antmaze-teleport-navigate-v0.csv`
-exists). `T=fbplan.controllers.trap_aware:make_trap_aware`; every row adds
-`--env antmaze-teleport-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers N`:
+Commands for d-eval (Linux; a code tree at main cc11eb3 or later: it has
+`fbplan/controllers/trap_aware.py` and `results/heldout_goals/antmaze-teleport-navigate-v0.csv`).
+Step 1, held-out grid (11 runs, 600 episodes each):
 
-    --method $T --opt weight=0.5 trap_radius=1.5 --out results/teleport/heldout/trap_aware/w0.5_r1.5.csv
-    --method $T --opt weight=0.5 trap_radius=2.5 --out results/teleport/heldout/trap_aware/w0.5_r2.5.csv
-    --method $T --opt weight=1.0 trap_radius=1.5 --out results/teleport/heldout/trap_aware/w1.0_r1.5.csv
-    --method $T --opt weight=1.0 trap_radius=2.5 --out results/teleport/heldout/trap_aware/w1.0_r2.5.csv
-    --method $T --opt weight=2.0 trap_radius=1.5 --out results/teleport/heldout/trap_aware/w2.0_r1.5.csv
-    --method $T --opt weight=2.0 trap_radius=2.5 --out results/teleport/heldout/trap_aware/w2.0_r2.5.csv
-    --method $T --opt weight=0.5 gate=none --out results/teleport/heldout/trap_aware/w0.5_ungated.csv
-    --method $T --opt weight=1.0 gate=none --out results/teleport/heldout/trap_aware/w1.0_ungated.csv
-    --method $T --opt weight=2.0 gate=none --out results/teleport/heldout/trap_aware/w2.0_ungated.csv
-    --method baseline     --out results/teleport/heldout/baseline.csv
-    --method baseline_raw --out results/teleport/heldout/baseline_raw.csv
+    E="--env antmaze-teleport-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers N"
+    T=fbplan.controllers.trap_aware:make_trap_aware
+    D=results/teleport/heldout
+    uv run python -m fbplan.evaluate $E --method $T --opt weight=0.5 trap_radius=1.5 --out $D/trap_aware/w0.5_r1.5.csv
+    uv run python -m fbplan.evaluate $E --method $T --opt weight=0.5 trap_radius=2.5 --out $D/trap_aware/w0.5_r2.5.csv
+    uv run python -m fbplan.evaluate $E --method $T --opt weight=1.0 trap_radius=1.5 --out $D/trap_aware/w1.0_r1.5.csv
+    uv run python -m fbplan.evaluate $E --method $T --opt weight=1.0 trap_radius=2.5 --out $D/trap_aware/w1.0_r2.5.csv
+    uv run python -m fbplan.evaluate $E --method $T --opt weight=2.0 trap_radius=1.5 --out $D/trap_aware/w2.0_r1.5.csv
+    uv run python -m fbplan.evaluate $E --method $T --opt weight=2.0 trap_radius=2.5 --out $D/trap_aware/w2.0_r2.5.csv
+    uv run python -m fbplan.evaluate $E --method $T --opt weight=0.5 gate=none --out $D/trap_aware/w0.5_ungated.csv
+    uv run python -m fbplan.evaluate $E --method $T --opt weight=1.0 gate=none --out $D/trap_aware/w1.0_ungated.csv
+    uv run python -m fbplan.evaluate $E --method $T --opt weight=2.0 gate=none --out $D/trap_aware/w2.0_ungated.csv
+    uv run python -m fbplan.evaluate $E --method baseline --out $D/baseline.csv
+    uv run python -m fbplan.evaluate $E --method baseline_raw --out $D/baseline_raw.csv
 
-Final command (W and R from the selection; I send it after the held-out CSVs are on main):
+Step 2, selection (mechanical, the rule above): among the 6 gated CSVs (`w*_r*.csv`), take the
+highest success over all 600 episodes; ties go to the smaller weight, then to trap_radius 2.5.
+The ungated rows and the baselines are not candidates.
+
+Step 3, final run with the selected W and R:
 
     uv run python -m fbplan.evaluate --env antmaze-teleport-navigate-v0 --tasks 1 2 3 4 5 --seeds 0 1 2 3 4 5 6 7 8 9 --episodes 50 --workers N --method fbplan.controllers.trap_aware:make_trap_aware --opt weight=W trap_radius=R --out results/teleport/trap_aware.csv
+
+It pairs with baseline and baseline_raw on eval seeds 0–9 (d-eval adds seeds 5–9 to both rows).
+
+Check on the 10 teleport held-out goals (Mac, no episodes; controller reset and the gate at the
+start state, weight 1):
+
+- Only 3 of the 10 goals (103, 107, 110) have a teleport entry on the plain route; 4 of the 5
+  eval tasks have one. So the held-out grid mostly measures the cost of the penalty and will
+  likely favour a small weight. The rule stays as fixed.
+- The gate's walk estimates at the start do not follow the safe walks (10–23 cells): goal 110
+  (23 cells) gets 61 steps, goal 109 (10 cells) 772, goals 104, 107 and 108 no estimate
+  (ρ̂ ≤ 0). The data-only goal states lie 1.5–3.9 xy from the goal (103: 6.8).
 
 ## Done
 
