@@ -2,7 +2,15 @@ import numpy as np
 import pytest
 from planner_fakes import GridFB
 
-from fbplan.graph import GraphSolution, extract_route, q_values, trusted_edges, value_iteration
+from fbplan.graph import (
+    DIRECT,
+    GraphSolution,
+    best_options,
+    extract_route,
+    q_values,
+    trusted_edges,
+    value_iteration,
+)
 from fbplan.landmarks import (
     LandmarkConfig,
     farthest_point_sampling,
@@ -128,6 +136,36 @@ def test_extract_route_stops_when_a_node_repeats():
         values=np.zeros(3), best_next=np.array([1, 2, 1]), iterations=1, converged=True
     )
     assert extract_route(sol, 0) == [0, 1, 2]
+
+
+def test_best_options_treat_q_values_within_rounding_as_ties_and_prefer_the_larger_value():
+    # 1 + 1e-13 and 1 differ only by rounding: the tied landmark with the larger V_H wins.
+    q = np.array([[1.0 + 1e-13, 1.0, 0.5]])
+    assert best_options(q, np.array([2.0, 3.0, 9.0]), np.array([0.0])).tolist() == [1]
+
+
+def test_best_options_break_value_ties_by_the_lowest_index():
+    q = np.array([[1.0, 1.0 + 1e-13]])
+    assert best_options(q, np.array([3.0, 3.0 - 1e-12]), np.array([0.0])).tolist() == [0]
+
+
+def test_best_options_give_ties_with_the_direct_value_to_the_task_policy():
+    q = np.array([[1.0 + 1e-13], [1.1]])
+    assert best_options(q, np.array([5.0]), np.array([1.0, 1.0])).tolist() == [DIRECT, 0]
+
+
+def test_best_options_without_a_trusted_edge_choose_the_task_policy():
+    q = np.full((1, 3), -np.inf)
+    assert best_options(q, np.ones(3), np.array([-2.0])).tolist() == [DIRECT]
+
+
+def test_value_iteration_breaks_rounding_ties_toward_the_larger_value():
+    # From node 0, hops to 1 and to 2 are worth 1.35 each up to rounding; 2 is nearer the goal.
+    direct = np.array([0.0, 2.7, 3.0])
+    rho = np.zeros((3, 3))
+    rho[0, 1], rho[0, 2] = (1.35 + 1e-13) / 2.7, 0.45
+    mask = rho > 0
+    assert value_iteration(rho, None, direct, mask).best_next[0] == 2
 
 
 def test_value_iteration_rejects_mismatched_shapes():

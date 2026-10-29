@@ -453,8 +453,24 @@ def test_planner_beats_the_task_policy_under_fb_noise_on_the_tabular_maze():
     assert planner_wins >= direct_wins + 10
 
 
-def test_planner_with_region_latents_solves_every_task_of_the_exact_tabular_maze():
-    fb = TabularFB()
+class RoundedFB(TabularFB):
+    """The exact tabular model with F perturbed by about 1e-12 relative: other rounding, as on
+    another CPU or BLAS build (Linux x86 against macOS arm64)."""
+
+    def __init__(self, seed: int) -> None:
+        super().__init__()
+        noise = np.random.default_rng(seed).standard_normal((self.maze.n_states, self.latent_dim))
+        self.factor = 1.0 + 1e-12 * noise
+
+    def forward(self, obs, z):
+        return super().forward(obs, z) * self.factor[self.maze.state_index(np.asarray(obs))]
+
+
+# Region latents make exact ties: rho to a region counts the hit one step before w, so a hop
+# back towards a region can be worth exactly as much as a hop ahead. Rounding must not decide.
+@pytest.mark.parametrize("rounding", [None, 1, 2, 3, 4])
+def test_planner_with_region_latents_solves_every_task_of_the_exact_tabular_maze(rounding):
+    fb = TabularFB() if rounding is None else RoundedFB(rounding)
     # Fine cells are 2 xy units apart, so a radius of 2.1 takes each state and its neighbours.
     cfg = PlannerConfig(landmarks=LandmarkConfig(count=60, latent="region", region_xy=2.1))
     ctrl = GraphPlannerController.from_dataset(fb, fb.maze.xy, cfg)
