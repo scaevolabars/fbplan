@@ -221,6 +221,45 @@ for tuning), 300 landmarks from the train split:
 - The planner is far below the baseline on this set (68 against 92). The landmark set also moves
   it by several points (see "After the merge").
 
+## Teleport: do routes avoid the teleporter entries? (2026-10-29, light Mac analysis)
+
+`analysis/planner_routes.py --env antmaze-teleport-navigate-v0 --method planner|planner_high`,
+episode 0 of eval seed 0 per task, defaults (plots in `runs/planner_routes/teleport/`, not
+committed). Entries (4, 6) and (5, 1) trigger within 1.5 xy of their centres and send the agent
+to one of 3 exits; exit (1, 7) is a cell walled in on all four sides (the trap).
+
+| method | successes | episodes that teleport | end in the trap | routes within 0.3 xy of an entry |
+|---|---|---|---|---|
+| planner | 0/5 | 5/5 (9 jumps) | 3 | tasks 2, 5 |
+| planner_high | 1/5 | 5/5 (8 jumps) | 2 | tasks 2, 5 |
+
+- 15 of 300 landmarks lie within 3 xy of an entry; 161 of 5,849 trusted edges cross a trigger
+  zone (the xy cap blocks the teleport jump itself, not edges that pass through an entry).
+- The main path into the trap is the task policy: in tasks 3 and 4 the plan hands over to
+  pi_l(z_r) after 0–1 hops, and pi_l(z_r) walks into the nearest entry (a 1/3 gamble on landing
+  next to the goal of tasks 2–4; a discounted value can prefer it to a long walk, the success
+  rate does not).
+- The offline data shows the teleporters without the maze map: 752 one-step jumps longer than
+  2 xy (largest normal step 0.37 xy; p99 0.27). Jump sources form two clusters at (19.9, 11.5)
+  and (0.1, 16.7), within 1.5 xy of the entry centres; jump targets form the three exits.
+- An FB-only guard does not work here: the task policy's discounted measure on the jump-source
+  zones (F(s, z_r)ᵀb_E normalised at the zone) at the 5 start states is −0.49 to 1.18, and 0.017
+  for the entry that task 3 walked into (4.8 xy away).
+- Every task has a route that avoids both entries (checked on the map, for diagnosis only).
+
+Proposal (QUESTION FOR COORDINATOR, see the end of this file): a data-derived jump guard, switch
+`avoid_jumps` (off by default; it does nothing when the data has no jumps):
+1. Entry zones: dataset states whose next state is more than 2 xy away (above any ant step).
+2. Landmarks within r_zone of an entry zone are not used, and an edge whose xy segment passes
+   within r_zone of an entry zone is not trusted (like the xy cap). r_zone about 2.5–3 xy
+   (trigger 1.5 plus the ant's overshoot), chosen on dev seeds, not on eval seeds.
+3. The task policy becomes an edge to an estimated goal centre (the landmark with the largest
+   task value F(w, z_r)ᵀz_r, no privileged goal): the hand-over to pi_l(z_r) needs the same
+   trust rule (xy cap and no entry zone on the segment); otherwise the agent keeps following
+   landmarks.
+Tests on b-theory's tabular teleport maze (exact M); evaluation on Linux by d-eval (teleport,
+5 eval seeds, paired with the baseline and the planner defaults). About 2–3 h of work.
+
 ## Approach A ablations: commands for the Linux rerun (d-eval runs them)
 
 The user decided (2026-10-29) that all final numbers come from the Linux cloud, so d-eval reruns
@@ -422,6 +461,13 @@ following does not touch. The option stays, off by default, as an ablation.
 ## Blockers
 
 - None.
+
+## Open question to the coordinator
+
+- Teleport guard (see "Teleport" above): options (A) data-derived jump guard `avoid_jumps`
+  (entry zones from one-step jumps in the offline data; untrust landmarks and edges near them;
+  task-policy hand-over under the same trust rule), (B) FB-only measure guard (measured: not
+  usable), (C) no guard, report the failure mode. Recommendation: A.
 
 ## Requests to the coordinator
 
