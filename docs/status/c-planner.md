@@ -2,10 +2,18 @@
 
 Last update: 2026-10-29.
 
+## Summary
+
+Approach A is implemented, tested and runs on the real medium model. With the approved guards,
+the planned routes are clean (they follow the corridors and end at the goal). In a smoke run the
+planner is level with the baseline within noise (31–33/50 against 34/50) and slower. Waypoint
+following by `pi_l`, not the plan, is the bottleneck. All real-model numbers come from a probe with
+a-frozen's uncommitted loader; redo them after a-frozen merges.
+
 ## Done
 
-- `fbplan/graph.py` (pure numpy): trusted edges (`rho_min`, top-k, self-loops removed),
-  SMDP value iteration with a cost per hop, Q-values from any source, route extraction.
+- `fbplan/graph.py` (pure numpy): trusted edges (`rho_min <= rho < rho_max`, top-k, self-loops
+  removed), SMDP value iteration with a cost per hop, Q-values from any source, route extraction.
 - `fbplan/option_model.py`: batched `rho(s,w)`, `R(s,w)`, direct value `F(s,z_r)ᵀz_r`;
   head aggregation min / mean; edge reward modes exact / paper / zero; clip counts.
 - `fbplan/landmarks.py`: farthest-point sampling on xy or on normalized `B(s)`, full observations.
@@ -15,64 +23,55 @@ Last update: 2026-10-29.
 - CLI factories for d-eval's `fbplan.evaluate`: `fbplan.controllers.planner:make_planner` and
   `:make_planner_high`. Options are `key=value`; a dotted key sets a nested field, for example
   `--opt rho_min=0.4 landmarks.count=500 options.head_agg=mean`. Unknown keys raise an error.
-- Wormhole guards, approved by the user on 2026-10-29: an edge with rho >= 1 is untrusted
-  (`rho_max = 1`, still clipped and counted); edges longer than `max_edge_xy = 6` xy units are
-  untrusted (default); `two_way = True` uses `min(rho(u,w), rho(w,u))` (FB-only option for the report);
-  `edge_reward = "zero"` is the default (exact and paper stay as ablations). The same rules apply
-  to the landmark graph and to the first hop from `s`.
-  Committed controller on medium (200 landmarks from the validation split, defaults):
-  5 routes with 6–11 hops, route end 1.1–3.3 xy units from the goal (mean 2.3), longest hop 5.7.
-- Reached rule, approved by the user on 2026-10-29: the waypoint is reached within
-  `reached_xy = 1.5` xy units (default); `reached_xy = None` gives the brief's rho rule. The same
-  test excludes reached landmarks at a replan.
+- Decisions approved by the user on 2026-10-29, after the medium probe (numbers below):
+  1. An edge with rho >= 1 is untrusted (`rho_max = 1`; rho is still clipped and counted).
+  2. Edges longer than `max_edge_xy = 6` xy units are untrusted (default guard against wormholes).
+     `two_way = True` uses `min(rho(u,w), rho(w,u))`: an FB-only option for the report.
+  3. `edge_reward = "zero"` is the default; exact and paper stay as ablations.
+  4. A waypoint is reached within `reached_xy = 1.5` xy units (default); `reached_xy = None` gives
+     the brief's rule `rho(s,w*) >= rho_reached`.
+  The same rules apply to the landmark graph and to the first hop from `s`.
 - Tests: 63 pass (`uv run pytest`), ruff clean. They run on an exact tabular fake,
   `tests/planner_fakes.py` (`rho = gamma^distance`; knobs for one-head wormholes and a horizon
   beyond which FB and `pi_z` fail). Closed loop on the fake: the planner reaches a goal 10 steps
   away with 4-step edges via 2 waypoints, where the task policy alone stands still.
-  Mutation checks: removing the reached-exclusion, the timeout or the reached check each fails a test.
+  Mutation checks: each guard, the timeout, both reached rules, the reached exclusion and its
+  order before top-k are each caught by a test.
 
 ## Implementation choices (no change to the math in design.md)
 
-1. Batching of the N×N table lives in `OptionModel.pair_table` (it needs FB). `graph.py` stays pure numpy.
-   Pairs go through F one batch at a time, padded to a power of two (few jit shapes, bounded memory).
-2. Heads: `rho_h`, `R_h`, `direct_h` per head, then min or mean. `rho` is clipped to [0, 1] after aggregation.
-   A target with `F_h(w,z_w)ᵀB(w) <= 0` gets `rho_h = 0` (unreachable). The trust rule (not the
-   option model) treats rho = 1 as an FB error, so the reached check still reads rho = 1 as "reached".
-3. Cost per hop: a factor `hop_discount` on `rho` in the Bellman backup. It does not depend on the
-   scale of `z_r`, and in shortest-path form it adds `-log(hop_discount)` to the edge cost `-log rho`.
-4. `edge_reward = "zero"` (R = 0) is a third mode next to exact and paper: the shortest-path case of §3.
-5. At a replan, landmarks with `rho(s,w) >= rho_reached` are excluded. Without this, the landmark under
-   the agent has Q = V_H, wins ties, and the agent stalls.
-6. No trusted edge from `s`: the task policy `pi_l(z_r)` acts. This is what the graph Bellman equation gives.
-7. The task policy option is also a commitment: replan after `commit_timeout` steps.
+1. Batching of the N×N table lives in `OptionModel.pair_table` (it needs FB); `graph.py` stays pure
+   numpy. Pairs go through F one batch at a time, padded to a power of two (few jit shapes, bounded memory).
+2. Heads: `rho_h`, `R_h`, `direct_h` per head, then min or mean. rho is clipped to [0, 1] after
+   aggregation. A target with `F_h(w,z_w)ᵀB(w) <= 0` gets `rho_h = 0` (unreachable).
+3. Cost per hop: a factor `hop_discount` on rho in the Bellman backup. It does not depend on the
+   scale of `z_r`; in shortest-path form it adds `-log(hop_discount)` to the edge cost `-log rho`.
+4. At a replan, landmarks that count as reached are excluded before top-k. Without this, a landmark
+   next to the agent has Q ≈ V_H, wins ties, and the agent stalls.
+5. No trusted edge from `s`: the task policy `pi_l(z_r)` acts, as the graph Bellman equation gives.
+6. The task policy option is also a commitment: replan after `commit_timeout` steps.
 
-## Findings on the real model (early probe)
+## Findings on the real model (probe)
 
-Probe with a-frozen's uncommitted loader (loaded by path, read-only), medium, landmarks from the
-validation split. Scripts are throw-away (not committed). Redo the numbers after a-frozen merges.
+a-frozen's uncommitted loader (loaded by path, read-only), medium, 200 landmarks from the
+validation split. Probe scripts are throw-away and not committed.
 
 - Cost on CPU: N = 100 / 200 / 400 landmarks: edge table 0.3 / 0.5 / 1.5 s, one replan 3 / 4 / 10 ms.
   Landmark count is not a cost problem in this range.
-- Before clipping: 8–10 % of pairs have rho < 0 and about 1 % have rho > 1 (N = 200: 3950 / 401 of 40000).
-- Calibration (FB steps = log rho / log gamma, N = 200): xy distance [0,2) → median 26 steps;
-  [8,16) → 154; [16,∞) → 230, p90 2749.
-- Default config (exact R, min heads, rho_min 0.3) gives bad routes: 13–14 hops, jumps of 18 xy units,
-  route end up to 15.6 from the goal. Causes:
-  1. Exact R is noise that the max collects: on trusted edges median +2.1, p99 +68 (max direct value 96).
-  2. Pairs with rho > 1 are clipped to 1 and become free hops across the maze. rho_min and top-k cannot remove them.
-  3. Edges with 0.7 <= rho < 1 still jump 16–19 xy units (wormholes).
-- Guards tried (R = 0, N = 200, rho_min 0.5; mean xy distance route end → goal over 5 tasks; longest hop):
-  none: 11.5 / 12.2 — drop rho >= 1: 3.1 / 17.4 — drop rho >= 1 + xy cap 6: 2.3 / 5.8 —
-  drop rho >= 1 + two-way min(rho(u,w), rho(w,u)): 5.4 / 15.5; with rho_min 0.7 the graph disconnects.
-- Closed loop, 5 tasks × 2 episodes (too small to rank): baseline pi_h 6/10, pi_l(z_r) 8/10,
-  planner with drop rho >= 1 + xy cap 6 = 6/10, same + pi_h 5/10. The planner replans 12–41 times
-  per episode and often runs to 1000 steps: rho_reached = 0.9 and the 100-step timeout need tuning.
-
-- Reached rule (probe, medium, 200 landmarks): within 0.5 xy units of a waypoint, FB rho peaks
-  at 0.88–0.90, so rho >= 0.9 rarely fires there (16 of 90 waypoints timed out); elsewhere it fired
-  a median 2.3 units away.
-- Closed loop with paired start states (global NumPy RNG seeded, as d-eval found), 5 tasks × 6
-  episodes, medium. Too small to rank methods (SE about ±8 %):
+- Edges: rho clipped low / high in 3950 / 401 of 40000 pairs. With the defaults: 5466 trusted edges
+  (27.3 per landmark); 35 of them have a maze geodesic length above 1.5 × xy length.
+- Calibration (FB steps = log rho / log gamma): geodesic distance [0,2) → median 26 steps;
+  [4,8) → 79; [8,16) → 146; [16,∞) → 223, p90 2749.
+- Design defaults (exact R, rho clipped to 1 and trusted) give bad routes: 13–14 hops, jumps of
+  18 xy units. Causes: exact R is noise that the max collects (per trusted edge median +2.1, p99 +68;
+  largest direct value 96); clipped rho = 1 edges are free hops across the maze; edges with
+  0.7 <= rho < 1 still jump 16–19 xy units.
+- Guards (R = 0, rho_min 0.5; mean xy distance route end → goal over 5 tasks / longest hop):
+  none 11.5 / 12.2; drop rho >= 1: 3.1 / 17.4; + xy cap 6: 2.3 / 5.8; + two-way instead: 5.4 / 15.5
+  (with rho_min 0.7 the two-way graph disconnects).
+- Reached rule: within 0.5 xy units of a waypoint FB rho peaks at 0.88–0.90, so rho >= 0.9 rarely
+  fires there (16 of 90 waypoints timed out); elsewhere it fired a median 2.3 units away.
+- Closed loop, paired start states (global NumPy RNG seeded, as d-eval found), 5 tasks × 6 episodes:
 
   | Method | Success | Median steps |
   |---|---|---|
@@ -86,16 +85,28 @@ validation split. Scripts are throw-away (not committed). Redo the numbers after
 
   The committed controller also uses the xy rule to exclude landmarks at a replan; the probe
   subclass excluded only landmarks with rho >= 0.9.
-- Wall crossings: with the defaults, 35 of 5466 trusted edges have a maze geodesic length above
-  1.5 × xy length (d-eval's `MazeGeometry.geodesic_distances`).
+- Smoke run (brief item), committed defaults, paired start states, 5 tasks × 10 episodes:
+
+  | Method | Success | Per task 1–5 | Median steps |
+  |---|---|---|---|
+  | baseline pi_h | 34/50 | .9 .8 .7 .5 .5 | 492 |
+  | graph_planner (pi_l) | 31/50 | .4 .5 .8 .5 .9 | 770 |
+  | graph_plus_high (pi_h) | 33/50 | .4 .6 .8 .6 .9 | 692 |
+
+  Level with the baseline within noise; better on task 5, worse on tasks 1–2, slower overall.
+  The baseline here (68 %) is below the paper (87 %); a-frozen's sanity run should confirm the loader.
+- Route plots: `runs/c-planner/routes_medium.png` (not committed). Planned routes follow the
+  corridors, cross no wall and end at the goal. Executed paths wobble around waypoints and
+  sometimes loop back: execution, not the plan, costs the time.
 
 ## Next
 
-1. Route plots on the medium maze (xy) for the 5 tasks; edge count and clip statistics.
-3. Smoke run: 5 tasks × 10 episodes, planner vs. baseline, with a minimal loop.
-4. After a-frozen merges: redo the numbers with landmarks from the train split, and hand the
+1. Waypoint following is the bottleneck. Candidates to discuss with the user: switch to the next
+   route waypoint before the current one is reached (look-ahead along the route), or condition
+   the policy on a waypoint further along the route.
+2. After a-frozen merges: redo the numbers with landmarks from the train split, and hand the
    factories to d-eval for a full evaluation (the probe samples are too small to rank methods).
-5. Switch the tests to `fbplan/tabular/fake_fb.py` when b-theory merges it.
+3. Switch the tests to `fbplan/tabular/fake_fb.py` when b-theory merges it.
 
 ## Blockers
 
@@ -104,16 +115,14 @@ validation split. Scripts are throw-away (not committed). Redo the numbers after
 ## Requests to the coordinator
 
 - design.md §3 lists the guards `rho >= rho_min`, min over heads, cost per hop. Please add the
-  approved ones: rho >= 1 untrusted, xy cap on edge length (default), two-way consistency (option),
-  and R = 0 as the default for navigate tasks.
-
-- `fbplan/controllers/__init__.py` belongs to d-eval. Until it exists, `fbplan.controllers.planner`
-  imports as a namespace package. That works; no action needed unless d-eval's `__init__` re-exports.
+  approved decisions 1–4 above (rho >= 1 untrusted, xy cap, two-way option, R = 0 default, xy reached rule).
 - d-eval: please add aliases `planner` -> `fbplan.controllers.planner:make_planner` and
   `planner_high` -> `fbplan.controllers.planner:make_planner_high` to `ALIASES`.
-- Landmark tests are in `tests/test_graph.py`, because my brief lists no `tests/test_landmarks.py`.
-- d-eval / coordinator: in the probe the privileged oracle (waypoint = dataset state nearest to a
-  cell centre, `pi_l(B(w))`) was not an upper bound: 17/30 against 22/30 for the baseline. The
-  report should not call it "the best any high-level method can get" without that caveat.
+- d-eval / report: in the probe the privileged oracle (waypoint = dataset state nearest to a cell
+  centre, `pi_l(B(w))`) was not an upper bound (17/30 against 22/30 for the baseline). The report
+  should not call it "the best any high-level method can get" without that caveat.
 - I need a file for the route-plot / edge-stats / smoke-run script. Proposal: `analysis/planner_routes.py`,
   owned by c-planner (d-eval owns the rest of `analysis/`).
+- `fbplan/controllers/__init__.py` belongs to d-eval. Until it exists, `fbplan.controllers.planner`
+  imports as a namespace package. No action needed.
+- Landmark tests are in `tests/test_graph.py`, because my brief lists no `tests/test_landmarks.py`.
