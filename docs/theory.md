@@ -404,9 +404,10 @@ for tasks 1–4 (70 % for task 5). So with this π_l even a perfect high level f
 of tasks 1–4.
 
 The privileged oracle (true shortest path, waypoints 2 cells ahead) measures the pace on giant
-itself. It succeeds in 2.5 % of the episodes (§11.3; 0 % on tasks 1 and 3). A replay of eval
-seed 0 of the preliminary Mac run (249 of 250 failures; d-eval's `replay_failures`) shows why:
-19 % of the failures are flips, the rest are still moving at the time limit. In 1,000 steps the
+itself. It succeeds in 2.5 % of the episodes (§11.3; 0 % on tasks 1 and 3). Of its 1,219
+failures, 21.7 % are flips, 0.7 % are stuck, and 77.6 % are still moving at the time limit
+(`results/giant/failures/oracle.csv`, d-eval's `analysis/failures.py`). A replay of eval seed 0
+of the preliminary Mac run (249 of 250 failures) measures the progress: in 1,000 steps the
 oracle covers a median of 14, 15.5, 6, 15 and 5 cells of the 30-, 26-, 30-, 26- and 17-cell
 walks (`cells_left`), so 65–200 steps per cell against about 40 on medium. On giant, π_l follows
 even perfect waypoints too slowly for the time limit; the route is not the bottleneck.
