@@ -1,6 +1,6 @@
 # Status: f-report
 
-Last update: 2026-10-29, 22:43. Branch merged with `main` at 7c42d54.
+Last update: 2026-10-29, 23:04. Branch merged with `main` at 28f6aba.
 
 ## Done
 
@@ -103,8 +103,33 @@ Last update: 2026-10-29, 22:43. Branch merged with `main` at 7c42d54.
     hypothesis.
   - §8.4 point 7 softened: c-planner's act-ahead probe (Mac, not committed) leaves the share of
     the route open; the Linux run is in d-eval's queue.
+- After the merge of 28f6aba (held-out seed selection, e-learner's seed-split analysis, the
+  AWR-sharpness experiment in design.md §8, A ablations, act-ahead, giant, teleport extras):
+  - B's conclusion is open (coordinator): §8.5 is now "what the critic and the seeds show
+    *(conclusion pending)*", with the three readings of the 2× experiment as fixed in design.md
+    §8. §1, §5 (gate), §9 and §10 say "no gain so far; conclusion pending".
+  - §8.5 finding 2: the seeds split by their AWR temperature (0.111–0.229, from one calibration
+    batch per seed; rank correlation with success +0.8, n = 5), not by their critic. Temperatures
+    and spreads checked against `approach_b/medium/clean/seed<k>/flags.json`. §5 now says that
+    the temperature calibration was noisy and that "only the critic changes" did not fully hold.
+  - §7.1: the held-out seed selection table (`results/medium/heldout_selection.csv`, rerun with
+    `analysis/heldout_selection.py`: identical); B-clean pooled on the held-out goals −0.7 pp
+    [−3.8, +2.4] against the retrained baselines.
+  - §4: the guard evidence column and an ablation table (medium: 9 changes; large: 3), paired with
+    `planner/l0`. No change beats the defaults; `R̂ = 0`, look-ahead and reach radius matter; the
+    xy cap matters on large only; head min, commitment, route following, `two_way`: no effect.
+  - §8.4 point 8 (new): act-ahead 77.0 %, +3.2 pp [−0.3, +6.6] over `planner_high` l0, level with
+    `baseline`, below `baseline_raw` (−3.8) and the oracle (−4.2, p = 0.01). The region
+    hypothesis paragraph uses it.
+  - §7.3: teleport non-hier and the teleport-aware oracle (5.6 % with `π_l`, 21.4 % with `π_h`,
+    both below the baseline; gains only on task 2); giant measured (every method below 3 %;
+    oracle +2.0 pp [+1.1, +3.0], significant; no `baseline_raw` run). New figure
+    `success_antmaze-giant-navigate-v0.png`; teleport figure regenerated.
+  - Central finding reworded in §1, §8.2 and §9 for giant: the oracle's gain there is significant
+    but small; "no measurable room" now says "on medium and large", and giant and teleport are
+    "bounded by the time limit and `π_l`".
 - Private defense sheet for the reviewer call (coordinator request): written outside the
-  repository, not committed; updated for B.
+  repository, not committed; updated for B, the seed selection, the ablations and giant.
 - Every number in the report names a committed file. Recomputed with `analysis/tables.py`
   (`--reference baseline` and `--reference baseline_raw`, `--cluster config_hash`) and
   `analysis/report_figures.py`. The paired `upstream` row of `tables.py` is not used.
@@ -113,21 +138,23 @@ Last update: 2026-10-29, 22:43. Branch merged with `main` at 7c42d54.
 
 | # | Result | Report section | Owner | Expected place |
 |---|---|---|---|---|
-| 1 | B-wide and B-region on medium (B-clean done) | §1, §7.1, §9 | d-eval | `results/medium/` |
-| 2 | the act-ahead run of `planner_high` (Linux) | §8.4 point 7 | d-eval (queue, after B) | `results/medium/planner_ablations/high_act_ahead8/` |
-| 3 | A guard and execution ablations (Linux) | §4 (evidence column), §8.4, §9 | d-eval runs c-planner's commands | `results/<env>/planner_ablations/` |
-| 4 | route plots of A on medium and large, committed | §8.4 point 7 | c-planner | `docs/figures/report/` or c-planner's results |
-| 5 | teleport: non-hier, the teleport-aware oracle, and failure classes with the trap class | §7.3 | d-eval (queue item d) | `results/teleport/` |
-| 6 | giant (Linux): baseline, non-hier, oracle, planner; oracle failure classes | §7.3, §8.2 | d-eval runs b-theory's commands | `results/giant/` |
-| 7 | large: retrained baselines; failure classes of the A variants | §7.2 | d-eval | `results/large/` |
-| 8 | whether the wormholes that the xy cap leaves cross a wall (a column of the calibration CSV) | §8.3, §4 | d-eval | `results/calibration/` |
+| 1 | AWR sharpness at 2× (design.md §8): baseline and B-clean, 5 seeds each; decides B's conclusion | §1, §5, §8.5, §9, §10 | e-learner (training), d-eval (evaluation) | `results/medium/` |
+| 2 | B-wide and B-region on medium, pooled and held-out selection | §1, §7.1, §9 | d-eval | `results/medium/` |
+| 3 | route plots of A on medium and large, committed | §8.4 point 8 | c-planner | `docs/figures/report/` or c-planner's results |
+| 4 | teleport: failure classes with the trap class (non-hier and the teleport-aware oracle done) | §7.3 | d-eval | `results/teleport/` |
+| 5 | giant: oracle failure classes (Linux); optional `baseline_raw` | §7.3 | d-eval | `results/giant/` |
+| 6 | large: retrained baselines; failure classes of the A variants | §7.2 | d-eval | `results/large/` |
+| 7 | whether the wormholes that the xy cap leaves cross a wall (a column of the calibration CSV) | §8.3, §4 | d-eval | `results/calibration/` |
 
 Every needed result has an owner. The central finding (no measurable room for a high level with
-this `π_l`) was set by the coordinator from the Linux results; the report states it in §1 and §8.2.
+this `π_l`) was set by the coordinator from the Linux results; the report states it in §1 and §8.2,
+with the giant wording adjusted to the Linux giant runs (oracle +2.0 pp, significant, at 2.5 %).
 
 ## Next
 
-- When B-wide and B-region land: §7.1 rows, §1 and §9. Then the other items above as they land.
+- When the 2× experiment lands: B's conclusion in §8.5, then §1, §5, §9, §10, by the reading
+  fixed in design.md §8. When B-wide and B-region land: §7.1 rows and the held-out table. Then the
+  other items above.
 - Merge `main` when new results are merged.
 
 ## Blockers
@@ -138,8 +165,18 @@ this `π_l`) was set by the coordinator from the Linux results; the report state
 
 - d-eval: the calibration CSV counts the wormholes within the xy cap (1,965 on medium) but not
   whether they cross a wall. Your status says they cross none (short pairs, FB overconfident at
-  short range). Please add that count as a column (item 8), so §8.3 can state it.
-- d-eval: teleport needs failure classes with the trap class (item 5).
+  short range). Please add that count as a column (item 7), so §8.3 can state it.
+- d-eval: teleport needs failure classes with the trap class (item 4).
+- d-eval: in `analysis/plots.py`, the two teleport-aware oracles get red and green (a pair that
+  colour-blind readers confuse) and no "(privileged)" label; please add `oracle_teleport` to the
+  privileged set and give it fixed colours (it is the method name of both CSVs).
+- d-eval (optional): giant has no `baseline_raw` run, so the two-row rule of §6 applies there with
+  one row only; the report says so.
+- e-learner, two notes on the seed-split analysis: (1) B-wide's calibration uses the same upstream
+  advantage spread per seed as B-clean (equal to 7 digits in the flags), so its temperatures are
+  not independent support for the explanation; (2) the rank correlations are more negative =
+  better, so seed 1 has the best-ordering `V_H` and seed 3 the worst (your status says seed 3
+  orders best). The conclusion "the order does not follow success" holds either way.
 - g-release: `analysis/report_figures.py` takes the results folder as a positional argument now
   (CLI convention). Please switch `scripts/reproduce.sh` to
   `py analysis/report_figures.py "$dir" --out-dir "$report_dir"`; then I remove the hidden
