@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-29, 22:55. Branch merged with `main` at 3e36461.
+Last update: 2026-10-29, 23:10. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -136,6 +136,11 @@ bootstrap over training seeds (both sides) and episodes.
   +5.9, −1.2, +3.4 pp; seeds 0, 2, 4 significant). The retrained baselines spread less (76.6–79.7 %).
 - No significant gain over the retrained baselines (+1.1 pp, CI contains 0), and none against
   baseline_raw (−1.5 pp). The spread between B training seeds is the largest effect.
+- B wide (`results/medium/b_wide/`, `b:wide:<k>`): seeds 0–4 81.0, 77.0, 82.2, 72.3, 79.6 %,
+  pooled 78.4 %; vs baseline_retrained +0.2 [−3.8, +3.7], vs baseline +1.4 [−2.7, +5.3], vs
+  baseline_raw −2.4 [−6.4, +1.4]. Seeds 1 and 3 are low again, as in B clean (e-learner's
+  temperature explanation predicts this pattern).
+- B region: waiting for e-learner's export (queued automatically).
 
 ## Held-out seed selection (design.md §8; `results/medium/heldout/`, `heldout_selection.csv`)
 
@@ -147,17 +152,19 @@ to the lower id), then the selected seeds on the 5 eval tasks:
 |---|---|---|---|---|---|
 | retrained | 87.8, 86.3, 83.7, 87.7, 86.0 | seed 0 | 79.1 | – | −1.7 [−4.7, +1.4], p 0.31 |
 | B clean | 87.0, 86.0, 87.7, 85.3, 82.2 | seed 2 | 83.0 | +3.8 [+0.9, +6.9], p 0.014 | +2.2 [−1.0, +5.1], p 0.18 |
+| B wide | 86.5, 84.0, 84.8, 82.0, 83.3 | seed 0 | 81.0 | +1.8 [−1.2, +4.9], p 0.25 | +0.2 [−2.9, +3.1], p 0.96 |
 
 - The selected B clean seed beats the selected retrained baseline, but not baseline_raw, so by
   the rule of §8 it is no gain. Held-out differences between seeds are small (one seed: 600
   episodes, standard error about 1.4 points), so the selection itself is noisy: seeds 0 and 3
   of the retrained baseline differ by 0.1 point.
-- B wide and B region follow when e-learner exports them (queued automatically).
+- B region follows when e-learner exports it (queued automatically).
 
 ## Giant (Linux, `results/giant/`, 5 eval seeds × 5 tasks × 50 episodes)
 
 baseline 0.5 %, non-hier 0.5 %, oracle (privileged) 2.5 % (+2.0 [+1.1, +3.0] pp), planner
-(sets 0–2 pooled) 0.4 %, planner_high 0.8 %. No headroom, as b-theory's preview showed.
+(sets 0–2 pooled) 0.4 %, planner_high 0.8 %. No headroom, as b-theory's preview showed. Oracle
+failures (`results/giant/failures/oracle.csv`): 77.6 % other, 21.7 % flipped.
 
 ## Medium (Linux, `results/medium/`, 5 eval seeds × 5 tasks × 50 episodes)
 
@@ -372,6 +379,17 @@ CSVs come from the same commands on the instance (one process per eval seed, the
   --label-root results/medium --cluster config_hash`.
 - Large (follows): the same evaluate commands with `--env antmaze-large-navigate-v0`, run on
   the vast.ai host as 5 processes per config (one per eval seed), joined into one CSV.
+
+## AWR sharpness at 2× (design.md §8, coordinator 2026-10-29 23:00)
+
+Waiting for e-learner's export of the baseline at `high_alpha = 0.2` and B clean at matched 2×
+sharpness (5 seeds each). Then: all 5 seeds × 5 eval seeds on medium, pooled rows paired against
+each other, the original retrained baselines and baseline_raw, and the held-out selection rule
+for both families. `--checkpoint retrained:<variant>:<seed>` (new) loads a variant folder of the
+retrained baselines (`baselines/medium/<variant>/seed<k>`); B uses `b:<variant>:<seed>`. These
+jobs need my branch's code on the instance (a separate tree, checked against a committed run).
+The instance stays up; it is destroyed after 30 idle minutes and rented again when the
+checkpoints arrive.
 
 ## Next
 
