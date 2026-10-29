@@ -153,12 +153,14 @@ guards of approach A are in §4.
 
 | Branch / tab | Owns | Provides |
 |---|---|---|
-| `a-frozen` | `fbplan/frozen.py`, `tests/test_frozen.py` | `load_model`, `make_env`, `load_dataset`, checkpoint download |
-| `b-theory` | `fbplan/tabular/`, `docs/theory.md`, `tests/test_tabular*.py` | exact tabular maze with true `M`; proofs; wormhole study |
-| `c-planner` | `fbplan/option_model.py`, `landmarks.py`, `graph.py`, `controllers/planner.py`, `analysis/planner_routes.py` | approach A controllers |
-| `d-eval` | `fbplan/evaluate.py`, `stats.py`, `controllers/{__init__,baseline,oracle}.py`, `analysis/` (except `planner_routes.py`) | eval loop, CSVs, stats, diagnostics |
-| `e-learner` | `fbplan/train_high.py`, `fbplan/learned/` | retrained baseline seeds; approach B |
-| coordinator | `fbplan/contracts.py`, `docs/design.md`, `REPORT.md` | contracts, merges, report |
+| `a-frozen` | `fbplan/frozen.py`, `tests/test_frozen.py` | `load_model`, `make_env`, `load_dataset`, checkpoint download (frozen and trained), clean-clone check |
+| `b-theory` | `fbplan/tabular/`, `docs/theory.md`, `tests/test_tabular*.py`, `fbplan/controllers/oracle_teleport.py`, `results/{giant,teleport}/` | exact tabular maze with true `M`; proofs; wormhole study; giant and teleport runs |
+| `c-planner` | `fbplan/option_model.py`, `landmarks.py`, `graph.py`, `controllers/planner.py`, `analysis/planner_routes.py`, `results/*/planner_ablations/` | approach A controllers and ablations |
+| `d-eval` | `fbplan/evaluate.py`, `stats.py`, `controllers/{__init__,baseline,oracle}.py`, `analysis/` (except `planner_routes.py`, `report_figures.py`) | eval loop, CSVs, stats, diagnostics |
+| `e-learner` | `fbplan/train_high.py`, `fbplan/learned/`, `scripts/gpu/` | retrained baseline seeds; approach B |
+| `f-report` | `REPORT.md`, `docs/figures/report/`, `analysis/report_figures.py` | the report |
+| `g-release` | `README.md`, `scripts/reproduce.sh`, `devbox.json`, `.github/` | reproduce entry point, CI, code review, process files |
+| coordinator | `fbplan/contracts.py`, `docs/design.md`, `docs/briefs/` | contracts, merges, publishing; no implementation work |
 
 Shared contracts: `fbplan/contracts.py` (`FBModel`, `Controller`, `TaskSpec`, `EpisodeRecord`).
 
@@ -176,6 +178,8 @@ Shared contracts: `fbplan/contracts.py` (`FBModel`, `Controller`, `TaskSpec`, `E
   what and why, comments only where the reason is not obvious, no dead code, no notebooks in `fbplan/`.
   `uv run ruff check .` and `uv run pytest` must pass before each commit.
 - Commit messages: imperative mood, one topic per commit. No Co-Authored-By lines.
+- Do not add a git remote and do not push. The coordinator publishes the repository.
+- Evaluations share one 12-core Mac: use at most 4 workers per run unless the user approves more.
 - Stop and ask the user before you start long GPU jobs, download more than 1 GB,
   or change a design decision in this document.
 
