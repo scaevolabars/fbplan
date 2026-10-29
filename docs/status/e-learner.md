@@ -122,8 +122,8 @@
 | X9, X12 | `fbplan.frozen` writes and reads `high_actor.pkl` (`save_trained_checkpoint`, `load_trained_model`); my code keeps only keys, the fresh `pi_h`, `V_H` files and export in `fbplan/learned/checkpoint.py`; `fbplan.learned` no longer imports `train_high` |
 | X14 | my real-checkpoint tests use the session fixtures `medium_model` and `medium_val` of `tests/conftest.py` |
 
-Temporary, until fbplan.evaluate switches (request 1): `train_high.load_baseline_model` and
-`train_b.load_b_model` stay importable there. Bug fixed (found by a-frozen, 2637e0f): the loader
+Temporary, until d-eval switches (request 1): `train_high.load_baseline_model`,
+`train_high.baseline_dir` and `train_b.load_b_model` stay importable there. Bug fixed (found by a-frozen, 2637e0f): the loader
 called `download_trained(key, folder)`; the test now runs the real downloader with a fake
 `urlopen`. After adopting a-frozen's helpers, short runs are again bit-identical to the reference.
 
@@ -199,8 +199,9 @@ For d-eval:
 
 1. Load trained models with `fbplan.frozen.load_trained_model(env, key)`, key from
    `fbplan.learned.checkpoint.trained_key` (or `load_baseline_model` / `load_b_model` there),
-   in `fbplan/evaluate.py`. Then I remove `train_high.load_baseline_model` and
-   `train_b.load_b_model`.
+   in `fbplan/evaluate.py`, and `fbplan.learned.checkpoint.trained_dir(...) / "high_actor.pkl"`
+   in `tests/test_evaluate.py`. Then I remove `train_high.load_baseline_model`,
+   `train_high.baseline_dir` and `train_b.load_b_model`.
 
 For a-frozen:
 
