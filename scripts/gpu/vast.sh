@@ -12,7 +12,7 @@
 #   scripts/gpu/vast.sh status <instance-id>           GPU use and the last log line of each run
 #   scripts/gpu/vast.sh pull <instance-id>             runs/train_high and ~/.cache/fbplan/baselines
 #   scripts/gpu/vast.sh ssh <instance-id> [command]    shell or one command on the instance
-#   scripts/gpu/vast.sh destroy <instance-id>          delete the instance and its disk (stops billing)
+#   scripts/gpu/vast.sh destroy <instance-id> [-y]     delete the instance and its disk (stops billing)
 #
 # The API key belongs to a team account that holds other members' instances. Every command that
 # takes an instance id refuses an instance whose label is not ours. The SSH key is attached to
@@ -129,9 +129,9 @@ cmd_ssh() {
   remote "$@"
 }
 
-# vastai asks for confirmation before it destroys anything.
+# vastai asks for confirmation unless -y follows the id (needed when no terminal is attached).
 cmd_destroy() {
-  vastai destroy instance "$1"
+  vastai destroy instance "$@"
 }
 
 cmd=${1:-}
