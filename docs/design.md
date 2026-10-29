@@ -214,6 +214,31 @@ Shared contracts: `fbplan/contracts.py` (`FBModel`, `Controller`, `TaskSpec`, `E
   `baseline_raw` → chaining adds value at matched sharpness; both rise together → the gain is a
   `π_h` tuning effect, reported as such and not as a gain of chaining; neither → B stays
   negative. No other change and no tuning on the eval tasks.
+  Addition (2026-10-30, 00:20 MSK, before any result): the control H1 of
+  `docs/hypotheses/h-learn.md` (B clean at the same 2× temperature with `V_H = V_1`). If B 2× ≈ H1,
+  the critic adds nothing and any rise is a temperature effect.
+- Wave 1 of the hypothesis tests (fixed on 2026-10-30 at 00:20 MSK, before any result; sources
+  `docs/hypotheses/{h-exec,h-learn,h-repr}.md`).
+  - **Final protocol for any candidate:** eval seeds 0–9 (10 seeds × 5 tasks × 50 episodes),
+    paired against `baseline` and `baseline_raw` on the same 10 seeds; the gain rule of this
+    section applies. Reason: h-exec estimates that 5 seeds need about +4 pp to pass; h-repr finds
+    that `baseline_raw` does not beat `baseline` on held-out goals (−0.7 pp), so its +3.8 pp on the
+    eval tasks may be noise. Both baseline rows and every family already evaluated get eval
+    seeds 5–9 added.
+  - **T1, test-time ensemble** (h-learn H3): `z = normalize(mean_k normalize(π_h^k(s, z_r)))` over
+    the 5 seeds of a family (retrained, B clean, B region). No training, no tuning. Reading: an
+    ensemble that passes the gain rule is reported as test-time aggregation of `π_h` seeds; it is
+    a gain of chaining only if the B ensemble also beats the retrained ensemble.
+  - **T2, log-ratio advantage** (h-learn H2): retrain the baseline `π_h` (5 seeds) with the
+    log-ratio proxy advantage of h-learn H2, upstream recipe otherwise. Reading: a pass is a `π_h`
+    training improvement, not a gain of chaining.
+  - **T3, time-aware trap avoidance on teleport** (h-exec H1): penalise the data-detected trap in
+    the intention only where the remaining time fits a walk; radius and weight chosen on teleport
+    held-out goals only. Reading: a pass is a gain of a sequence-aware high level over the
+    single-switch baseline on teleport.
+  - Not in wave 1: an unfrozen `π_l` (h-exec H2, H5: low chance of a high-level gain, and every
+    row would need it); the `z_r` norm knob (h-repr: c = 1 is best on medium); new critics
+    (h-learn H5, H6) wait for the 2× result.
 
 Closed:
 
