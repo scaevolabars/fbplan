@@ -125,6 +125,14 @@
   with the provided pi_h 0.945-0.956. Command with the current code (bit-identical), per seed k:
   `uv run python -m fbplan.learned.train_b policy --env antmaze-medium-navigate-v0 --seed k --variant clean`.
 
+- **B-wide ready for d-eval (22:47 MSK):** policy `wide` seeds 0-4 (30 % random goals for pi_h),
+  trained on 58234389 (21:29-22:40 MSK, code a189a49, on `value-single` of the same seed), pulled
+  and exported to `approach_b/medium/wide/seed{0..4}/`. Evaluate with
+  `uv run python -m fbplan.evaluate --checkpoint b:wide:<seed> ...`. Checks as for clean: loads,
+  F/B/pi_l equal the provided ones; MSE 0.76 -> 0.71-0.74; 90 % valid; no NaN; temperatures
+  0.244, 0.141, 0.210, 0.118, 0.153. Current-code command per seed k:
+  `uv run python -m fbplan.learned.train_b policy --env antmaze-medium-navigate-v0 --seed k --variant wide`.
+
 ## Analysis: the seed split of B-clean (for the report; no new training)
 
 Success per training seed (d-eval, `results/medium/b_clean/seed*.csv` and
@@ -155,7 +163,11 @@ What explains the split:
   proxy advantage divides by F(w, z_w)^T B(w), which can be near 0, so its std is heavy-tailed.
   CPU check: on one fixed batch, 10 draws of the task latents give 14-32; the same calibration
   on CPU and on the GPU (TF32) gives different values (seed 2: 98 against 31). So each seed's
-  temperature came from one noisy draw of an unstable statistic.
+  temperature came from one noisy draw of an unstable statistic. Support: B-wide uses the same
+  fresh agent per seed (so the same latent draw) and other batches, and its temperatures follow
+  the same seed pattern (0.244, 0.141, 0.210, 0.118, 0.153 against clean's 0.229, 0.131, 0.195,
+  0.111, 0.144). If d-eval's B-wide results split by seed in the same way, that supports the
+  explanation further.
 - Consequence for the report: B-clean's mean gain (+1.1 pp, CI -2.4 to +4.5) is within the noise
   that the temperature choice adds. "Only the critic changes" held for the network, data and
   optimizer, but not fully for the AWR weighting: B's temperature (mean 0.162) was larger than the
@@ -240,7 +252,8 @@ What ran on 58234389:
 | 18:10 | 19:23 | value-region seeds 0-4 (queue-b1) |
 | 19:24 | 20:32 | value expectile 0.7 seeds 0-4 |
 | 20:32 | 21:29 | policy clean seeds 0-4 (queue-b1 resumed) |
-| 21:29 | | policy wide seeds 0-4, then region (rho cap 1.0 cancelled at 22:34 MSK, coordinator decision: B stops) |
+| 21:29 | 22:40 | policy wide seeds 0-4 (rho cap 1.0 cancelled at 22:34 MSK, coordinator decision: B stops) |
+| 22:40 | | policy region seeds 0-4 |
 | 18:58 | | ablations approved (coordinator for the user): queue `runs/queue-ablations.sh` (below) holds queue-b1, then runs value expectile 0.7, resumes queue-b1 (policy clean, wide, region), then value rho cap 1.0 |
 
 The ablation queue. The instance runs code a189a49, which has no `--name`; each ablation writes
