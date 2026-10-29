@@ -160,7 +160,7 @@ guards of approach A are in §4.
 | `e-learner` | `fbplan/train_high.py`, `fbplan/learned/`, `scripts/gpu/` | retrained baseline seeds; approach B |
 | `f-report` | `REPORT.md`, `docs/figures/report/`, `analysis/report_figures.py` | the report |
 | `g-release` | `README.md`, `scripts/reproduce.sh`, `devbox.json`, `.github/`, `pyproject.toml` (except dependencies added by owners), `tests/conftest.py` | reproduce entry point, CI, code review, process files |
-| `h-exec`, `h-learn`, `h-repr` | `docs/hypotheses/<branch>.md` | ranked hypotheses for a gain (brief `docs/briefs/hypotheses.md`) |
+| `h-exec`, `h-learn`, `h-repr`, `h-papers` | `docs/hypotheses/<branch>.md` | ranked hypotheses for a gain (brief `docs/briefs/hypotheses.md`) |
 | coordinator | `fbplan/contracts.py`, `docs/design.md`, `docs/briefs/` | contracts, merges, publishing; no implementation work |
 
 Tests belong to the owner of the code they test (`tests/test_planner.py`, `test_graph.py`: c-planner;
