@@ -117,6 +117,17 @@ def test_load_results_concatenates_csv_files(tmp_path):
     assert df["success"].dtype == bool
 
 
+def test_load_results_with_label_root_names_methods_by_csv_path(tmp_path):
+    (tmp_path / "planner").mkdir()
+    write_csv([_record(1, 0, True)], tmp_path / "baseline.csv")
+    write_csv([_record(1, 0, False)], tmp_path / "planner" / "l0.csv")
+    write_csv([_record(1, 0, True)], tmp_path / "planner" / "l1.csv")
+    paths = [tmp_path / "baseline.csv", *sorted((tmp_path / "planner").glob("*.csv"))]
+    assert load_results(paths)["method"].tolist() == ["m", "m", "m"]
+    labelled = load_results(paths, label_root=tmp_path)
+    assert labelled["method"].tolist() == ["baseline", "planner/l0", "planner/l1"]
+
+
 def test_summary_table_rejects_results_from_two_envs():
     df = pd.concat([_episodes({1: [1]}), _episodes({1: [0]}).assign(env_name="other")])
     with pytest.raises(ValueError, match="one env"):

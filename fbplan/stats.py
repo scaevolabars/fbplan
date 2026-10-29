@@ -51,9 +51,21 @@ class PairedResult:
     p_value: float  # exact two-sided McNemar test
 
 
-def load_results(paths: Iterable[Path]) -> pd.DataFrame:
-    """Concatenate result CSVs written by `fbplan.evaluate.write_csv`."""
-    df = pd.concat([pd.read_csv(path) for path in paths], ignore_index=True)
+def load_results(paths: Iterable[Path], label_root: Path | None = None) -> pd.DataFrame:
+    """Concatenate result CSVs written by `fbplan.evaluate.write_csv`.
+
+    With label_root, the method column becomes each CSV's path relative to label_root without
+    the suffix (for example "planner/l0"). Runs of one controller with different configs then
+    get readable names; the config hash stays in its own column.
+    """
+    paths = list(paths)
+    frames = [pd.read_csv(path) for path in paths]
+    if label_root is not None:
+        frames = [
+            frame.assign(method=Path(path).relative_to(label_root).with_suffix("").as_posix())
+            for path, frame in zip(paths, frames, strict=True)
+        ]
+    df = pd.concat(frames, ignore_index=True)
     missing = {f.name for f in dataclasses.fields(EpisodeRecord)} - set(df.columns)
     if missing:
         raise ValueError(f"result CSVs miss columns {sorted(missing)}")

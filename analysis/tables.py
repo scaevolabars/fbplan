@@ -1,11 +1,15 @@
 """Markdown result tables from evaluation CSVs.
 
-    uv run python analysis/tables.py results/*.csv [--reference baseline] [--cluster COLUMN]
+    uv run python analysis/tables.py results/medium/*.csv results/medium/planner*/*.csv \
+        [--label-root results/medium] [--reference baseline] [--cluster config_hash]
 
 Per env: success (%) per task and overall with the 95 % stratified bootstrap CI, and the paired
 comparison of every method against the reference method on the same episodes.
-A method that appears with several config hashes gets one row per config ("name@hash"),
-unless `--cluster config_hash` asks to pool them as checkpoints of one method.
+Rows are named by method; a method with several config hashes gets one row per config
+("name@hash"). With --label-root, rows are named by CSV path instead ("planner/l0").
+--cluster config_hash pools the configs of a method (or the CSVs of a folder) as draws of a
+random factor, such as checkpoints or landmark sets. Paired comparisons stay per config; for a
+pooled method the table adds the mean and the range of its per-config differences.
 """
 
 from __future__ import annotations
@@ -33,6 +37,11 @@ def label_configs(df: pd.DataFrame) -> pd.Series:
     return df["method"].where(n_configs == 1, df["method"] + "@" + df["config_hash"])
 
 
+def pool_name(label: str) -> str:
+    """The pooled method of a row label: "planner/l0" -> "planner", "name@hash" -> "name"."""
+    return label.split("/")[0].split("@")[0]
+
+
 def success_markdown(table: pd.DataFrame) -> str:
     """Methods as rows, tasks as columns, cells "mean [low, high]" in percent."""
     cells = table.assign(
@@ -47,15 +56,37 @@ def success_markdown(table: pd.DataFrame) -> str:
     return markdown(wide.rename(columns={t: f"task {t}" for t in wide.columns[1:-1]}))
 
 
-def paired_markdown(df: pd.DataFrame, reference: str) -> str:
-    table = paired_table(df, reference)
-    table["diff (pp)"] = [
-        f"{100 * r.diff:+.1f} [{100 * r.ci_low:+.1f}, {100 * r.ci_high:+.1f}]"
-        for r in table.itertuples()
-    ]
-    table["p (McNemar)"] = table["p_value"].map(lambda p: f"{p:.2g}")
+def paired_markdown(table: pd.DataFrame) -> str:
+    """The output of fbplan.stats.paired_table, differences in percentage points."""
+    table = table.assign(
+        **{
+            "diff (pp)": [
+                f"{100 * r.diff:+.1f} [{100 * r.ci_low:+.1f}, {100 * r.ci_high:+.1f}]"
+                for r in table.itertuples()
+            ],
+            "p (McNemar)": table["p_value"].map(lambda p: f"{p:.2g}"),
+        }
+    )
     columns = ["method", "diff (pp)", "only_method", "only_reference", "p (McNemar)", "n_pairs"]
     return markdown(table[columns])
+
+
+def pooled_paired_markdown(table: pd.DataFrame) -> str:
+    """Mean and range of the per-config paired differences, for methods with several configs."""
+    diffs = table.groupby(table["method"].map(pool_name), sort=False)["diff"].agg(
+        ["size", "mean", "min", "max"]
+    )
+    diffs = diffs[diffs["size"] > 1]
+    rows = pd.DataFrame({
+        "method": diffs.index,
+        "configs": diffs["size"].to_numpy(),
+        "mean diff (pp)": [f"{100 * d:+.1f}" for d in diffs["mean"]],
+        "range (pp)": [
+            f"[{100 * lo:+.1f}, {100 * hi:+.1f}]"
+            for lo, hi in zip(diffs["min"], diffs["max"], strict=True)
+        ],
+    })
+    return markdown(rows)
 
 
 def main() -> None:
@@ -63,17 +94,25 @@ def main() -> None:
     parser.add_argument("csv", nargs="+", type=Path)
     parser.add_argument("--reference", default="baseline", help="method for paired comparisons")
     parser.add_argument("--cluster", help="column of a shared random factor, e.g. config_hash")
+    parser.add_argument("--label-root", type=Path, help="name rows by CSV path below this folder")
     args = parser.parse_args()
 
-    df = load_results(args.csv)
-    if args.cluster != "config_hash":
+    df = load_results(args.csv, label_root=args.label_root)
+    if args.label_root is None:
         df = df.assign(method=label_configs(df))
+    pooled = args.cluster == "config_hash"
     for env_name, env_df in df.groupby("env_name"):
-        print(f"## {env_name}\n\nSuccess (%), 95 % stratified bootstrap CI\n")
-        print(success_markdown(summary_table(env_df, cluster=args.cluster)))
+        shown = env_df.assign(method=env_df["method"].map(pool_name)) if pooled else env_df
+        kind = f"cluster bootstrap over {args.cluster}" if args.cluster else "stratified bootstrap"
+        print(f"## {env_name}\n\nSuccess (%), 95 % {kind} CI\n")
+        print(success_markdown(summary_table(shown, cluster=args.cluster)))
         if args.reference in set(env_df["method"]) and env_df["method"].nunique() > 1:
             print(f"\nPaired difference against {args.reference} (pp = percentage points)\n")
-            print(paired_markdown(env_df, args.reference))
+            paired = paired_table(env_df, args.reference)
+            print(paired_markdown(paired))
+            if pooled and shown["method"].nunique() < env_df["method"].nunique():
+                print("\nPooled methods: mean and range of the paired differences\n")
+                print(pooled_paired_markdown(paired))
         print()
 
 
