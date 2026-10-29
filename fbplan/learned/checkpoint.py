@@ -43,7 +43,7 @@ def trained_key(kind: Kind, env_name: str, seed: int, name: str | None = None) -
 
 
 def trained_dir(kind: Kind, env_name: str, seed: int, name: str | None = None) -> Path:
-    """Local folder of trained_key(...): frozen.trained_dir, which the cache variables move."""
+    """frozen.trained_dir(trained_key(...)). Kept for tests/test_evaluate.py until it calls that."""
     return frozen.trained_dir(trained_key(kind, env_name, seed, name))
 
 

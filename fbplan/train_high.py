@@ -31,8 +31,7 @@ from fbplan.learned.checkpoint import (
     SAMPLER_STREAM,
     Agent,
     git_commit,
-    load_baseline_model,  # noqa: F401  fbplan.evaluate imports it from here (until it switches)
-    trained_dir,
+    trained_key,
     with_fresh_high_actor,
 )
 from fbplan.learned.loop import run_logged, scan_updates
@@ -42,12 +41,6 @@ from fbplan.learned.sampling import (
     make_trajectory_data,
     sample_high_batch,
 )
-
-
-def baseline_dir(env_name: str, seed: int) -> Path:
-    """Folder of a retrained pi_h. tests/test_evaluate.py calls it from here (until it switches
-    to fbplan.learned.checkpoint.trained_dir)."""
-    return trained_dir("baselines", env_name, seed)
 
 
 @partial(jax.jit, static_argnames=("n_steps", "spec"))
@@ -106,7 +99,7 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     maze = frozen.maze_name(args.env)
-    out_dir = args.out_dir or trained_dir("baselines", args.env, args.seed)
+    out_dir = args.out_dir or frozen.trained_dir(trained_key("baselines", args.env, args.seed))
     run_dir = args.run_dir or Path("runs/train_high") / maze / f"seed{args.seed}"
     run_dir.mkdir(parents=True, exist_ok=True)
 

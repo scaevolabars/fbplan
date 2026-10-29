@@ -31,8 +31,6 @@ from fbplan.learned.checkpoint import (
     SAMPLER_STREAM,
     Agent,
     git_commit,
-    load_b_model,  # noqa: F401  fbplan.evaluate imports it from here (until it switches)
-    trained_dir,
     trained_key,
     with_fresh_high_actor,
 )
@@ -176,7 +174,7 @@ def train_value(args: argparse.Namespace, model: frozen.FrozenFBModel, run_dir: 
         "latents": args.latents,
         "value_spec": dataclasses.asdict(stage.spec),
     }
-    out_dir = trained_dir("approach_b", args.env, args.seed, args.name)
+    out_dir = frozen.trained_dir(trained_key("approach_b", args.env, args.seed, args.name))
     save_value(value, config, flags, out_dir)
     print(f"saved {out_dir}")
 
@@ -284,7 +282,7 @@ def train_policy(args: argparse.Namespace, model: frozen.FrozenFBModel, run_dir:
             "alpha_used": alpha,
         },
     }
-    out_dir = trained_dir("approach_b", args.env, args.seed, args.name)
+    out_dir = frozen.trained_dir(trained_key("approach_b", args.env, args.seed, args.name))
     frozen.save_trained_checkpoint(agent, flags, out_dir)
     print(f"saved {out_dir}")
 

@@ -14,7 +14,7 @@ from fbplan.learned import train_b
 from fbplan.learned.checkpoint import (
     FROZEN_MODULES,
     load_b_model,
-    trained_dir,
+    trained_key,
     with_fresh_high_actor,
 )
 from fbplan.learned.high_policy import masked_mean_std, policy_update, switch_advantage
@@ -174,7 +174,12 @@ def test_value_config_round_trips_through_its_json_dict():
 
 def test_value_round_trip_through_its_folder(value, tmp_path, monkeypatch):
     monkeypatch.setenv("FBPLAN_APPROACH_B_DIR", str(tmp_path))
-    save_value(value, TINY_VALUE, {"seed": 0}, trained_dir("approach_b", MEDIUM, 0, "v"))
+    save_value(
+        value,
+        TINY_VALUE,
+        {"seed": 0},
+        frozen.trained_dir(trained_key("approach_b", MEDIUM, 0, "v")),
+    )
     loaded, config = load_value(MEDIUM, "v", 0, OBS_DIM, LATENT_DIM)
     assert config == TINY_VALUE
     assert same(loaded.params, value.params) and same(loaded.target_params, value.target_params)
@@ -267,7 +272,9 @@ def test_both_stages_run_on_the_real_checkpoint_and_reload(medium, tmp_path, mon
 
     monkeypatch.setenv("FBPLAN_APPROACH_B_DIR", str(tmp_path))
     flags = {"env_name": f"ogbench-{MEDIUM}"}
-    frozen.save_trained_checkpoint(trained, flags, trained_dir("approach_b", MEDIUM, 0, "clean"))
+    frozen.save_trained_checkpoint(
+        trained, flags, frozen.trained_dir(trained_key("approach_b", MEDIUM, 0, "clean"))
+    )
     loaded = load_b_model(MEDIUM, "clean", 0)
     obs = split.data.observations[:3]
     z = jnp.ones((3, model.latent_dim))

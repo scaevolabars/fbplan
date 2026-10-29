@@ -19,7 +19,6 @@ from fbplan.learned.checkpoint import (
     load_baseline_model,
     load_trained_file,
     portable_flags,
-    trained_dir,
     trained_key,
     with_fresh_high_actor,
 )
@@ -61,10 +60,13 @@ def test_keys_name_the_folders_below_the_cache():
 
 def test_folder_roots_follow_the_environment_variables(monkeypatch, tmp_path):
     monkeypatch.setenv("FBPLAN_APPROACH_B_DIR", str(tmp_path))
-    assert trained_dir("approach_b", MEDIUM, 1, "wide") == tmp_path / "medium" / "wide" / "seed1"
+    assert (
+        frozen.trained_dir(trained_key("approach_b", MEDIUM, 1, "wide"))
+        == tmp_path / "medium" / "wide" / "seed1"
+    )
     monkeypatch.delenv("FBPLAN_BASELINE_DIR", raising=False)
     expected = Path.home() / ".cache/fbplan/baselines/medium/seed0"
-    assert trained_dir("baselines", MEDIUM, 0) == expected
+    assert frozen.trained_dir(trained_key("baselines", MEDIUM, 0)) == expected
 
 
 def test_fresh_pi_h_keeps_the_frozen_modules(agent):
@@ -140,7 +142,9 @@ def test_real_checkpoint_retrains_and_reloads_as_a_baseline(
     )
     monkeypatch.setenv("FBPLAN_BASELINE_DIR", str(tmp_path))
     flags = {"env_name": f"ogbench-{MEDIUM}"}
-    frozen.save_trained_checkpoint(trained, flags, trained_dir("baselines", MEDIUM, 0))
+    frozen.save_trained_checkpoint(
+        trained, flags, frozen.trained_dir(trained_key("baselines", MEDIUM, 0))
+    )
     loaded = load_baseline_model(MEDIUM, 0)
 
     obs = val["observations"][:4]
