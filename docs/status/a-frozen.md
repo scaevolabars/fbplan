@@ -44,7 +44,8 @@ Last update: 2026-10-29.
   `download_checkpoint` and `download_trained` share one fetch loop. Each download now writes its
   own `.part` file, so parallel eval workers that download one missing file do not mix their
   bytes (test). 8 new tests, 36 in `tests/test_frozen.py`; 284 tests pass.
-- Item 7, release files: prepared, not uploaded (see "Trained checkpoints").
+- Item 7, format: the user chose to publish only the trained modules (2026-10-29). Nothing is
+  uploaded; the upload waits for e-learner (see "Trained checkpoints").
 - Item 9, clean-clone check: done (see "Clean-clone check").
 - Sanity check (step 6): done. The result is below the paper; see below.
 
@@ -110,30 +111,40 @@ Present on this Mac only: `~/.cache/fbplan/baselines/medium/seed{0..4}/` (`param
 | `opt_state` (Adam state of `pi_h`) | 5.37 | yes, needed only to resume training |
 | `modules_forward_repr`, `modules_backward_repr`, `modules_actor` | 10.25 | no: equal to the provided checkpoint, bit for bit |
 
-**Proposal (needs e-learner's agreement through the user): publish only the trained modules.**
-A file `high_actor.pkl` with the `modules_high_actor` params (2.7 MB, -85 %); for approach B also
-`value.pkl` (already modules only). The loader takes F, B and `pi_l` from `load_model(env)` and
-replaces only `pi_h`, so the frozen modules cannot differ, and the check in
-`load_retrained_model` becomes unnecessary. Reasons: a reviewer downloads about 135 MB instead of
-about 900 MB for about 50 checkpoints (baselines and B variants, 5 seeds); the release does not
-copy the authors' F, B and `pi_l` again. Cost: e-learner changes `save_checkpoint` and
-`load_retrained_model` and exports the 5 medium files once; no optimizer state, so a published
-run cannot be resumed (no step needs that).
+**Decision (user, 2026-10-29): publish only the trained modules.** The upload waits until
+e-learner has the new format. Reasons: a reviewer downloads about 135 MB instead of about 900 MB
+for about 50 checkpoints (baselines and B variants, 5 seeds); the release does not copy the
+authors' F, B and `pi_l` again; the loader takes F, B and `pi_l` from `load_model(env)`, so they
+cannot differ, and the equality check in `load_retrained_model` becomes unnecessary. Cost: no
+optimizer state, so a published run cannot be resumed (no step needs that).
 
-**Prepared release** (scratchpad of this session, not in the repo): tag `baselines-medium-v1` on
-public commit `e5d66d7`, 10 assets (5 × `params.pkl`, 5 × `flags.json`, 92 MB), notes with the
-sha256 table. Checks before upload:
+Proposed format for e-learner (e-learner owns the code; this is a proposal):
+- `high_actor.pkl`: the `modules_high_actor` params only, as nested dicts of numpy arrays,
+  `jax.tree_util.tree_map(np.asarray, flax.serialization.to_state_dict(params["modules_high_actor"]))`.
+  `frozen.load_numpy_pickle` reads it. About 2.7 MB.
+- `flags.json`: as now, with portable values (see the requests).
+- Approach B: `high_actor.pkl` per variant; `value.pkl` per value run, unchanged (already modules
+  only).
+- Loader: `params = flax.core.unfreeze(load_model(env).agent.network.params)`, then
+  `params["modules_high_actor"] = flax.serialization.from_state_dict(params["modules_high_actor"], saved)`,
+  then `agent.replace(network=agent.network.replace(params=params))`.
+- The 5 medium baselines: export once from the local `params.pkl`; no retraining.
+- Checked on medium seed 0: export, then the loader above, gives params equal to
+  `load_baseline_model(env, 0)`, bit for bit; the file is 2.69 MB.
+
+Checks of the present files, done on a full-state staging (not uploaded). They apply to the new
+files too:
 - Pickles: every text value in the pickle stream is a key or a numpy class name
   (`numpy._core.multiarray._reconstruct`, `ndarray`, `dtype`); no path, no name.
 - `flags.json`: two items. `retrained_high_actor.from` is `/root/.cache/fbplan/checkpoints/medium`
   (the GPU instance; no user name). `retrained_high_actor.commit` is the local commit `9557a55`; in
-  the public repo it is `e5d66d7` (from `~/.cache/fbplan/publish/commit-map`). The notes record
-  both hashes.
-- Notes: no match for the private-data patterns of `publish.sh` plus `/root/`, `/home/`, the
-  user name, `vast`, `token`, `@`.
+  the public repo it is `e5d66d7` (from `~/.cache/fbplan/publish/commit-map`). The release notes
+  record both hashes. The release tag goes on the public training commit.
+- Release notes: no match for the private-data patterns of `publish.sh` plus `/root/`, `/home/`,
+  the user name, `vast`, `token`, `@`.
 
-The upload waits for the user's decision on the format. After the upload: pin the hashes in
-`_TRAINED_FILES`, download each asset into an empty folder to check it, commit.
+After e-learner's export: stage the files, repeat the checks, ask the user, upload, pin the
+hashes in `_TRAINED_FILES`, download each asset into an empty folder to check it, commit.
 
 ## Clean-clone check (item 9)
 
@@ -223,8 +234,9 @@ fails if the physics drift again.
 
 ## Next
 
-- Item 7: after the user's decision on the format, upload the release (user approval), pin the
-  hashes, check the download, commit. Then the same for the approach B checkpoints.
+- Item 7: when e-learner has exported `high_actor.pkl` for medium seeds 0-4, stage and check
+  the files, ask the user, upload, pin the hashes, check the download, commit. Then the same for
+  the approach B checkpoints.
 - Download the train splits of large, giant, teleport (240 MB each) when c-planner or e-learner
   need them.
 
@@ -239,12 +251,14 @@ fails if the physics drift again.
   folder below `~/.cache/fbplan`:
   ```python
   ckpt_dir = baseline_dir(env_name, seed)
-  if not (ckpt_dir / "params.pkl").exists():
+  if not (ckpt_dir / "high_actor.pkl").exists():
       frozen.download_trained(f"baselines/{env_name.split('-')[1]}/seed{seed}", ckpt_dir)
   ```
   (for B: `f"approach_b/{maze}/{variant}/seed{seed}"`). A key that is not published raises
   `ValueError` with the list of published keys.
-- For e-learner (item 7), through the user: the file format proposal under "Trained checkpoints".
+- For e-learner (item 7): the user chose modules-only files. Please adopt a format (proposal
+  under "Trained checkpoints"), and export `high_actor.pkl` for medium seeds 0-4. The upload
+  waits for it.
 - For e-learner: record portable values in `flags.json`. `retrained_high_actor.from` and
   `approach_b.value_dir` hold absolute paths of the training machine (`/root/...` on the GPU,
   the home folder with the user name on the Mac). A path relative to `~/.cache/fbplan`, for example
