@@ -156,11 +156,15 @@ guards of approach A are in §4.
 | `a-frozen` | `fbplan/frozen.py`, `tests/test_frozen.py` | `load_model`, `make_env`, `load_dataset`, checkpoint download (frozen and trained), clean-clone check |
 | `b-theory` | `fbplan/tabular/`, `docs/theory.md`, `tests/test_tabular*.py`, `fbplan/controllers/oracle_teleport.py`, `results/{giant,teleport}/` | exact tabular maze with true `M`; proofs; wormhole study; giant and teleport runs |
 | `c-planner` | `fbplan/option_model.py`, `landmarks.py`, `graph.py`, `controllers/planner.py`, `analysis/planner_routes.py`, `results/*/planner_ablations/` | approach A controllers and ablations |
-| `d-eval` | `fbplan/evaluate.py`, `stats.py`, `controllers/{__init__,baseline,oracle}.py`, `analysis/` (except `planner_routes.py`, `report_figures.py`) | eval loop, CSVs, stats, diagnostics |
+| `d-eval` | `fbplan/evaluate.py`, `stats.py`, `maze.py` (maze geometry, new), `controllers/{__init__,baseline,oracle}.py`, `analysis/` (except `planner_routes.py`, `report_figures.py`), `tests/test_evaluate.py`, `test_stats.py`, `test_eval_controllers.py`, `test_analysis.py` | eval loop, CSVs, stats, diagnostics |
 | `e-learner` | `fbplan/train_high.py`, `fbplan/learned/`, `scripts/gpu/` | retrained baseline seeds; approach B |
 | `f-report` | `REPORT.md`, `docs/figures/report/`, `analysis/report_figures.py` | the report |
-| `g-release` | `README.md`, `scripts/reproduce.sh`, `devbox.json`, `.github/` | reproduce entry point, CI, code review, process files |
+| `g-release` | `README.md`, `scripts/reproduce.sh`, `devbox.json`, `.github/`, `pyproject.toml` (except dependencies added by owners), `tests/conftest.py` | reproduce entry point, CI, code review, process files |
 | coordinator | `fbplan/contracts.py`, `docs/design.md`, `docs/briefs/` | contracts, merges, publishing; no implementation work |
+
+Tests belong to the owner of the code they test (`tests/test_planner.py`, `test_graph.py`: c-planner;
+`tests/test_learned*.py`: e-learner). For review findings K1–K4 (2026-10-29), a-frozen may edit
+`fbplan/contracts.py` and `tests/test_contracts.py`.
 
 Shared contracts: `fbplan/contracts.py` (`FBModel`, `Controller`, `TaskSpec`, `EpisodeRecord`).
 
