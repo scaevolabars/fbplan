@@ -91,7 +91,14 @@ What ran on 58234389:
 | 14:10 | 15:05 | medium baseline seeds 0-4 (GPU 100 %) |
 | 15:05 | 15:20 | pull, curve checks, user question |
 | 15:20 | 15:41 | push of B1 code, 271 tests on the instance (2 GPU-only failures, below) |
-| 15:45 | | push of the self-loop fix, tests; then stage 1 |
+| 15:45 | 16:11 | push of the self-loop fix (code a189a49), 271 of 272 tests pass (c-planner's GPU one fails) |
+| 16:11 | 16:18 | stage 1 as 15 runs: large baselines + value-single + value-region. GPU out of memory: a B run holds 2.5 GB (large baseline 0.86 GB), 15 runs need 29.6 GB of 24. 5 value runs crashed; I stopped all 10 value runs, kept the large ones, moved the logs to `runs/oom-attempt-1611/` |
+| 16:20 | | large baselines (since 16:11) + value-single seeds 0-4 (10 runs, 17 GB). Queue `queue-b1` then runs, one group of 5 at a time: value-region, policy clean, wide, region (two B groups need 25.2 GB) |
+
+Launch details (not in a script, so recorded here): every B group runs as
+`env XLA_PYTHON_CLIENT_ALLOCATOR=platform bash scripts/gpu/run_seeds.sh runs/train_b/medium/<name>
+"0 1 2 3 4" fbplan.learned.train_b <stage> --env antmaze-medium-navigate-v0 <--latents|--variant> ...`.
+The allocator setting changes memory handling only. It did not lower the 2.5 GB, which is live memory.
 
 ## Next
 
