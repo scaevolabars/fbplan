@@ -1,0 +1,33 @@
+# Lint and tests on CPU. Tests that need a checkpoint or an OGBench dataset skip: this workflow
+# downloads no data, only the locked Python packages.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # The OGBench maze env builds a MuJoCo renderer. The runner has no display, so MuJoCo
+      # uses software OpenGL.
+      MUJOCO_GL: osmesa
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install OSMesa
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libosmesa6
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.8"
+          enable-cache: true
+
+      # On Linux the lock selects the CUDA build of JAX; without a GPU, JAX runs on CPU.
+      - run: uv sync --locked
+      - run: uv run --locked ruff check .
+      - run: uv run --locked pytest -ra
