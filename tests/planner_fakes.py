@@ -3,8 +3,10 @@
 A latent z selects the target cell t(z) = argmax_j z_j. The policy pi_z walks a shortest
 path to t(z) and then stays there. B(s) is the one-hot of the cell of s, so
 F(s, z)^T B(s') is the exact successor measure M^{pi_z}(s, s') and rho(s, w) = gamma^d(s, w).
-A wormhole overrides that measure on one F head for one (source, target) pair, to imitate
-an FB error. This fake stands in for fbplan/tabular/fake_fb.py until b-theory merges it.
+Two knobs imitate FB errors: a wormhole overrides the measure on one F head for one
+(source, target) pair; a horizon makes FB and pi_z know nothing about targets farther away
+than `horizon` steps (zero measure, and pi_z stands still).
+This fake stands in for fbplan/tabular/fake_fb.py until b-theory merges it.
 """
 
 from __future__ import annotations
@@ -36,10 +38,12 @@ class GridFB:
         self,
         layout: tuple[str, ...] = U_MAZE,
         discount: float = 0.9,
+        horizon: int | None = None,
         wormholes: dict[tuple[int, tuple[int, int], tuple[int, int]], float] | None = None,
         goals: dict[int, tuple[int, int]] | None = None,
     ) -> None:
         self.discount = discount
+        self.horizon = horizon
         self.cells = [
             (x, y) for y, row in enumerate(layout) for x, ch in enumerate(row) if ch == "."
         ]
@@ -107,8 +111,11 @@ class GridFB:
     def _next_cell(self, s: int, t: int) -> int:
         return min(j for j in self._neighbours(s) if self.dist[j, t] == self.dist[s, t] - 1)
 
+    def _in_reach(self, s: int, t: int) -> bool:
+        return self.horizon is None or self.dist[s, t] <= self.horizon
+
     def _first_move(self, s: int, t: int) -> tuple[float, float]:
-        if s == t:
+        if s == t or not self._in_reach(s, t):
             return (0.0, 0.0)
         (x0, y0), (x1, y1) = self.cells[s], self.cells[self._next_cell(s, t)]
         return (float(x1 - x0), float(y1 - y0))
@@ -118,7 +125,7 @@ class GridFB:
         n, g = len(self.cells), self.discount
         m = np.zeros((n, n, n))
         for t in range(n):
-            for s in range(n):
+            for s in filter(lambda s: self._in_reach(s, t), range(n)):
                 cur = s
                 for k in range(self.dist[s, t]):
                     m[t, s, cur] += g**k
