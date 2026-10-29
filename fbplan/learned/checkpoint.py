@@ -73,10 +73,14 @@ def save_flags(flags: Mapping[str, Any], out_dir: Path) -> None:
     (out_dir / "flags.json").write_text(json.dumps(flags, indent=2))
 
 
-def load_trained_file(key: str, folder: Path, name: str) -> Any:
-    """folder/name, downloaded with fbplan.frozen.download_trained(key) when it is absent."""
-    if not (folder / name).exists():
-        frozen.download_trained(key, folder)
+def load_trained_file(key: str, name: str) -> Any:
+    """File `name` of the trained folder `key`; frozen.download_trained(key) fetches a missing one.
+
+    The folder is frozen.trained_dir(key), the folder that download_trained writes.
+    """
+    folder = frozen.trained_dir(key)
+    if not all((folder / f).exists() for f in (name, "flags.json")):
+        frozen.download_trained(key)
     return frozen.load_numpy_pickle(folder / name)
 
 
@@ -101,7 +105,7 @@ def load_high_actor_model(
 ) -> frozen.FrozenFBModel:
     """The provided model with a trained pi_h, for evaluation."""
     key = trained_key(kind, env_name, seed, name)
-    high_actor = load_trained_file(key, trained_dir(kind, env_name, seed, name), "high_actor.pkl")
+    high_actor = load_trained_file(key, "high_actor.pkl")
     agent = with_high_actor(frozen.load_model(env_name).agent, high_actor)
     return frozen.FrozenFBModel(env_name, jax.device_put(agent))
 
