@@ -268,6 +268,19 @@ def test_download_trained_refuses_an_unpublished_checkpoint(release):
         frozen.download_trained("baselines/medium/seed9")
 
 
+def test_the_retrained_baselines_are_published_with_complete_entries():
+    baselines = {f"baselines/{maze}/seed{k}" for maze in ("medium", "large") for k in range(5)}
+
+    assert baselines <= frozen._TRAINED_FILES.keys()
+    for key, files in frozen._TRAINED_FILES.items():
+        frozen.trained_dir(key)  # raises for a malformed key
+        assert "flags.json" in files, key
+        for tag, sha256 in files.values():
+            assert tag and re.fullmatch("[0-9a-f]{64}", sha256), key
+    for key in baselines:
+        assert set(frozen._TRAINED_FILES[key]) == {"flags.json", frozen.HIGH_ACTOR_FILE}
+
+
 def test_concurrent_downloads_of_one_file_give_the_complete_file(monkeypatch, tmp_path):
     """Parallel eval workers can download the same missing file at the same time."""
     content = b"x" * 100

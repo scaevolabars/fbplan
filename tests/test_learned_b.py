@@ -9,11 +9,11 @@ import numpy as np
 import pytest
 
 from fbplan import frozen
+from fbplan.frozen import forward
 from fbplan.learned import train_b
 from fbplan.learned.checkpoint import (
     FROZEN_MODULES,
     load_b_model,
-    save_high_actor,
     trained_dir,
     with_fresh_high_actor,
 )
@@ -39,7 +39,6 @@ from fbplan.learned.value import (
     ValueConfig,
     ValueState,
     expectile_loss,
-    forward,
     load_value,
     save_value,
     value_update,
@@ -185,7 +184,7 @@ def test_value_round_trip_through_its_folder(value, tmp_path, monkeypatch):
 
 
 def test_policy_update_changes_only_pi_h(agent, value, split):
-    fresh = with_fresh_high_actor(agent, 0, OBS_DIM)
+    fresh = with_fresh_high_actor(agent, 0)
     batch = split.batch(jax.random.PRNGKey(3), STAGE)
     trained, info = policy_update(fresh, value, batch, jnp.float32(0.1), TINY_VALUE)
     for name in FROZEN_MODULES:
@@ -198,7 +197,7 @@ def test_policy_update_changes_only_pi_h(agent, value, split):
 
 def test_invalid_edges_give_no_policy_gradient(agent, value, data):
     """Subgoal = current state: an untrusted self-loop, so the sample must not move pi_h."""
-    fresh = with_fresh_high_actor(agent, 0, OBS_DIM)
+    fresh = with_fresh_high_actor(agent, 0)
     states = data.observations[:16]
     subgoals = states
     z = jnp.asarray(np.random.default_rng(2).normal(size=(16, LATENT_DIM)), jnp.float32)
@@ -248,13 +247,8 @@ def test_masked_mean_std_ignores_masked_samples():
 
 
 @pytest.fixture(scope="module")
-def medium():
-    if not (frozen.checkpoint_dir(MEDIUM) / "params.pkl").exists():
-        pytest.skip("medium checkpoint absent: run `uv run python -m fbplan.frozen`")
-    if not frozen.dataset_path(MEDIUM, "val").exists():
-        pytest.skip("medium validation split absent: call fbplan.frozen.load_dataset once")
-    model = frozen.load_model(MEDIUM)
-    return model, Split.load(model, "val", "single")
+def medium(medium_model):
+    return medium_model, Split.load(medium_model, "val", "single")
 
 
 def test_both_stages_run_on_the_real_checkpoint_and_reload(medium, tmp_path, monkeypatch):
@@ -264,7 +258,7 @@ def test_both_stages_run_on_the_real_checkpoint_and_reload(medium, tmp_path, mon
     value, info = value_chunk(value, model.agent, split, jax.random.PRNGKey(1), 2, stage)
     assert np.isfinite(float(info["loss"])) and 0.5 < float(info["valid"]) <= 1.0
 
-    fresh = with_fresh_high_actor(model.agent, 0, split.obs_dim)
+    fresh = with_fresh_high_actor(model.agent, 0)
     alpha = jnp.float32(0.1)
     trained, info = policy_chunk(fresh, value, split, jax.random.PRNGKey(2), alpha, 2, stage)
     assert np.isfinite(float(info["actor_loss"]))
@@ -272,7 +266,8 @@ def test_both_stages_run_on_the_real_checkpoint_and_reload(medium, tmp_path, mon
         assert same(trained.network.params[name], model.agent.network.params[name]), name
 
     monkeypatch.setenv("FBPLAN_APPROACH_B_DIR", str(tmp_path))
-    save_high_actor(trained, {}, trained_dir("approach_b", MEDIUM, 0, "clean"))
+    flags = {"env_name": f"ogbench-{MEDIUM}"}
+    frozen.save_trained_checkpoint(trained, flags, trained_dir("approach_b", MEDIUM, 0, "clean"))
     loaded = load_b_model(MEDIUM, "clean", 0)
     obs = split.data.observations[:3]
     z = jnp.ones((3, model.latent_dim))

@@ -184,8 +184,13 @@ Shared contracts: `fbplan/contracts.py` (`FBModel`, `Controller`, `TaskSpec`, `E
 - Commit messages: imperative mood, one topic per commit. No Co-Authored-By lines.
 - Do not add a git remote and do not push. The coordinator publishes the repository.
 - Evaluations share one 12-core Mac: use at most 4 workers per run unless the user approves more.
-- Stop and ask the user before you start long GPU jobs, download more than 1 GB,
-  or change a design decision in this document.
+- Decisions go to the coordinator, not to the user (the user delegated them on 2026-10-29).
+  Stop and ask the coordinator before you start a GPU job, download more than 1 GB, or change a
+  design decision in this document. Write the question in your status file, end your message
+  with a line that starts with `QUESTION FOR COORDINATOR:`, and end your turn. Do not open a
+  question dialog: a dialog blocks the tab, and the coordinator cannot answer it. The
+  coordinator answers with a message in your tab. Only public uploads (releases) and actions
+  that the permission system reserves for the user still go to the user.
 
 ## 8. Open items
 

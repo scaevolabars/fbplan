@@ -1,5 +1,4 @@
 import numpy as np
-import ogbench
 import pytest
 
 from fbplan.contracts import TaskSpec
@@ -10,25 +9,17 @@ from fbplan.controllers.baseline import (
     RawBaselineController,
 )
 from fbplan.controllers.oracle import (
-    MazeGeometry,
     OracleConfig,
     OracleWaypointController,
     make_oracle,
     nearest_observations,
     region_latents,
 )
+from fbplan.frozen import make_env
+from fbplan.maze import MazeGeometry
 
-MEDIUM_MAP = np.array([
-    [1, 1, 1, 1, 1, 1, 1, 1],
-    [1, 0, 0, 1, 1, 0, 0, 1],
-    [1, 0, 0, 1, 0, 0, 0, 1],
-    [1, 1, 0, 0, 0, 1, 1, 1],
-    [1, 0, 0, 1, 0, 0, 0, 1],
-    [1, 0, 1, 0, 0, 1, 0, 1],
-    [1, 0, 0, 0, 1, 0, 0, 1],
-    [1, 1, 1, 1, 1, 1, 1, 1],
-])
-MEDIUM = MazeGeometry(maze_map=MEDIUM_MAP, unit=4.0, offset_xy=(4.0, 4.0))
+MEDIUM_ENV = make_env("antmaze-medium-navigate-v0")
+MEDIUM = MazeGeometry.from_env(MEDIUM_ENV)
 
 
 class _FakeFB:
@@ -106,13 +97,10 @@ def test_raw_baseline_passes_the_task_latent_unnormalized_to_upstream_sample_act
 
 
 def test_maze_geometry_matches_ogbench_cell_conversions():
-    env = ogbench.make_env_and_datasets("antmaze-medium-navigate-v0", env_only=True)
-    maze = MazeGeometry.from_env(env)
-    np.testing.assert_array_equal(maze.maze_map, MEDIUM_MAP)
     xys = np.random.default_rng(0).uniform(-6, 26, size=(200, 2))
-    assert [maze.cell_of(xy) for xy in xys] == [env.unwrapped.xy_to_ij(xy) for xy in xys]
-    for cell in maze.free_cells():
-        np.testing.assert_allclose(maze.centre(cell), env.unwrapped.ij_to_xy(cell))
+    assert [MEDIUM.cell_of(xy) for xy in xys] == [MEDIUM_ENV.unwrapped.xy_to_ij(xy) for xy in xys]
+    for cell in MEDIUM.free_cells():
+        np.testing.assert_allclose(MEDIUM.centre(cell), MEDIUM_ENV.unwrapped.ij_to_xy(cell))
 
 
 def test_bfs_steps_give_shortest_cell_distance_and_mark_walls():
@@ -126,7 +114,7 @@ def test_path_follows_free_adjacent_cells_to_the_goal():
     path = MEDIUM.path((1, 1), (6, 6))
     assert path[0] == (1, 1) and path[-1] == (6, 6) and len(path) == 11
     for (i, j), (k, m) in zip(path, path[1:], strict=False):
-        assert abs(i - k) + abs(j - m) == 1 and MEDIUM_MAP[k, m] == 0
+        assert abs(i - k) + abs(j - m) == 1 and MEDIUM.maze_map[k, m] == 0
 
 
 def test_nearest_observations_use_xy_only():

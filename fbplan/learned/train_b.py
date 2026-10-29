@@ -32,8 +32,6 @@ from fbplan.learned.checkpoint import (
     Agent,
     git_commit,
     load_b_model,  # noqa: F401  fbplan.evaluate imports it from here (until it switches)
-    maze_name,
-    save_high_actor,
     trained_dir,
     trained_key,
     with_fresh_high_actor,
@@ -254,7 +252,7 @@ def train_policy(args: argparse.Namespace, model: frozen.FrozenFBModel, run_dir:
     value, config = load_value(
         args.env, args.value_name, args.seed, train_split.obs_dim, model.latent_dim
     )
-    agent = with_fresh_high_actor(model.agent, args.seed, train_split.obs_dim)
+    agent = with_fresh_high_actor(model.agent, args.seed)
     stage = policy_stage(agent, args.variant, config)
 
     key = jax.random.fold_in(jax.random.PRNGKey(args.seed), SAMPLER_STREAM)
@@ -287,7 +285,7 @@ def train_policy(args: argparse.Namespace, model: frozen.FrozenFBModel, run_dir:
         },
     }
     out_dir = trained_dir("approach_b", args.env, args.seed, args.name)
-    save_high_actor(agent, flags, out_dir)
+    frozen.save_trained_checkpoint(agent, flags, out_dir)
     print(f"saved {out_dir}")
 
 
@@ -337,7 +335,8 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     run_dir = (
-        args.run_dir or Path("runs/train_b") / maze_name(args.env) / args.name / f"seed{args.seed}"
+        args.run_dir
+        or Path("runs/train_b") / frozen.maze_name(args.env) / args.name / f"seed{args.seed}"
     )
     run_dir.mkdir(parents=True, exist_ok=True)
     model = frozen.load_model(args.env)

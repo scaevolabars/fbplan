@@ -25,7 +25,7 @@ import numpy as np  # noqa: E402
 from fbplan import frozen  # noqa: E402
 from fbplan.contracts import normalize_z  # noqa: E402
 from fbplan.controllers.oracle import MazeGeometry  # noqa: E402
-from fbplan.learned.checkpoint import Agent, maze_name  # noqa: E402
+from fbplan.learned.checkpoint import Agent  # noqa: E402
 from fbplan.learned.train_b import Split  # noqa: E402
 from fbplan.learned.value import ValueState, load_value, multi_switch_value  # noqa: E402
 
@@ -121,7 +121,7 @@ def main() -> None:
     print(f"{args.env}, {args.value}, {args.n} x {args.n} validation pairs")
     print("| seed | rank corr V_1 vs dist | V_H | far half: V_1 | V_H |")
     print("|---|---|---|---|---|")
-    maze = maze_name(args.env)
+    maze = frozen.maze_name(args.env)
     for seed in args.seeds:
         value, _ = load_value(args.env, args.value, seed, obs.shape[1], model.latent_dim)
         v1, vh = value_grid(model.agent, value, obs[s_idx], z_goals)

@@ -9,7 +9,7 @@ the objective:
 - no wandb and no evaluation during training (fbplan.evaluate evaluates the saved pi_h);
 - logged training metrics are means over each log interval, not values of one step.
 
-The result is saved as high_actor.pkl (fbplan.learned.checkpoint); load it with
+The result is saved as high_actor.pkl (fbplan.frozen.save_trained_checkpoint); load it with
 `fbplan.learned.checkpoint.load_baseline_model(env, seed)`.
 
 Usage:
@@ -32,8 +32,6 @@ from fbplan.learned.checkpoint import (
     Agent,
     git_commit,
     load_baseline_model,  # noqa: F401  fbplan.evaluate imports it from here (until it switches)
-    maze_name,
-    save_high_actor,
     trained_dir,
     with_fresh_high_actor,
 )
@@ -107,15 +105,14 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
-    maze = maze_name(args.env)
+    maze = frozen.maze_name(args.env)
     out_dir = args.out_dir or trained_dir("baselines", args.env, args.seed)
     run_dir = args.run_dir or Path("runs/train_high") / maze / f"seed{args.seed}"
     run_dir.mkdir(parents=True, exist_ok=True)
 
     train_set = frozen.load_dataset(args.env, "train")
     val_set = frozen.load_dataset(args.env, "val")
-    obs_dim = train_set["observations"].shape[-1]
-    agent = with_fresh_high_actor(frozen.load_model(args.env).agent, args.seed, obs_dim)
+    agent = with_fresh_high_actor(frozen.load_model(args.env).agent, args.seed)
     print(json.dumps({"env": args.env, "seed": args.seed, "agent": agent.config}, default=str))
 
     agent = train(
@@ -135,7 +132,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "agent": dict(agent.config),
         "retrained_high_actor": {"from": f"checkpoints/{maze}", "commit": git_commit()},
     }
-    save_high_actor(agent, flags, out_dir)
+    frozen.save_trained_checkpoint(agent, flags, out_dir)
     print(f"saved {out_dir}")
 
 
