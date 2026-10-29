@@ -155,8 +155,43 @@
 - **Attribution control (h-learn H1, coordinator 2026-10-29):** B clean with `--critic v_1` (V_1 where
   the targets and the advantage use V_H), the shared 2x temperature of `clean-awr2x`, the same
   batches; folder `approach_b/medium/clean-v1-awr2x/seed<k>`, d-eval name `b:clean-v1-awr2x:<seed>`.
-  Script `scripts/gpu/awr2x_v1.sh`. It needs new code, so it starts after awr2x.sh logs "all done":
-  `push --no-tests`, then the script (about 1 GPU hour, about $0.21).
+  Script `scripts/gpu/awr2x_v1.sh` (about 1 GPU hour, about $0.21); start: see the night plan.
+- **AWR 2x progress (01:05 MSK, 2026-10-30):** baseline 2x seeds 0-4 saved (seeds 0, 2, 4 from the
+  retry; awr2x.sh counted the 3 crashed runs as failed and went on). Shared temperature for B clean
+  2x: **0.2099** (`runs/train_b/medium/clean-awr2x/calibration.json`: median upstream spread 16.49 at
+  0.2, median switch spread 15.72, 200 batches, critics value-single 0-4). B clean 2x seeds 0-4 at
+  step 65k of 500k, GPU 100 %, 12.6 GB; end about 03:00 MSK.
+- **Night plan (coordinator, 00:55 MSK):** no relaunch of awr2x. When B clean 2x ends: pull and
+  export the 2x baseline and B clean 2x for d-eval; push once (H1 + T2 code); start H1 (tmux `h1`,
+  `bash scripts/gpu/awr2x_v1.sh > runs/awr2x_v1.log`); when its 5 runs step, start T2 next to it
+  on cores 10-19 (tmux `t2`, `FIRST_CORE=10 bash scripts/gpu/logratio.sh > runs/logratio.log`).
+  Memory: about 12.5 + 4.3 GB of 24. The 2x crash came from 5 processes that compiled at the
+  same time, so T2 starts only after H1 compiled. Then pull, export, load checks, destroy.
+  A local script runs this plan (scratchpad `wave1.sh`); destroy stays a manual step.
+- **T2 code (log-ratio baseline `pi_h`, design.md §8 wave 1, h-learn H2):** `fbplan/learned/logratio.py`
+  and `train_high --advantage logratio --goal-alpha 2.45`. Upstream `high_actor_loss` with the
+  same latents from the same rng and the same optimizer step; only the AWR weight of goal latents
+  changes: `exp(min(2.45 A, 5))`, `A = log max(mean_h [F_h(s,z_w)^T z + rho~_h F_h(w,z)^T z], 1) -
+  log max(mean_h F_h(s,z)^T z, 1)`, normalized z, `rho~_h = clip(Msww_h / Mwww_h, 0, 0.99)`.
+  Gaussian latents keep upstream's proxy at 0.1. Goal latents are found from the mix flag of
+  upstream `sample_latents` (same rng split), not by comparing floats. Logged extras:
+  `adv_log`, `goal_share`, `ess_goal`. Flags: `retrained_high_actor.advantage = logratio`, `goal_alpha`.
+  Checks:
+  - tests (`tests/test_learned_logratio.py`): log-ratio on hand values (head mean before the log,
+    rho clip, floor at 1); `measure` equals upstream `successor_measure_extract`; with only
+    Gaussian latents the update equals upstream `update` bit for bit (params, rng, metrics); with
+    only goal latents and alpha 0 the loss is plain BC; only `pi_h` changes.
+  - default path unchanged: the 20-step reference run of `train_high` is bit-identical
+    (`pi_h` and log max diff 0.0).
+  - cross-check with h-learn's `awr_weights.py` on one batch (val split, key 0, 1024 samples, 492
+    goal latents): log-ratio max diff 2.2e-5; upstream proxy median relative diff 1e-6 (larger
+    only where `Mwww` is near 0, rounding of the ratio). h-learn's script takes the head mean after
+    the log; that order differs from the spec by up to 1.19 (correlation 0.987, means 0.416 vs 0.414).
+  - 20-step smoke run on the medium checkpoint: goal share 0.49, goal ESS/N about 0.2, 0.2 % of
+    weights at the clip.
+  Run (next to H1, see the night plan): `FIRST_CORE=10 bash scripts/gpu/logratio.sh`, i.e. per
+  seed k `uv run python -m fbplan.train_high --env antmaze-medium-navigate-v0 --seed k --name logratio --advantage logratio --goal-alpha 2.45`
+  -> `baselines/medium/logratio/seed<k>`, d-eval name `retrained:logratio:<k>`. About 1 GPU hour.
 
 ## Analysis: the seed split of B-clean (for the report; no new training)
 
@@ -326,19 +361,8 @@ The allocator setting changes memory handling only. It did not lower the 2.5 GB,
 
 ## Questions for the coordinator
 
-- T2 (log-ratio baseline `pi_h`, h-learn H2, design.md §8 wave 1), asked 2026-10-30 ~00:35 MSK.
-  H2 fixes the advantage for goal latents, `A = log max(F(s,z_w)^T z + rho~ F(w,z)^T z, 1) -
-  log max(F(s,z)^T z, 1)` (normalized z, rho~ = clip(rho, 0, 0.99), mean over heads), and the
-  upstream proxy for Gaussian latents. Three choices are open:
-  (a) temperature of the log-ratio part: recommend 2.45, h-learn's ESS match to upstream at 0.1
-      (ESS/N 0.177 against 0.168, §0 C); alternatives 2.5, or the H2 grid {1.25, 2.5, 5} (3 GPU h);
-  (b) temperature of the Gaussian-latent part (upstream proxy, linear units): recommend upstream's
-      0.1; one alpha near 2.5 for both would put almost every Gaussian sample at the clip;
-  (c) heads: recommend rho_h = F_h(s,z_w)^T B(w) / F_h(w,z_w)^T B(w) per head, clipped to
-      [0, 0.99], then the head mean of `F_h(s,z_w)^T z + rho~_h F_h(w,z)^T z` and of
-      `F_h(s,z)^T z` before the log; or h-learn's scratchpad script as the reference.
-  Code plan after the answer: `train_high --advantage logratio --goal-alpha A` (upstream loss
-  and batches, only the advantage of goal latents changes), folder `baselines/medium/logratio`.
+- None open. T2 answered 2026-10-30 (design.md §8): (a) 2.45, (b) upstream 0.1 for Gaussian
+  latents, (c) rho per head clipped to [0, 0.99], head mean before the log.
 
 ## Blockers
 
