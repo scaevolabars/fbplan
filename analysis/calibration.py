@@ -1,18 +1,19 @@
 """FB distance calibration and wormhole count on one maze.
 
     uv run python analysis/calibration.py [--env antmaze-medium-navigate-v0] [--n 400]
-        [--head-agg min] [--rho-min 0.3 0.5 0.7] [--out-dir results/figures]
+        [--head-agg min] [--rho-min 0.3 0.5 0.7] [--max-edge-xy 6] [--out-dir results/figures]
 
 For n validation states s, w (uniform sample, fixed seed) it compares the FB distance
--log rho(s, w) / -log gamma (steps, rho from c-planner's OptionModel) with the exact maze
-geodesic distance between their xy positions (walls solid, agent a point).
+-log rho(s, w) / -log gamma (steps, rho from c-planner's OptionModel, clipped to [0, gamma])
+with the exact maze geodesic distance between their xy positions (walls solid, agent a point).
 
-A trusted pair (rho >= rho_min) is a wormhole when the FB distance is shorter than the time
-the ant needs to walk the geodesic at its top speed (99th percentile of the per-step xy
-displacement in the data). The planner's max operator exploits exactly these pairs.
-Pairs with rho >= 1 (clipped to 1, FB distance 0) are counted apart: the planner already
-distrusts them. Outputs: a calibration figure, a map of the 200 longest wormholes with
-rho < 1, a printed Markdown table.
+Trust follows the planner: a pair is trusted when its raw rho is at least rho_min. Pairs with
+raw rho >= 1 are counted apart, because the planner distrusts them. A trusted pair with raw
+rho < 1 is a wormhole when the FB distance is shorter than the time the ant needs to walk the
+geodesic at its top speed (99th percentile of the per-step xy displacement in the data); the
+planner's max operator exploits exactly these pairs. The table also counts the wormholes that
+the planner's xy cap (max_edge_xy) leaves. Outputs: a calibration figure, a map of the 200
+longest wormholes, a printed Markdown table.
 """
 
 from __future__ import annotations
@@ -48,11 +49,17 @@ def step_speeds(data: dict[str, np.ndarray]) -> np.ndarray:
 
 
 def wormhole_mask(
-    rho: np.ndarray, geodesic: np.ndarray, discount: float, top_speed: float, rho_min: float
+    rho_raw: np.ndarray,
+    rho: np.ndarray,
+    geodesic: np.ndarray,
+    discount: float,
+    top_speed: float,
+    rho_min: float,
 ) -> np.ndarray:
-    """Trusted pairs whose FB distance is shorter than the geodesic walk at top speed."""
-    steps_needed = geodesic / top_speed
-    return (rho >= rho_min) & (fb_distance(rho, discount) < steps_needed)
+    """Trusted pairs below raw rho 1 whose FB distance (from the clipped rho) is shorter than
+    the geodesic walk at top speed."""
+    trusted = (rho_raw >= rho_min) & (rho_raw < 1.0)
+    return trusted & (fb_distance(rho, discount) < geodesic / top_speed)
 
 
 def plot_calibration(
@@ -115,6 +122,7 @@ def main() -> None:
     parser.add_argument("--n", type=int, default=400, help="number of sampled states")
     parser.add_argument("--head-agg", default="min", choices=["min", "mean"])
     parser.add_argument("--rho-min", type=float, nargs="+", default=[0.3, 0.5, 0.7])
+    parser.add_argument("--max-edge-xy", type=float, default=6.0, help="the planner's xy cap")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out-dir", type=Path, default=Path("results/figures"))
     args = parser.parse_args()
@@ -140,22 +148,26 @@ def main() -> None:
     print(f"{tag}: {off_diag.sum()} ordered pairs; rho clipped low {table.n_clipped_low}, "
           f"high {table.n_clipped_high}; rho = 0 for {np.mean(rho == 0):.1%}")
     print(f"step speed: median {median_speed:.3f}, p99 {top_speed:.3f} xy units per step")
-    print("\n| rho_min | trusted pairs | of which rho = 1 | wormholes with rho < 1 "
-          "| share of trusted | longest (xy) |")
-    print("|---|---|---|---|---|---|")
-    below_one = (table.rho < 1.0) & off_diag
+    print("\n| rho_min | trusted pairs | of which raw rho >= 1 | wormholes (raw rho < 1) "
+          f"| share of trusted | wormholes within xy {args.max_edge_xy:g} | longest (geodesic) |")
+    print("|---|---|---|---|---|---|---|")
+    xy_dist = np.linalg.norm(obs[:, None, :2] - obs[None, :, :2], axis=-1)
     for rho_min in args.rho_min:
-        trusted = (table.rho >= rho_min) & off_diag
-        mask = wormhole_mask(table.rho, geodesic, model.discount, top_speed, rho_min) & below_one
+        trusted = (table.rho_raw >= rho_min) & off_diag
+        mask = wormhole_mask(table.rho_raw, table.rho, geodesic, model.discount, top_speed,
+                             rho_min) & off_diag
+        capped = mask & (xy_dist <= args.max_edge_xy)
         longest = float(geodesic[mask].max()) if mask.any() else 0.0
-        print(f"| {rho_min} | {trusted.sum()} | {(trusted & ~below_one).sum()} | {mask.sum()} "
-              f"| {mask.sum() / max(trusted.sum(), 1):.1%} | {longest:.1f} |")
+        print(f"| {rho_min} | {trusted.sum()} | {(trusted & (table.rho_raw >= 1)).sum()} "
+              f"| {mask.sum()} | {mask.sum() / max(trusted.sum(), 1):.1%} | {capped.sum()} "
+              f"| {longest:.1f} |")
     rho_min = min(args.rho_min)
-    mask = wormhole_mask(table.rho, geodesic, model.discount, top_speed, rho_min) & below_one
+    mask = wormhole_mask(table.rho_raw, table.rho, geodesic, model.discount, top_speed,
+                         rho_min) & off_diag
     pairs = np.argwhere(mask)
     drawn = pairs[np.argsort(-geodesic[mask])[:MAX_DRAWN]]
     plot_wormholes(maze, obs[:, :2], drawn,
-                   f"{len(drawn)} longest of {len(pairs)} wormholes, rho >= {rho_min} ({tag})",
+                   f"{len(drawn)} longest of {len(pairs)} wormholes, rho >= {rho_min}\n{tag}",
                    args.out_dir / f"wormholes_{args.env}_{args.head_agg}.png")
 
 
