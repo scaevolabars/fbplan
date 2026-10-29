@@ -7,15 +7,21 @@ reference against upstream `utils/evaluation.evaluate`.
 `FBpiSwitchAgent.sample_actions` with z_r as upstream infers it, so pi_h gets z_r without
 normalization (a reference row, docs/design.md §8).
 `NonHierController` drops pi_h and gives the task latent z_r directly to pi_l.
+`EnsembleBaselineController` averages the intentions of the pi_h of several training seeds
+(test-time ensemble, docs/hypotheses/h-learn.md H3).
 All act at temperature 0 (deterministic), as the upstream evaluation default.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
+
 import jax
 import numpy as np
 
-from fbplan.contracts import FBModel, TaskSpec
+from fbplan.contracts import Controller, FBModel, TaskSpec, normalize_z
+from fbplan.evaluate import Checkpoint
 from fbplan.frozen import FrozenFBModel
 
 
@@ -71,3 +77,44 @@ class NonHierController(_TaskLatentController):
 
     def act(self, obs: np.ndarray) -> np.ndarray:
         return np.asarray(self._model.low_action(obs[None], self._z_r[None])[0])
+
+
+@dataclass(frozen=True)
+class EnsembleConfig:
+    """family: the trained pi_h family whose seeds vote, as in --checkpoint without the seed
+    ("retrained", "b:clean", "b:region"); seeds: the first `seeds` training seeds."""
+
+    family: str = "retrained"
+    seeds: int = 5
+
+
+class EnsembleBaselineController(_TaskLatentController):
+    """pi_l(a | s, z) with z = normalize(mean_k pi_h^k(s, z_r)).
+
+    Each member's pi_h returns a normalized intention; their mean is normalized again. F, B and
+    pi_l are the shared frozen modules, so only `model` acts.
+    """
+
+    name = "baseline_ensemble"
+
+    def __init__(
+        self, model: FBModel, members: Sequence[FBModel], config: EnsembleConfig
+    ) -> None:
+        super().__init__(model)
+        self._members = list(members)
+        self.config = config
+
+    def act(self, obs: np.ndarray) -> np.ndarray:
+        intentions = [
+            np.asarray(member.high_latent(obs[None], self._z_r[None]))[0]
+            for member in self._members
+        ]
+        z = normalize_z(np.mean(intentions, axis=0), self._model.latent_dim)
+        return np.asarray(self._model.low_action(obs[None], z[None])[0])
+
+
+def make_ensemble(model: FBModel, family: str = "retrained", seeds: int = 5) -> Controller:
+    """Ensemble of the pi_h of seeds 0..seeds-1 of `family`, loaded like --checkpoint."""
+    config = EnsembleConfig(family, seeds)
+    members = [Checkpoint.parse(f"{family}:{k}").load(model.env_name) for k in range(seeds)]
+    return EnsembleBaselineController(model, members, config)

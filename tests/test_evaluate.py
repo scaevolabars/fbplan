@@ -299,35 +299,41 @@ def test_parse_options_rejects_items_without_equals_sign():
 MEDIUM = "antmaze-medium-navigate-v0"
 
 
-def _val_xy(env_name: str) -> np.ndarray:
+def _val_obs(env_name: str) -> np.ndarray:
     if not frozen.dataset_path(env_name, "val").exists():
         pytest.skip(f"{env_name} val split absent")
-    return frozen.load_dataset(env_name, "val")["qpos"][:, :2]
+    return frozen.load_dataset(env_name, "val")["observations"]
 
 
-@pytest.mark.parametrize("env_name", [MEDIUM, "antmaze-large-navigate-v0"])
+TELEPORT = "antmaze-teleport-navigate-v0"
+
+
+@pytest.mark.parametrize("env_name", [MEDIUM, "antmaze-large-navigate-v0", TELEPORT])
 def test_heldout_goals_are_far_from_eval_goals_and_start_at_eval_task_distances(env_name):
-    env, val_xy = frozen.make_env(env_name), _val_xy(env_name)
+    env, val_obs = frozen.make_env(env_name), _val_obs(env_name)
     maze, infos = MazeGeometry.from_env(env), env.unwrapped.task_infos
     to_eval_goal = [maze.bfs_steps(tuple(t["goal_ij"])) for t in infos]
     lengths = [steps[tuple(t["init_ij"])] for steps, t in zip(to_eval_goal, infos, strict=True)]
-    goals = select_heldout_goals(env, val_xy)
-    assert [g.task_id for g in goals] == [HELDOUT_OFFSET + k for k in range(1, 11)]
-    assert len({g.goal_ij for g in goals}) == len(goals)
+    goals = select_heldout_goals(env, val_obs)
+    assert [g.task_id for g in goals] == [HELDOUT_OFFSET + k for k in range(1, len(goals) + 1)]
+    assert len({g.goal_ij for g in goals}) == len(goals) > 0
+    quaternion = val_obs[:, 3:7]
+    flipped = 1 - 2 * (quaternion[:, 1] ** 2 + quaternion[:, 2] ** 2) < 0
     for g in goals:
         assert min(steps[g.goal_ij] for steps in to_eval_goal) >= 2
         assert min(lengths) <= maze.bfs_steps(g.goal_ij)[g.init_ij] <= max(lengths)
         np.testing.assert_array_equal(g.goal_xy, env.unwrapped.ij_to_xy(g.goal_ij))
-        inside = np.linalg.norm(val_xy - g.goal_xy, axis=1) <= env.unwrapped._goal_tol
+        inside = np.linalg.norm(val_obs[:, :2] - g.goal_xy, axis=1) <= env.unwrapped._goal_tol
         assert inside.sum() >= 50
-    assert select_heldout_goals(frozen.make_env(env_name), val_xy) == goals
+        assert flipped[inside].mean() <= 0.5  # the goal ball is not dominated by flipped states
+    assert select_heldout_goals(frozen.make_env(env_name), val_obs) == goals
 
 
 @pytest.mark.parametrize(
-    "env_name", [MEDIUM, "antmaze-large-navigate-v0", "antmaze-giant-navigate-v0"]
+    "env_name", [MEDIUM, "antmaze-large-navigate-v0", "antmaze-giant-navigate-v0", TELEPORT]
 )
 def test_saved_heldout_goals_equal_the_selection(env_name):
-    selected = select_heldout_goals(frozen.make_env(env_name), _val_xy(env_name))
+    selected = select_heldout_goals(frozen.make_env(env_name), _val_obs(env_name))
     assert load_heldout_goals(env_name) == selected
 
 
@@ -359,6 +365,16 @@ def test_builtin_controllers_run_an_episode_on_the_real_model(medium_model, meth
     (record,) = run_episodes(controller, tasks, [0], 1)
     assert (record.method, record.env_name, record.task_id) == (method, MEDIUM, 2)
     assert 1 <= record.steps <= 1000
+
+
+def test_ensemble_of_the_retrained_seeds_runs_an_episode(medium_model):
+    folders = [trained.trained_dir("baselines", MEDIUM, k) for k in range(5)]
+    if not all((f / "high_actor.pkl").exists() for f in folders):
+        pytest.skip("retrained medium baselines absent")
+    controller = resolve_controller("ensemble")(medium_model, family="retrained", seeds=5)
+    tasks = make_tasks(MEDIUM, [2], medium_model.infer_task_latent)
+    (record,) = run_episodes(controller, tasks, [0], 1)
+    assert record.method == "baseline_ensemble" and 1 <= record.steps <= 1000
 
 
 def test_raw_baseline_equals_baseline_for_a_task_latent_of_norm_sqrt_d(medium_model):

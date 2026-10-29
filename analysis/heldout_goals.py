@@ -28,7 +28,7 @@ from fbplan.evaluate import (  # noqa: E402
 from fbplan.frozen import load_dataset, make_env  # noqa: E402
 from fbplan.maze import MazeGeometry, draw_walls  # noqa: E402
 
-ENVS = ["antmaze-medium-navigate-v0", "antmaze-large-navigate-v0", "antmaze-giant-navigate-v0"]
+ENVS = [f"antmaze-{maze}-navigate-v0" for maze in ("medium", "large", "giant", "teleport")]
 INK, MUTED, WALL, EVAL, HELDOUT = "#0b0b0b", "#52514e", "#e4e3df", "#7a7974", "#2a78d6"
 
 
@@ -66,8 +66,9 @@ def main() -> None:
     args = parser.parse_args()
     for env_name in args.envs:
         env = make_env(env_name)
-        xy = load_dataset(env_name, "val")["qpos"][:, :2]
-        goals = select_heldout_goals(env, xy)
+        obs = load_dataset(env_name, "val")["observations"]
+        xy = obs[:, :2]
+        goals = select_heldout_goals(env, obs)
         write_heldout_goals(goals, heldout_goals_path(env_name))
         maze = MazeGeometry.from_env(env)
         eval_goals = np.array([info["goal_xy"] for info in env.unwrapped.task_infos])
