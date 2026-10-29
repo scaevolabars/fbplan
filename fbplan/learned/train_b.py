@@ -19,7 +19,7 @@ import json
 from collections.abc import Sequence
 from functools import partial
 from pathlib import Path
-from typing import Literal, get_args
+from typing import Any, Literal, get_args
 
 import flax
 import jax
@@ -30,6 +30,7 @@ from fbplan import frozen
 from fbplan.learned.checkpoint import (
     SAMPLER_STREAM,
     Agent,
+    git_commit,
     run_flags,
     trained_key,
     with_fresh_high_actor,
@@ -240,6 +241,97 @@ def calibrate_alpha(
     return alpha, {"upstream_adv_std": upstream_std, "switch_adv_std": switch_std, "alpha": alpha}
 
 
+@partial(jax.jit, static_argnames=("spec",))
+def upstream_adv_std(
+    agent: Agent, data: TrajectoryData, key: jax.Array, spec: HighBatchSpec
+) -> jax.Array:
+    """std of upstream's one-switch advantage on one batch, with its own draw of task latents.
+
+    Upstream draws the latents from the agent's rng, so the rng is replaced per batch.
+    """
+    k_rng, k_batch = jax.random.split(key)
+    batch = sample_high_batch(data, k_batch, spec)
+    _, info = agent.replace(rng=k_rng).total_loss(batch, grad_params=None)
+    return info["high_actor/adv_std"]
+
+
+@partial(jax.jit, static_argnames=("stage",))
+def switch_adv_std(
+    agent: Agent, value: ValueState, split: Split, key: jax.Array, stage: Stage
+) -> jax.Array:
+    """std of the switch advantage over the valid edges of one batch."""
+    adv, valid = switch_advantage(agent, value, split.batch(key, stage), stage.value)
+    return masked_mean_std(adv, valid)[1]
+
+
+def shared_alpha(
+    agent: Agent,
+    values: Sequence[ValueState],
+    split: Split,
+    key: jax.Array,
+    stage: Stage,
+    upstream_alpha: float,
+    batches: int,
+) -> dict[str, Any]:
+    """One AWR temperature for all seeds of a policy family (design.md §8, AWR sharpness at 2x).
+
+    alpha * spread(A) = upstream_alpha * spread(upstream advantage), where the spread is the
+    median over `batches` batches of the per-batch std. Medians, because the per-batch std is
+    heavy-tailed: the upstream advantage divides by F(w, z_w)^T B(w), which can be near 0. Each
+    upstream batch has its own latent draw; the switch batches cycle over the seeds' critics.
+    """
+    k_up, k_sw = jax.random.split(key)
+    upstream_spec = HighBatchSpec.from_agent_config(agent.config)
+    up = [
+        float(upstream_adv_std(agent, split.data, k, upstream_spec))
+        for k in jax.random.split(k_up, batches)
+    ]
+    sw = [
+        float(switch_adv_std(agent, values[i % len(values)], split, k, stage))
+        for i, k in enumerate(jax.random.split(k_sw, batches))
+    ]
+    upstream_std, switch_std = float(np.median(up)), float(np.median(sw))
+    return {
+        "alpha": matched_alpha(upstream_std, switch_std, upstream_alpha),
+        "upstream_alpha": upstream_alpha,
+        "upstream_adv_std_median": upstream_std,
+        "switch_adv_std_median": switch_std,
+        "upstream_adv_std_q10_q90": [float(q) for q in np.percentile(up, [10, 90])],
+        "switch_adv_std_q10_q90": [float(q) for q in np.percentile(sw, [10, 90])],
+        "batches": batches,
+    }
+
+
+def calibrate(args: argparse.Namespace, model: frozen.FrozenFBModel) -> None:
+    """Write one shared AWR temperature for a policy family to args.out (JSON)."""
+    split = Split.load(model, "train", VARIANTS[args.variant][0])
+    loaded = [
+        load_value(args.env, args.value_name, seed, split.obs_dim, model.latent_dim)
+        for seed in args.seeds
+    ]
+    stage = policy_stage(model.agent, args.variant, loaded[0][1])
+    upstream_alpha = args.upstream_alpha or float(model.agent.config["high_alpha"])
+    result = shared_alpha(
+        model.agent,
+        [v for v, _ in loaded],
+        split,
+        jax.random.PRNGKey(0),
+        stage,
+        upstream_alpha,
+        args.batches,
+    )
+    result |= {
+        "env": args.env,
+        "variant": args.variant,
+        "value_name": args.value_name,
+        "value_seeds": args.seeds,
+        "commit": git_commit(),
+    }
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(json.dumps(result, indent=2))
+    print(json.dumps(result), flush=True)
+
+
 def policy_stage(agent: Agent, variant: str, config: ValueConfig) -> Stage:
     """Batches for pi_h: upstream's goal distribution, plus random goals in the wide variant."""
     spec = dataclasses.replace(
@@ -259,8 +351,12 @@ def train_policy(args: argparse.Namespace, model: frozen.FrozenFBModel, run_dir:
     stage = policy_stage(agent, args.variant, config)
 
     key = jax.random.fold_in(jax.random.PRNGKey(args.seed), SAMPLER_STREAM)
-    calibration_key, key = jax.random.split(key)
-    alpha, calibration = calibrate_alpha(agent, value, train_split, calibration_key, stage)
+    calibration_key, key = jax.random.split(key)  # also with --alpha-from: same batches
+    if args.alpha_from is not None:
+        calibration = json.loads(args.alpha_from.read_text())
+        alpha = calibration["alpha"]
+    else:
+        alpha, calibration = calibrate_alpha(agent, value, train_split, calibration_key, stage)
     if args.alpha is not None:
         alpha = args.alpha
     print(json.dumps(calibration | {"alpha_used": alpha}), flush=True)
@@ -331,8 +427,22 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         "--variant", choices=tuple(VARIANTS), required=True, help="see the module docstring"
     )
     policy.add_argument("--value-name", help="V_H folder to load; default value-<latents>")
-    policy.add_argument("--alpha", type=float, help="AWR temperature; default: upstream spread")
+    temperature = policy.add_mutually_exclusive_group()
+    temperature.add_argument("--alpha", type=float, help="AWR temperature; default: per seed")
+    temperature.add_argument(
+        "--alpha-from", type=Path, help="JSON of `calibrate`: one temperature for all seeds"
+    )
+    calib = sub.add_parser("calibrate", help="one AWR temperature shared by a policy family")
+    calib.add_argument("--env", required=True, choices=frozen.ENV_NAMES, help="OGBench env")
+    calib.add_argument("--variant", choices=tuple(VARIANTS), default="clean", help="batches")
+    calib.add_argument("--value-name", default="value-single", help="V_H folder of the critics")
+    calib.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4], help="critics")
+    calib.add_argument("--upstream-alpha", type=float, help="baseline temperature to match")
+    calib.add_argument("--batches", type=int, default=200, help="batches per median")
+    calib.add_argument("--out", type=Path, required=True, help="JSON file to write")
     args = parser.parse_args(argv)
+    if args.stage == "calibrate":
+        return args
     # Default folders: value-<latents> for V_H, the variant for pi_h. Give ablations their own
     # --name, so they do not replace the V_H that the policy stage loads.
     if args.name is None:
@@ -344,6 +454,9 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
+    if args.stage == "calibrate":
+        calibrate(args, frozen.load_model(args.env))
+        return
     run_dir = (
         args.run_dir
         or Path("runs/train_b") / frozen.maze_name(args.env) / args.name / f"seed{args.seed}"

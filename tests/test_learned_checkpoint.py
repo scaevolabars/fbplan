@@ -44,6 +44,7 @@ def same(a, b) -> bool:
 def test_keys_name_the_folders_below_the_cache():
     assert trained_key("baselines", MEDIUM, 0) == "baselines/medium/seed0"
     assert trained_key("approach_b", MEDIUM, 3, "clean") == "approach_b/medium/clean/seed3"
+    assert trained_key("baselines", MEDIUM, 0, "awr2x") == "baselines/medium/awr2x/seed0"
 
 
 def test_folder_roots_follow_the_environment_variables(monkeypatch, tmp_path):

@@ -133,6 +133,17 @@
   0.244, 0.141, 0.210, 0.118, 0.153. Current-code command per seed k:
   `uv run python -m fbplan.learned.train_b policy --env antmaze-medium-navigate-v0 --seed k --variant wide`.
 
+- **AWR sharpness at 2x (design.md §8, coordinator decision 2026-10-29 23:00 MSK):** code ready
+  and tested (`train_high --name --high-alpha`, `train_b calibrate`, `train_b policy --alpha-from`,
+  `load_baseline_model(env, seed, name)`; default paths stay bit-identical; 434 tests pass).
+  Plan on 58234389 after region: `push --no-tests` (no job runs then), then
+  `bash scripts/gpu/awr2x.sh` in tmux: baseline `high_alpha 0.2` seeds 0-4 ->
+  `baselines/medium/awr2x/seed<k>`; one shared temperature from 200 batches (median per-batch
+  spreads, new latent draw per upstream batch, critics value-single 0-4 pooled), computed on the
+  GPU because CPU and TF32 give different spreads -> `runs/train_b/medium/clean-awr2x/calibration.json`;
+  B clean at that temperature -> `approach_b/medium/clean-awr2x/seed<k>` (same batches as the B-clean
+  runs, so only the temperature differs). Budget: about 1.9 GPU hours, about $0.40.
+
 ## Analysis: the seed split of B-clean (for the report; no new training)
 
 Success per training seed (d-eval, `results/medium/b_clean/seed*.csv` and
@@ -316,6 +327,13 @@ For a-frozen:
 3. Ready to publish now: `~/.cache/fbplan/baselines/{medium,large}/seed{0..4}/` with
    `high_actor.pkl` and `flags.json` (keys `baselines/<maze>/seed<k>`; `params.pkl` there is the
    old full state, not for upload). Approach B folders follow after the queue.
+
+For d-eval:
+
+7. AWR sharpness at 2x, checkpoint names: the baseline family is the key
+   `baselines/medium/awr2x/seed<k>`, loaded by `fbplan.learned.checkpoint.load_baseline_model(env,
+   seed, "awr2x")`; `retrained:<seed>` cannot name it yet (perhaps `retrained:awr2x:<seed>`). The B
+   family is `b:clean-awr2x:<seed>` (works as is). I write here when each family is pulled.
 
 For c-planner:
 

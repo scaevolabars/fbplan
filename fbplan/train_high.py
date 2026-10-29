@@ -97,20 +97,34 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         type=Path,
         help="default: ~/.cache/fbplan/baselines/<maze>/seed<k> (FBPLAN_BASELINE_DIR moves it)",
     )
-    parser.add_argument("--run-dir", type=Path, help="default: runs/train_high/<maze>/seed<k>")
+    parser.add_argument(
+        "--run-dir", type=Path, help="default: runs/train_high/<maze>/[<name>/]seed<k>"
+    )
+    parser.add_argument(
+        "--name", help="folder below baselines/<maze>/ for a variant of the recipe; default none"
+    )
+    parser.add_argument(
+        "--high-alpha", type=float, help="AWR temperature of pi_h; default: the checkpoint's (0.1)"
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     maze = frozen.maze_name(args.env)
-    out_dir = args.out_dir or frozen.trained_dir(trained_key("baselines", args.env, args.seed))
-    run_dir = args.run_dir or Path("runs/train_high") / maze / f"seed{args.seed}"
+    key = trained_key("baselines", args.env, args.seed, args.name)
+    out_dir = args.out_dir or frozen.trained_dir(key)
+    run_dir = args.run_dir or Path("runs/train_high") / key.split("/", 1)[1]
     run_dir.mkdir(parents=True, exist_ok=True)
 
     train_set = frozen.load_dataset(args.env, "train")
     val_set = frozen.load_dataset(args.env, "val")
-    agent = with_fresh_high_actor(frozen.load_model(args.env).agent, args.seed)
+    frozen_agent = frozen.load_model(args.env).agent
+    if args.high_alpha is not None:
+        # The pi_h init and the batches depend only on the seed, so only the AWR weighting changes.
+        config = dict(frozen_agent.config) | {"high_alpha": args.high_alpha}
+        frozen_agent = frozen_agent.replace(config=config)
+    agent = with_fresh_high_actor(frozen_agent, args.seed)
     print(json.dumps({"env": args.env, "seed": args.seed, "agent": agent.config}, default=str))
 
     agent = train(

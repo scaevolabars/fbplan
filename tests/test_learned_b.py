@@ -33,6 +33,7 @@ from fbplan.learned.train_b import (
     calibrate_alpha,
     parse_args,
     policy_chunk,
+    shared_alpha,
     value_chunk,
 )
 from fbplan.learned.value import (
@@ -251,6 +252,28 @@ def test_calibrated_alpha_gives_alpha_times_a_the_upstream_spread(agent, value, 
     assert info["upstream_adv_std"] == pytest.approx(upstream)
     assert info["switch_adv_std"] == pytest.approx(switch)
     assert alpha * switch == pytest.approx(float(agent.config["high_alpha"]) * upstream)
+
+
+def test_shared_alpha_matches_median_spreads_over_several_critics(agent, value, split):
+    other = ValueState.create(jax.random.PRNGKey(9), OBS_DIM, LATENT_DIM, TINY_VALUE)
+    result = shared_alpha(agent, [value, other], split, jax.random.PRNGKey(0), STAGE, 0.2, 6)
+    up, sw = result["upstream_adv_std_median"], result["switch_adv_std_median"]
+    assert result["alpha"] * sw == pytest.approx(0.2 * up)
+    assert result["upstream_adv_std_q10_q90"][0] <= up <= result["upstream_adv_std_q10_q90"][1]
+    assert result["switch_adv_std_q10_q90"][0] <= sw <= result["switch_adv_std_q10_q90"][1]
+    single = shared_alpha(agent, [value], split, jax.random.PRNGKey(0), STAGE, 0.2, 6)
+    assert single["upstream_adv_std_median"] == up  # the critics enter only the switch spread
+    assert single["switch_adv_std_median"] != sw
+
+
+def test_one_temperature_for_all_seeds_excludes_a_fixed_one():
+    env = ["--env", MEDIUM, "--seed", "0", "--variant", "clean"]
+    args = parse_args(["policy", *env, "--alpha-from", "cal.json", "--name", "clean-awr2x"])
+    assert (str(args.alpha_from), args.alpha, args.name) == ("cal.json", None, "clean-awr2x")
+    with pytest.raises(SystemExit):
+        parse_args(["policy", *env, "--alpha", "0.1", "--alpha-from", "cal.json"])
+    calib = parse_args(["calibrate", "--env", MEDIUM, "--upstream-alpha", "0.2", "--out", "c.json"])
+    assert (calib.seeds, calib.batches, calib.value_name) == ([0, 1, 2, 3, 4], 200, "value-single")
 
 
 def test_masked_mean_std_ignores_masked_samples():

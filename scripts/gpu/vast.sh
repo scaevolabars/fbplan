@@ -9,7 +9,7 @@
 #   scripts/gpu/vast.sh offers                         suitable offers, cheapest first
 #   scripts/gpu/vast.sh create <offer-id>              rent one with label $VAST_LABEL and your SSH key
 #   scripts/gpu/vast.sh list                           your instances (label $VAST_LABEL)
-#   scripts/gpu/vast.sh push <instance-id>             code at HEAD + checkpoints, then remote setup
+#   scripts/gpu/vast.sh push <instance-id> [--no-tests]   code at HEAD + checkpoints, remote setup
 #   scripts/gpu/vast.sh train <instance-id> <env> [seed ...]   retrain pi_h in tmux (seeds 0-4)
 #   scripts/gpu/vast.sh run <instance-id> <session> <command ...>   any command in tmux, in fbplan/
 #   scripts/gpu/vast.sh status <instance-id>           GPU use and the last log line of each run
@@ -100,7 +100,8 @@ cmd_list() {
 # The instance gets exactly the committed tree (and the submodule commit that HEAD records),
 # so every run maps to a commit. runs/ and .venv on the instance survive a new push.
 cmd_push() {
-  local id=$1 rev ssm_rev
+  local id=$1 rev ssm_rev skip=0
+  [[ ${2:-} == --no-tests ]] && skip=1
   [[ -z $(git -C "$REPO" status --porcelain) ]] || die "commit first: the instance gets HEAD"
   [[ -d $CKPT_DIR ]] || die "no checkpoints in $CKPT_DIR"
   rev=$(git -C "$REPO" rev-parse HEAD)
@@ -113,7 +114,7 @@ cmd_push() {
     remote "$id" "tar -x -C $REMOTE_DIR"
   echo "$rev" | remote "$id" "cat > $REMOTE_DIR/REVISION"
   tar -c -C "$CKPT_DIR" . | remote "$id" "mkdir -p .cache/fbplan/checkpoints && tar -x -C .cache/fbplan/checkpoints"
-  remote "$id" "bash $REMOTE_DIR/scripts/gpu/remote_setup.sh"
+  remote "$id" "SKIP_TESTS=$skip bash $REMOTE_DIR/scripts/gpu/remote_setup.sh"
 }
 
 cmd_train() {
