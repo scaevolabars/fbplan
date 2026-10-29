@@ -26,6 +26,14 @@ Last update: 2026-10-29.
   `upstream_module(module)` (was `_upstream`). The old name has no alias. Its 4 callers are in
   `frozen.py` and are updated. 2 new tests: an upstream import, and the refusal of a module
   from outside `third_party/ssm`.
+- Merged `main` (83dc7e1, all branches) into `a-frozen`: fast-forward, 251 tests pass.
+- GPU precision (user approved, found by e-learner): on an Ampere GPU (RTX 3090) JAX uses TF32
+  for float32 matmuls by default, and 2 tests failed by about 1.6e-3. These 2 tests now run
+  inside `jax.default_matmul_precision("highest")`: `test_forward_ignores_the_scale_of_z` and
+  `test_baseline_policy_matches_upstream_sample_actions`. The library code keeps the default
+  precision. Checked on CPU: inside the context, `_forward`, `_low_action` and upstream
+  `sample_actions` compile with `HIGHEST` (default: `DEFAULT`), and the jit cache compiles a new
+  entry. CPU ignores the setting, so the GPU failure does not reproduce here.
 - Sanity check (step 6): done. The result is below the paper; see below.
 
 ## Sanity check
@@ -123,6 +131,9 @@ fails if the physics drift again.
    Medium train: 1M rows, 1.4 s.
 7. `infer_task_latent` takes about 1 s (100k states through `B`) and is deterministic.
 8. Some tasks share a goal: teleport tasks 2, 3, 4 and tasks 1, 5; large tasks 4 and 5.
+9. **GPU precision.** On an Ampere GPU the model methods use TF32 matmuls (JAX default), so
+   results differ from CPU by about 1e-3. A test that compares two paths to 1e-4 or less must set
+   `jax.default_matmul_precision("highest")` around both paths.
 
 ## Next
 
@@ -141,5 +152,9 @@ fails if the physics drift again.
   This waits for the user's decision.
 - Optional, not done: a `filterwarnings` entry in `pyproject.toml` for the tfp-nightly
   DeprecationWarning.
+- Info: on `main` (83dc7e1), `uv run ruff format --check .` reports 12 files of other components
+  (4 in `analysis/`, `fbplan/controllers/oracle.py`, `fbplan/stats.py`, 5 test files,
+  `docs/status/b-theory.md`). §7 requires
+  only `ruff check`, which passes. The files of a-frozen are formatted.
 - Applied by the coordinator (2026-10-29): README setup line, design.md §2 (`z_r` norm),
   §5 (reset recipe), §1/§5 (gap to the paper numbers), merge of `pyproject.toml` and `uv.lock`.

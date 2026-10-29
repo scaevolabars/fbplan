@@ -172,10 +172,12 @@ def test_rho_of_a_state_to_itself_is_one(model, observations):
 
 
 def test_forward_ignores_the_scale_of_z(model, observations, latents):
-    reference = np.asarray(model.forward(observations, latents))
-    for scale in (1e-3, 1e3):
-        scaled = np.asarray(model.forward(observations, scale * latents))
-        np.testing.assert_allclose(scaled, reference, rtol=1e-4, atol=1e-4)
+    # Full float32 matmuls: on an Ampere GPU the default (TF32) gives errors of about 1.6e-3.
+    with jax.default_matmul_precision("highest"):
+        reference = np.asarray(model.forward(observations, latents))
+        for scale in (1e-3, 1e3):
+            scaled = np.asarray(model.forward(observations, scale * latents))
+            np.testing.assert_allclose(scaled, reference, rtol=1e-4, atol=1e-4)
 
 
 def test_low_action_is_deterministic_at_zero_temperature(model, observations, latents):
@@ -206,19 +208,22 @@ def test_baseline_policy_matches_upstream_sample_actions(model, observations):
     The test uses a z_r of norm sqrt(d). Upstream passes z_r to pi_h without normalizing it,
     and the real z_r is a little shorter (see the task latent test), so with the real z_r the
     two paths differ slightly: high_latent normalizes every input, as the contract says.
+    Both paths use full float32 matmuls: on an Ampere GPU the default (TF32) gives errors of
+    about 1.6e-3.
     """
     z_r = normalize_z(np.random.default_rng(1).normal(size=LATENT_DIM), LATENT_DIM)
     z_r = z_r.astype(np.float32)
     z_task = np.tile(z_r, (len(observations), 1))
-
-    ours = np.asarray(model.low_action(observations, model.high_latent(observations, z_task)))
     key = jax.random.PRNGKey(0)
-    upstream = np.stack(
-        [
-            np.asarray(model.agent.sample_actions(ob, z_r, seed=key, temperature=0.0))
-            for ob in observations
-        ]
-    )
+
+    with jax.default_matmul_precision("highest"):
+        ours = np.asarray(model.low_action(observations, model.high_latent(observations, z_task)))
+        upstream = np.stack(
+            [
+                np.asarray(model.agent.sample_actions(ob, z_r, seed=key, temperature=0.0))
+                for ob in observations
+            ]
+        )
 
     np.testing.assert_allclose(ours, upstream, atol=1e-5)
 
