@@ -10,6 +10,7 @@ from the CSV). Classes, from the ant's observations:
 - flipped: the torso points down (body z-axis below the horizon) for the last 50 steps;
   the ant cannot turn back, so this is a pi_l failure that no high-level choice can repair;
 - stuck: not flipped, and the xy position stays within 1 unit over the last 300 steps;
+- trapped: not flipped, and the final cell cannot reach the goal on foot (a teleport trap);
 - other: still moving at the time limit (slow, lost or on a wrong route).
 
 It prints and writes (--out, default <csv folder>/failures/<csv name>) a table per task and
@@ -42,7 +43,7 @@ from fbplan.maze import MazeGeometry
 from fbplan.stats import CHECKPOINT_DEFAULTS, load_results
 
 FLIP_WINDOW, STUCK_WINDOW, STUCK_RADIUS = 50, 300, 1.0
-CLASSES = ["flipped", "stuck", "other"]
+CLASSES = ["flipped", "stuck", "other", "trapped"]
 
 
 def upright(observations: np.ndarray) -> np.ndarray:
@@ -58,6 +59,13 @@ def classify(observations: np.ndarray) -> str:
     if np.linalg.norm(xy - xy.mean(axis=0), axis=1).max() < STUCK_RADIUS:
         return "stuck"
     return "other"
+
+
+def failure_class(observations: np.ndarray, cells_left: int) -> str:
+    """classify, with "trapped" for an episode that ends where the goal cannot be walked to
+    (cells_left < 0: no cell path from the final cell to the goal cell)."""
+    failure = classify(observations)
+    return "trapped" if failure != "flipped" and cells_left < 0 else failure
 
 
 def replay_failures(
@@ -87,7 +95,8 @@ def replay_failures(
             raise RuntimeError(f"replay of {row} differs: {record}")
         obs = np.stack(controller.observations)
         cells_left = maze.bfs_steps(maze.cell_of(task.goal_xy))[maze.cell_of(obs[-1, :2])]
-        out.append({**row, "failure": classify(obs), "cells_left": int(cells_left)})
+        out.append({**row, "failure": failure_class(obs, int(cells_left)),
+                    "cells_left": int(cells_left)})
     return out
 
 

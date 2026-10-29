@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-29, 20:00. Branch merged with `main` at 8dac124.
+Last update: 2026-10-29, 20:55. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -91,8 +91,14 @@ Queue, in the coordinator's priority:
   sets 0–2; failure classes of baseline and oracle.
 - (c) medium main results again: non-hier, oracle, the 9 planner runs, parity against upstream,
   failure classes of all of them, the oracle sweep (eval seed 0).
-- (d) c-planner's ablations and b-theory's giant and teleport runs, from their exact commands
-  (send them to me; I add them to the queue).
+- (d) from the command lists in docs/status/c-planner.md and b-theory.md (main 3e36461), in
+  this order: c-planner's 12 ablations (9 medium, 3 large, landmark set 0), b-theory's 10
+  teleport runs, then the 9 giant runs and the giant oracle failure classes. Same code (84a8127)
+  as (a)–(c), so the ablations pair with the main planner runs.
+- 85 jobs queued at 20:12. Speed: a medium baseline-type config takes about 55 s.
+
+First Linux numbers (medium, 5 eval seeds): baseline 77.0 %, baseline_raw 80.8 %, retrained
+seeds 0–4: 79.1, 79.7, 77.5, 76.6, 78.4 %. Mac: 77.8, 80.5 and 77.8, 80.6, 76.9, 77.7, 78.6 %.
 
 vast.ai log (team account, label `fbplan-gpu-eval`):
 
@@ -105,6 +111,43 @@ vast.ai log (team account, label `fbplan-gpu-eval`):
 
 Selection rule now (coordinator): CPU model AMD EPYC Zen 2/3/4 or Xeon Gold/Platinum, ≥ 64
 effective cores, ≥ 128 GB RAM, reliability ≥ 0.99, ≤ $1/h; destroy after 15 min without SSH.
+
+## Large (Linux, `results/large/`, 5 eval seeds × 5 tasks × 50 episodes)
+
+Planner rows pool landmark sets 0–2 (bootstrap over config_hash and episodes).
+
+| method | success [95 % CI] | vs baseline (pp) | vs baseline_raw (pp) |
+|---|---|---|---|
+| baseline | 37.4 [35.0, 39.9] | – | +2.3 [−1.0, +5.6] |
+| baseline_raw | 35.1 [32.8, 37.4] | −2.3 [−5.6, +1.0] | – |
+| oracle (privileged) | 39.4 [36.7, 42.0] | +1.9 [−1.8, +5.6] | +4.2 [+0.7, +7.7] |
+| planner | 28.1 [24.7, 32.1] | −9.3 [−13.8, −4.5] | −7.0 [−11.4, −2.2] |
+| planner_high | 29.5 [27.4, 31.4] | −8.0 [−11.2, −4.6] | −5.7 [−9.0, −2.4] |
+| planner_region | 26.4 [24.7, 28.2] | −11.1 [−14.2, −7.8] | −8.7 [−11.8, −5.7] |
+
+- Per landmark set: planner 32.2 / 24.8 / 27.4 %, planner_high 30.9 / 27.8 / 29.7 %,
+  planner_region 27.8 / 25.8 / 25.6 %.
+- Even the privileged oracle does not beat the baseline on large (task 3: 54.8 against 78.8 %).
+- Failure classes of baseline and oracle: requeued (the first try hit the container's thread
+  limit: 122 unpinned workers; replay and parity jobs now run pinned to 24 cores).
+
+## Teleport (Linux, `results/teleport/`, 5 eval seeds × 5 tasks × 50 episodes)
+
+Moved ahead of large by the coordinator (best lead for a gain). Planner rows pool landmark sets
+0–2 (bootstrap over config_hash and episodes). Trap = failed episode whose final distance to the
+goal is within 2 xy units of the trap centre's (cell (1, 7); b-theory's rule, theory.md §11.3).
+
+| method | success [95 % CI] | vs baseline (pp) | vs baseline_raw (pp) | trapped | other failures |
+|---|---|---|---|---|---|
+| baseline | 27.7 [25.3, 30.2] | – | +3.5 [+1.0, +6.2] | 54.7 % | 17.6 % |
+| baseline_raw | 24.2 [21.8, 26.6] | −3.5 [−6.2, −1.0] | – | 57.4 % | 18.4 % |
+| planner | 18.6 [16.5, 21.0] | −9.1 [−12.2, −6.0] | −5.6 [−8.6, −2.5] | 64.2 % | 17.3 % |
+| planner_high | 24.1 [21.5, 26.4] | −3.6 [−6.7, −0.5] | −0.1 [−3.3, +3.1] | 53.9 % | 22.1 % |
+
+- No gain on teleport: the planner ends in the trap more often than the baseline (64 % against
+  55 %), although its xy cap removes the jump edges; planner_high equals baseline_raw.
+- Per landmark set: planner 17.3 / 17.4 / 21.0 %, planner_high 24.7 / 21.5 / 26.0 %.
+- Teleport nonhier and the teleport-aware oracle (both follow modes) run later in the queue (d).
 
 ## Mac results on large (`results/macos/large/`, reproducibility check only)
 
@@ -217,4 +260,8 @@ CSVs come from the same commands on the instance (one process per eval seed, the
   import the scripts normally instead of loading them by path.
 - e-learner, b-theory: `MazeGeometry` now lives in `fbplan/maze.py`; your imports from
   `fbplan.controllers.oracle` still work.
-- f-report: the wormhole shares changed definition (see Calibration).
+- f-report: the wormhole shares changed definition (see Calibration), and the pinch fix below
+  adds 20 wormholes on medium (ρ_min 0.3: 3,405, share 5.6 %); large did not change.
+- b-theory: done. `MazeGeometry.geodesic_distances` no longer passes between walls that touch at
+  a corner (tests). `calibration.py` plots only walkable pairs and counts trusted pairs that cannot
+  be walked (`unreachable_on_foot`), so it runs on teleport. `failures.py` has a `trapped` class.

@@ -16,6 +16,7 @@ import numpy as np
 Cell = tuple[int, int]
 _NEIGHBOURS = ((-1, 0), (0, -1), (1, 0), (0, 1))  # OGBench get_oracle_subgoal order
 _WALL_SHRINK = 1e-6  # lets a path touch a wall edge or corner without entering the wall
+_PINCH_TOL = 1e-4  # a segment this close to a pinch vertex passes it (the shrink leaves 2e-6)
 _CHUNK_ELEMENTS = 2_000_000  # memory bound for the broadcasted pair computations
 
 
@@ -29,8 +30,11 @@ def _row_chunks(n_rows: int, row_size: int):
 
 
 def _min_plus(x: np.ndarray, y: np.ndarray) -> np.ndarray:
-    """(x ⊗ y)[i, j] = min_k x[i, k] + y[k, j]: path lengths through one intermediate node."""
-    out = np.empty((x.shape[0], y.shape[1]))
+    """(x ⊗ y)[i, j] = min_k x[i, k] + y[k, j]: path lengths through one intermediate node.
+    With no intermediate node (k empty) there is no such path: inf."""
+    out = np.full((x.shape[0], y.shape[1]), np.inf)
+    if x.shape[1] == 0:
+        return out
     for rows in _row_chunks(x.shape[0], y.size):
         out[rows] = np.min(x[rows, :, None] + y[None], axis=1)
     return out
@@ -102,7 +106,30 @@ class MazeGeometry:
         half = 0.5 * self.unit - _WALL_SHRINK
         return np.concatenate([centres - half, centres + half], axis=1)
 
+    @cached_property
+    def _pinch_points(self) -> np.ndarray:
+        """[K, 2] grid vertices where two wall cells touch only at a corner (diagonal walls).
+
+        The shrunk wall boxes leave a gap there, but the ant cannot pass between the walls.
+        """
+        walls = np.pad(self.maze_map == 1, 1, constant_values=True)
+        w00, w01, w10, w11 = walls[:-1, :-1], walls[:-1, 1:], walls[1:, :-1], walls[1:, 1:]
+        pinch = (w00 & w11 & ~w01 & ~w10) | (w01 & w10 & ~w00 & ~w11)
+        vi, vj = np.nonzero(pinch)  # vertex = (min x, min y) corner of cell (vi, vj)
+        return np.stack([(vj - 0.5) * self.unit - self.offset_xy[0],
+                         (vi - 0.5) * self.unit - self.offset_xy[1]], axis=1)
+
     def _visible(self, p: np.ndarray, q: np.ndarray) -> np.ndarray:
+        """[N, M]: True where the segment from p_i to q_j enters no wall (slab test) and does not
+        pass through a pinch between two walls that touch at a corner."""
+        out = self._outside_walls(p, q)
+        pinches = self._pinch_points
+        if len(pinches):
+            for rows in _row_chunks(len(p), len(q) * len(pinches) * 2):
+                out[rows] &= ~_passes_near(p[rows], q, pinches, _PINCH_TOL)
+        return out
+
+    def _outside_walls(self, p: np.ndarray, q: np.ndarray) -> np.ndarray:
         """[N, M]: True where the segment from p_i to q_j enters no wall (slab test)."""
         lo, hi = self._wall_boxes[:, :2], self._wall_boxes[:, 2:]
         out = np.empty((len(p), len(q)), dtype=bool)
@@ -156,6 +183,16 @@ class MazeGeometry:
         while path[-1] != goal:
             path.append(self.next_cell(path[-1], steps))
         return path
+
+
+def _passes_near(p: np.ndarray, q: np.ndarray, points: np.ndarray, tol: float) -> np.ndarray:
+    """[N, M]: True where the segment from p_i to q_j comes within tol of one of the points."""
+    delta = q[None, :, None, :] - p[:, None, None, :]  # [N, M, 1, 2]
+    rel = points[None, None] - p[:, None, None, :]  # [N, 1, K, 2]
+    length2 = np.maximum((delta**2).sum(-1), 1e-12)
+    t = np.clip((rel * delta).sum(-1) / length2, 0.0, 1.0)  # [N, M, K]
+    gap = rel - t[..., None] * delta
+    return (np.linalg.norm(gap, axis=-1) < tol).any(-1)
 
 
 def draw_walls(ax: Any, maze: MazeGeometry, color: str = "#e4e3df") -> None:
