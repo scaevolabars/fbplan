@@ -1,6 +1,6 @@
 # Status: f-report
 
-Last update: 2026-10-29, 20:00. Branch merged with `main` at 275dfe1.
+Last update: 2026-10-29, 21:15. Branch merged with `main` at 3e36461.
 
 ## Done
 
@@ -45,6 +45,22 @@ Last update: 2026-10-29, 20:00. Branch merged with `main` at 275dfe1.
   - §9, §10 and the appendix follow.
   - §8.4 correction: the test "plan with single-state latents, act with region latents" was run
     as a 100-episode probe by c-planner (no gain, not committed); §10 lowers that next step.
+- After the merge of 3e36461 (Mac results moved to `results/macos/`; Linux reruns pending):
+  - The report points to `results/macos/` until the Linux CSVs land, and says so in a platform
+    note under the status line.
+  - §8.4 point 5: A's failure classes per landmark set (`results/macos/medium/failures/`): A flips
+    as often as the baseline (159–210 against 198) but has 2–4 times as many slow failures
+    (136–312 against 72).
+  - §7.3: the limits of giant and teleport before any run, from b-theory's committed files
+    (Proposition 4, `time_limit*.csv`, giant calibration); §9 and §10 follow.
+  - Appendix (g-release E16): `OptionConfig.rho_cap`, `delta_network`, softplus(delta).
+  - `analysis/report_figures.py` (g-release F1, F2, CLI convention): the results folder is
+    positional (default `results/medium`); a method without CSVs is left out with a note on
+    stderr, a missing baseline stops with a clear error; a method without successes or failures
+    shows "–". `--help` shows the defaults. The old `--results` flag still works (hidden) until
+    `scripts/reproduce.sh` switches. Checked: on `results/macos/medium` the figure is identical
+    byte for byte and the tables are unchanged; a folder without `planner_region`, a planner
+    without successes, and a folder without the baseline all behave as described.
 - Private defense sheet for the reviewer call (coordinator request): written outside the
   repository, not committed.
 - Every number in the report names a committed file. Recomputed with `analysis/tables.py`
@@ -57,13 +73,13 @@ Last update: 2026-10-29, 20:00. Branch merged with `main` at 275dfe1.
 |---|---|---|---|---|
 | 2 | A guard and execution ablations on medium: `R̂` exact and paper against zero, raw `ρ̂ ≥ 1` trusted, no xy cap, `two_way`, `reached_xy` 1.5 and the `ρ` rule, no look-ahead, `replan_every_step`; the `ρ̂` statistics of region latents | §4 (evidence column), §8.4, §9 | c-planner (assigned) | `results/medium/planner_ablations/` |
 | 3 | route plots of A on medium and large, committed | §8.4 | c-planner (`analysis/planner_routes.py` writes to `runs/`) | `docs/figures/report/` or c-planner's results |
-| 4 | failure classes of the 3 planner variants (per landmark set), later B | §8.4, §10 | d-eval (assigned) | `results/medium/failures/` |
+| 4 | failure classes of B (Mac: planner variants done, region set 2 missing; Linux reruns all) | §8.4, §10 | d-eval | `results/medium/failures/` |
 | 5 | whether the wormholes that the xy cap leaves cross a wall (a column of the calibration CSV) | §8.3, §4 | d-eval | `results/calibration/` |
 | 6 | B1 on medium: `V_H`, then B-clean, B-wide, B-region, 5 eval seeds | §7.1, §8.5, §9 | e-learner (GPU training), d-eval (evaluation) | `results/medium/` |
 | 7 | B offline diagnostics as a committed file: `V_H` and `V_1` against maze distance, `ρ` cap and clip rates (numbers so far only in e-learner's status) | §8.5 | e-learner | `results/medium/` |
 | 8 | large: baseline, `baseline_raw`, oracle, planner variants, retrained baselines, B | §7.2, §8.1, §10 | d-eval (running); e-learner for large training | `results/large/` |
-| 9 | giant and teleport | §7.3 | b-theory | `results/{giant,teleport}/` |
-| 10 | Linux reruns, canonical from now on (coordinator decision): every evaluation CSV that the report quotes. Mac CSVs move to a separate folder | all numbers in §6–§10, figures | d-eval | `results/` (Mac copies: d-eval's choice of folder) |
+| 9 | giant and teleport, measured (the limits before any run are in §7.3) | §7.3 | b-theory (commands), d-eval (Linux runs) | `results/{giant,teleport}/` |
+| 10 | Linux reruns, canonical from now on (coordinator decision): every evaluation CSV that the report quotes. The report cites the Mac CSVs in `results/macos/` until then | all numbers in §6–§10, figures | d-eval (queue on the Linux instance) | `results/<env>/` |
 
 Dropped: the per-target wormhole diagnostic (coordinator: no new run; §8.3 keeps it as a
 hypothesis). Done: A on medium (`results/medium/planner*/`), the baseline definition, the
@@ -100,16 +116,20 @@ nothing changes the story of the report.
 
 ## Requests to the coordinator
 
-- g-release: please add `uv run python analysis/report_figures.py` (time-to-goal figure and
-  tables of report §8.4) to the "Reproduce" section of `README.md` and to
-  `scripts/reproduce.sh`. Not on main at f1ae57d.
 - d-eval: the calibration CSV counts the wormholes within the xy cap (1,965 on medium) but not
   whether they cross a wall. Your status says they cross none (short pairs, FB overconfident at
   short range). Please add that count as a column (item 5), so §8.3 can state it.
-- d-eval: please include the 3 planner variants (per landmark set) in the failure-class CSV
-  (item 4). §8.4 needs their flip share to separate `π_l` failures from route failures.
 - d-eval (Linux reruns): the report quotes these evaluation inputs. Please rerun all of them on the
   Linux instance, or tell me which stay Mac-only, so the report can mark them: `baseline`,
   `baseline_raw`, `nonhier`, `oracle`, `upstream` (parity), `oracle_sweep/`, `planner*/`,
   `baseline_retrained/`, and `failures/` for each of these (a replay must run on the platform of
-  its CSV). Please also tell me the folder of the Mac copies.
+  its CSV).
+- g-release: `analysis/report_figures.py` takes the results folder as a positional argument now
+  (CLI convention). Please switch `scripts/reproduce.sh` to
+  `py analysis/report_figures.py "$dir" --out-dir "$report_dir"`; then I remove the hidden
+  `--results` flag.
+- d-eval: please add a test of `analysis/report_figures.py` to `tests/test_analysis.py` (I own no
+  test file): a folder without one planner variant runs and leaves it out; a method with no
+  success shows "–"; a folder without `baseline.csv` stops with an error.
+- b-theory: `docs/theory.md` §11.2 says the 17-cell giant walk fits at ≤ 59 ant steps per cell;
+  17 × 59 = 1003 > 1000, so the bound is 58. The report uses 58.
