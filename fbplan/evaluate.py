@@ -141,10 +141,11 @@ class HeldoutGoal:
 
 def select_heldout_goals(
     env: gym.Env,
-    dataset_xy: np.ndarray,
+    dataset_obs: np.ndarray,
     count: int = 10,
     min_cells: int = 2,
     min_states: int = 50,
+    max_flipped: float = 0.5,
     seed: int = 0,
 ) -> list[HeldoutGoal]:
     """Goals far from the 5 eval goals, with start cells as far from them as the eval tasks'.
@@ -153,17 +154,22 @@ def select_heldout_goals(
     4-connected cells) lies in the range of the eval tasks' start-to-goal distances. Goal cells:
     `count` free cells, drawn without replacement (seeded) from those that are at least
     `min_cells` moves from every eval goal, have a start cell, and have at least `min_states`
-    of `dataset_xy` within the goal radius. dataset_xy: xy of the states that make z (the
-    validation split, see goal_latent); few states give a noisy z. Start cell of each goal: a
-    seeded draw. The goal is the cell centre, as in OGBench's own tasks, and success uses
-    OGBench's goal radius.
+    states of `dataset_obs` within the goal radius, of which at most a share `max_flipped` is
+    flipped (torso upside down). dataset_obs: the states that make z (the validation split, see
+    goal_latent); few states give a noisy z, and a ball of mostly flipped states gives a z of
+    flipped poses. Start cell of each goal: a seeded draw. The goal is the cell centre, as in
+    OGBench's own tasks, and success uses OGBench's goal radius.
     """
     maze, infos = MazeGeometry.from_env(env), env.unwrapped.task_infos
     radius = env.unwrapped._goal_tol
 
-    def states_near(cell: Cell) -> int:
+    quaternion = dataset_obs[:, 3:7]  # (w, x, y, z) of the torso
+    flipped = 1.0 - 2.0 * (quaternion[:, 1] ** 2 + quaternion[:, 2] ** 2) < 0.0
+
+    def good_ball(cell: Cell) -> bool:
         centre = np.asarray(env.unwrapped.ij_to_xy(cell))
-        return int((np.linalg.norm(dataset_xy - centre, axis=1) <= radius).sum())
+        inside = np.linalg.norm(dataset_obs[:, :2] - centre, axis=1) <= radius
+        return inside.sum() >= min_states and flipped[inside].mean() <= max_flipped
     to_eval_goals = [maze.bfs_steps(tuple(info["goal_ij"])) for info in infos]
     lengths = [
         steps[tuple(info["init_ij"])] for steps, info in zip(to_eval_goals, infos, strict=True)
@@ -179,7 +185,7 @@ def select_heldout_goals(
         for c in free
         if min(steps[c] for steps in to_eval_goals) >= min_cells
         and starts(c)
-        and states_near(c) >= min_states
+        and good_ball(c)
     ]
     if not candidates:
         raise ValueError("no free cell is far enough from the eval goals")
