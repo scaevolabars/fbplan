@@ -1,7 +1,7 @@
 """Run the tabular planning study and write CSV tables for docs/theory.md.
 
     uv run python -m fbplan.tabular.run_study            # full study into docs/figures/theory/
-                                                        # (14 min with 4 workers, 10 CPU min)
+                                                        # about 14 min with 4 workers
     uv run python -m fbplan.tabular.run_study --quick    # 1 seed, 8 goals, into runs/run_study/
 
 Experiments (medium maze, 104 states, gamma 0.9, landmarks = all states, horizon 100 steps):
@@ -202,7 +202,10 @@ def _run(job: tuple[str, tuple]) -> tuple[str, list[dict]]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     parser.add_argument("--quick", action="store_true", help="smoke test: 1 seed and 8 goals")
     parser.add_argument(
         "--out-dir",

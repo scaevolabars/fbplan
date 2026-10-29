@@ -162,8 +162,11 @@ Value iteration on a proxy graph therefore produces values that cannot be interp
   true model, the augmented-chain ground truth, the re-planning policy. Graph value iteration
   and Q-values are the planner's own (`fbplan/graph.py`).
 - `study.py`: the planners of §9. They get `ρ̂`, `R̂` and `V_d` from the planner's
-  `fbplan/option_model.py` applied to the fake, so the study tests the same code that runs on
-  AntMaze. Code names: `v_direct` = V_d, `v_graph` = V_H, `r_before` = R.
+  `fbplan/option_model.py` applied to the fake, and use its trust rule, value iteration and tie
+  rules (`fbplan/graph.py`, `best_options`). The plan is the planner's; the execution is not:
+  the study has no reach radius or look-ahead, and its commit rule keeps w* until it is reached
+  or for twice its predicted duration plus 2 steps (the AntMaze planner: 100 steps). Code names:
+  `v_direct` = V_d, `v_graph` = V_H, `r_before` = R.
 - `fake_fb.py`: `TabularFB` implements `FBModel`. B has orthonormal columns times √n (upstream
   convention). A latent z means the reward `r_z = B ẑ / n`; `π*_z` is its exact optimal policy and
   `F(s,z) = M^{π*_z} B / n + noise`, so `F(s,z)ᵀB(s') = M^{π*_z}(s,s')` in full rank.
@@ -277,12 +280,13 @@ exact controller; value from the task start (V* ≈ 11).
 | single, R paper (proxy) | 0.19 | 10.7 | 0.19 | 11.3 |
 | chained, R exact | 0.00 | 0.0 | 0.41 | 6.6 |
 | chained, R paper (proxy) | 0.00 | 111.8 | 0.00 | 121.3 |
-| chained, R = 0 | 0.04 | 0.2 | 0.11 | 1.3 |
+| chained, R = 0 | 0.03 | 0.2 | 0.11 | 1.3 |
 
 - The proxy bias repeats per hop: the predicted value is 10× more wrong for chains than for one
   switch, mostly through the 2-cycles of §7. Actions suffer little here, because the inflation sits
   in the goal region, where the agent should go anyway.
-- With noise, exact-mode `R̂` makes chained plans long (9.8 hops vs. 3.9 exact) and costly (regret 0.41):
+- With noise, exact-mode `R̂` makes chained plans long (9.8 hops; with exact values 0, because the
+  direct policy is optimal and wins ties, `graph.best_options`) and costly (regret 0.41):
   the same noisy-`R̂` effect as §9.2. R = 0 ignores the ±1 regions on the way and costs little.
 
 ### 9.5 Low rank: wall-blind features make wormholes

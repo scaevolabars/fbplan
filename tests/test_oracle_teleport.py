@@ -4,7 +4,6 @@ import numpy as np
 import pytest
 
 from fbplan.contracts import TaskSpec
-from fbplan.controllers.oracle import MazeGeometry
 from fbplan.controllers.oracle_teleport import (
     TeleportOracleConfig,
     TeleportOracleController,
@@ -13,31 +12,14 @@ from fbplan.controllers.oracle_teleport import (
     discounted_values,
     reach_plan,
 )
+from fbplan.maze import MazeGeometry
+from fbplan.tabular import GridMaze
 
-TELEPORT_MAP = np.array(
-    [
-        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        [1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1],
-        [1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1],
-        [1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1],
-        [1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1],
-        [1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1],
-        [1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1],
-        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-    ]
-)
-MAZE = MazeGeometry(maze_map=TELEPORT_MAP, unit=4.0, offset_xy=(4.0, 4.0))
+TELEPORT = GridMaze("teleport", resolution=1)  # the OGBench map (tests/test_tabular_maze.py)
+MAZE = MazeGeometry(maze_map=TELEPORT.maze_map.astype(int), unit=4.0, offset_xy=(4.0, 4.0))
 TELEPORTS = Teleports(entries=((4, 6), (5, 1)), exits=((1, 7), (6, 1), (6, 10)), trigger_xy=1.5)
 TRAP = (1, 7)  # an exit with walls on all four sides
-TASKS = [
-    ((1, 10), (7, 1)),
-    ((1, 1), (7, 10)),
-    ((5, 6), (7, 10)),
-    ((7, 1), (7, 10)),
-    ((5, 6), (7, 1)),
-]
-SAFE_WALK_CELLS = [23, 15, 14, 25, 27]  # counted by hand on the map
+TASKS = [(tuple(a), tuple(b)) for a, b in TELEPORT.tasks]
 
 
 def _follow(plan, start, goal, max_moves=100):
@@ -54,12 +36,12 @@ def test_plain_bfs_path_enters_a_teleporter_on_four_tasks():
     assert entered == [True, False, True, True, True]
 
 
-@pytest.mark.parametrize(("task", "length"), list(zip(TASKS, SAFE_WALK_CELLS, strict=True)))
-def test_reach_plan_walks_the_shortest_route_without_teleporters(task, length):
+@pytest.mark.parametrize("task", TASKS)
+def test_reach_plan_walks_to_the_goal_in_unit_moves_without_teleporters(task):
+    # Its length equals the tabular walk policy's on every cell: tests/test_tabular_time_limit.py.
     start, goal = task
     path = _follow(reach_plan(MAZE, TELEPORTS, goal), start, goal)
     assert path[-1] == goal
-    assert len(path) - 1 == length
     assert not set(path) & set(TELEPORTS.entries)
     moves = zip(path[:-1], path[1:], strict=True)
     assert all(abs(a[0] - b[0]) + abs(a[1] - b[1]) == 1 for a, b in moves)
@@ -179,24 +161,14 @@ def test_unknown_objective_is_rejected():
 
 
 def test_without_teleporters_the_reach_plan_is_the_plain_oracle_plan():
-    medium = MazeGeometry(
-        maze_map=np.array(
-            [
-                [1, 1, 1, 1, 1, 1, 1, 1],
-                [1, 0, 0, 1, 1, 0, 0, 1],
-                [1, 0, 0, 1, 0, 0, 0, 1],
-                [1, 1, 0, 0, 0, 1, 1, 1],
-                [1, 0, 0, 1, 0, 0, 0, 1],
-                [1, 0, 1, 0, 0, 1, 0, 1],
-                [1, 0, 0, 0, 1, 0, 0, 1],
-                [1, 1, 1, 1, 1, 1, 1, 1],
-            ]
-        ),
-        unit=4.0,
-        offset_xy=(4.0, 4.0),
-    )
+    medium = MazeGeometry(GridMaze("medium", 1).maze_map.astype(int), 4.0, (4.0, 4.0))
     none = Teleports(entries=(), exits=(), trigger_xy=1.5)
     for goal in medium.free_cells():
         steps = medium.bfs_steps(goal)
         plan = reach_plan(medium, none, goal)
         assert plan == {cell: medium.next_cell(cell, steps) for cell in medium.free_cells()}
+
+
+def test_value_iteration_raises_when_it_does_not_converge():
+    with pytest.raises(RuntimeError, match="converge"):
+        discounted_values(MAZE, TELEPORTS, (7, 10), cell_discount=0.9, max_iters=2)

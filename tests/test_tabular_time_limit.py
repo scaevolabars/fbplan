@@ -3,25 +3,47 @@
 import numpy as np
 import pytest
 
-from fbplan.controllers.oracle import MazeGeometry
-from fbplan.controllers.oracle_teleport import Teleports, discounted_values
+from fbplan.controllers.oracle_teleport import (
+    Teleports,
+    discounted_plan,
+    discounted_values,
+    reach_plan,
+)
+from fbplan.maze import MazeGeometry
 from fbplan.tabular import GridMaze
-from fbplan.tabular.mdp import optimal_policy
+from fbplan.tabular.maze import ACTION_VECTORS
+from fbplan.tabular.mdp import optimal_policy, policy_value
 from fbplan.tabular.time_limit import (
     best_success,
     discounted_policy,
     enters_teleporter,
     hitting_cdf,
+    main,
     walk_policy,
     walk_threshold,
 )
 
 SAFE_WALK_CELLS = [23, 15, 14, 25, 27]  # teleport tasks, counted by hand
+TELEPORTS = Teleports(entries=((4, 6), (5, 1)), exits=((1, 7), (6, 1), (6, 10)), trigger_xy=1.5)
 
 
 @pytest.fixture(scope="module")
 def teleport() -> GridMaze:
     return GridMaze("teleport", resolution=1)
+
+
+def _geometry(maze: GridMaze) -> MazeGeometry:
+    return MazeGeometry(maze.maze_map.astype(int), 4.0, (4.0, 4.0))
+
+
+def _plan_policy(maze: GridMaze, plan: dict) -> np.ndarray:
+    """GridMaze actions (resolution 1) that move each cell to its next cell in an oracle plan."""
+    policy = np.zeros(maze.n_states, dtype=np.int64)
+    for state, (i, j) in enumerate(maze.fine_rc):
+        nxt = plan.get((int(i), int(j)), (int(i), int(j)))
+        move = [nxt[1] - j, nxt[0] - i]  # (dx, dy): columns go along +x, rows along +y
+        policy[state] = int(np.flatnonzero((ACTION_VECTORS == move).all(axis=1))[0])
+    return policy
 
 
 def _ends(maze, task_id):
@@ -56,9 +78,7 @@ def test_discounted_values_equal_those_of_the_oracle_cell_mdp(teleport):
     # Two implementations of the same cell MDP: mdp.optimal_policy (with a stay action, reward
     # 1 at the goal, so V = gamma^H / (1 - gamma)) and the oracle's value iteration.
     gamma = 0.8
-    geometry = MazeGeometry(teleport.maze_map.astype(int), 4.0, (4.0, 4.0))
-    exits = ((1, 7), (6, 1), (6, 10))
-    teleports = Teleports(entries=((4, 6), (5, 1)), exits=exits, trigger_xy=1.5)
+    geometry, teleports = _geometry(teleport), TELEPORTS
     for task_id in (1, 3):
         start_ij, goal_ij = teleport.tasks[task_id - 1]
         reward = np.zeros(teleport.n_states)
@@ -109,3 +129,42 @@ def test_walk_threshold_solves_the_gamble_closed_form(teleport):
     assert not enters_teleporter(
         teleport, discounted_policy(teleport, goal, gamma**40), start, goal
     )
+
+
+def test_main_writes_its_tables_and_figure_into_a_new_folder(tmp_path, monkeypatch):
+    out = tmp_path / "new" / "folder"
+    monkeypatch.setattr("sys.argv", ["time_limit", "--out-dir", str(out)])
+    main()
+    names = {"time_limit.csv", "time_limit.png", "time_limit_thresholds.csv"}
+    assert {p.name for p in out.iterdir()} == names
+
+
+@pytest.mark.parametrize("task_id", [1, 2, 3, 4, 5])
+def test_oracle_reach_plan_walks_as_far_as_the_walk_policy_from_every_cell(teleport, task_id):
+    # The teleport oracle and this module implement the walk separately; pin them together.
+    goal_ij = teleport.tasks[task_id - 1][1]
+    goal = teleport.centre_state(goal_ij)
+    walk = walk_policy(teleport, goal)
+    oracle = _plan_policy(teleport, reach_plan(_geometry(teleport), TELEPORTS, goal_ij))
+    entries = set(teleport.entry_states.tolist())
+    for state in range(teleport.n_states):
+        if state in entries:  # the walk policy has no plan there (the agent never stays)
+            continue
+        walk_cdf = hitting_cdf(teleport, walk, state, goal, teleport.n_states)
+        oracle_cdf = hitting_cdf(teleport, oracle, state, goal, teleport.n_states)
+        np.testing.assert_array_equal(oracle_cdf, walk_cdf)  # same length, never a jump
+        if walk_cdf[-1] > 0:
+            assert not enters_teleporter(teleport, oracle, state, goal)
+
+
+@pytest.mark.parametrize("gamma", [0.67, 0.99])
+def test_oracle_discounted_plan_is_optimal_for_the_tabular_cell_mdp(teleport, gamma):
+    for task_id in (1, 3, 5):
+        goal_ij = teleport.tasks[task_id - 1][1]
+        goal = teleport.centre_state(goal_ij)
+        reward = np.eye(teleport.n_states)[goal]
+        plan = discounted_plan(_geometry(teleport), TELEPORTS, goal_ij, gamma)
+        v_plan = policy_value(teleport, _plan_policy(teleport, plan), reward, gamma)
+        _, v_star = optimal_policy(teleport, reward, gamma)
+        other = np.setdiff1d(np.arange(teleport.n_states), teleport.entry_states)
+        np.testing.assert_allclose(v_plan[other], v_star[other], rtol=1e-9, atol=1e-12)

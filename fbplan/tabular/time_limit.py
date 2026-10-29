@@ -15,7 +15,7 @@ It also finds, per teleport task, the smallest per-step discount at which the ri
 policy walks (`walk_threshold`).
 
     uv run python -m fbplan.tabular.time_limit
-    # writes docs/figures/theory/time_limit.{csv,png} and time_limit_thresholds.csv
+    # --out-dir docs/figures/theory: time_limit.{csv,png} and time_limit_thresholds.csv
 """
 
 from __future__ import annotations
@@ -27,12 +27,12 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
-from fbplan.tabular.maze import GridMaze  # noqa: E402
-from fbplan.tabular.mdp import action_values, optimal_policy, policy_matrix  # noqa: E402
+from fbplan.tabular.maze import GridMaze
+from fbplan.tabular.mdp import action_values, optimal_policy, policy_matrix
 
 EPISODE_STEPS = 1000  # OGBench AntMaze time limit
 DISCOUNTS = {"giant": 0.995, "teleport": 0.99}  # flags.json of the provided checkpoints
@@ -222,17 +222,23 @@ def plot(table: pd.DataFrame, path: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--out", type=Path, default=OUT_DIR)
+    parser = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--out-dir", type=Path, default=OUT_DIR, help="folder for the CSV tables and the figure"
+    )
     args = parser.parse_args()
+    args.out_dir.mkdir(parents=True, exist_ok=True)
     rows = []
     for name, gamma in DISCOUNTS.items():
         maze = GridMaze(name, resolution=1)
         for task_id in range(1, len(maze.tasks) + 1):
             rows += task_rows(maze, gamma, task_id)
     table = pd.DataFrame(rows)
-    table.to_csv(args.out / "time_limit.csv", index=False)
-    plot(table, args.out / "time_limit.png")
+    table.to_csv(args.out_dir / "time_limit.csv", index=False)
+    plot(table, args.out_dir / "time_limit.png")
     teleport = GridMaze("teleport", resolution=1)
     thresholds = pd.DataFrame(
         [
@@ -241,7 +247,7 @@ def main() -> None:
         ]
     )
     thresholds["horizon_steps"] = 1 / (1 - thresholds["walk_threshold"])
-    thresholds.to_csv(args.out / "time_limit_thresholds.csv", index=False)
+    thresholds.to_csv(args.out_dir / "time_limit_thresholds.csv", index=False)
     print(thresholds.round(5).to_string(index=False))
     at40 = table[table["steps_per_cell"] == 40]
     print(

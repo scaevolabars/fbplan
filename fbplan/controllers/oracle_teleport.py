@@ -29,8 +29,9 @@ import gymnasium as gym
 import numpy as np
 
 from fbplan.contracts import FBModel, TaskSpec
-from fbplan.controllers.oracle import Cell, MazeGeometry, region_latents
+from fbplan.controllers.oracle import region_latents
 from fbplan.frozen import load_dataset, make_env
+from fbplan.maze import Cell, MazeGeometry
 
 _MOVES = ((-1, 0), (0, -1), (1, 0), (0, 1))  # OGBench order, as in fbplan.controllers.oracle
 _VI_TOL = 1e-13
@@ -87,16 +88,21 @@ def _landing_values(values: np.ndarray, maze_map: np.ndarray, teleports: Telepor
 
 
 def discounted_values(
-    maze: MazeGeometry, teleports: Teleports, goal: Cell, cell_discount: float
+    maze: MazeGeometry,
+    teleports: Teleports,
+    goal: Cell,
+    cell_discount: float,
+    max_iters: int = 100_000,
 ) -> np.ndarray:
     """E[cell_discount^H] of the best policy, H = cell moves to `goal` (value iteration).
 
     [rows, cols] array; 0 on walls and in cells that cannot reach the goal (the trap).
+    Raises if the values do not converge in `max_iters` sweeps (cell_discount must be < 1).
     """
     cells = [c for c in maze.free_cells() if c != goal]
     values = np.zeros(maze.maze_map.shape)
     values[goal] = 1.0
-    while True:
+    for _ in range(max_iters):
         landing = _landing_values(values, maze.maze_map, teleports)
         new = values.copy()
         for cell in cells:
@@ -106,6 +112,7 @@ def discounted_values(
         if np.max(np.abs(new - values)) < _VI_TOL:
             return new
         values = new
+    raise RuntimeError(f"value iteration did not converge in {max_iters} sweeps")
 
 
 def discounted_plan(

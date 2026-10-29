@@ -20,17 +20,16 @@ every step; with `commit` the agent keeps w* until it is reached or a timeout.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Literal
+from typing import Literal, get_args
 
 import numpy as np
 
 from fbplan.contracts import normalize_z
-from fbplan.graph import q_values, trusted_edges, value_iteration
+from fbplan.graph import DIRECT, best_options, q_values, trusted_edges, value_iteration
 from fbplan.option_model import EdgeReward, HeadAgg, OptionModel, OptionModelConfig, OptionTable
 from fbplan.tabular.fake_fb import TabularFB
 
 PlannerKind = Literal["direct", "baseline", "single", "chained"]
-_KINDS = ("direct", "baseline", "single", "chained")
 
 
 @dataclass(frozen=True)
@@ -50,7 +49,7 @@ class StudyPlannerConfig:
     commit: bool = False
 
     def __post_init__(self) -> None:
-        if self.kind not in _KINDS:
+        if self.kind not in get_args(PlannerKind):
             raise ValueError(f"unknown planner kind {self.kind!r}")
         OptionModelConfig(head_agg=self.head_agg, edge_reward=self.edge_reward)  # validates
 
@@ -59,7 +58,7 @@ class StudyPlannerConfig:
 class Plan:
     """Option choice per state for one task."""
 
-    choice: np.ndarray  # [n] landmark column, or -1 for "act with z_r"
+    choice: np.ndarray  # [n] landmark column, or DIRECT (-1) for "act with z_r"
     value: np.ndarray  # [n] predicted value max(v_direct, max_w Q)
     rho: np.ndarray  # [n, L] clipped rho_hat used by the plan
 
@@ -133,10 +132,8 @@ def make_plan(lm: LandmarkModel, cfg: StudyPlannerConfig, z_r: np.ndarray) -> Pl
     else:
         raise ValueError(f"planner kind {cfg.kind!r} has no option plan")
     q = q_values(table.rho, table.reward, v_graph, trusted, cfg.hop_discount)
-    best = q.argmax(axis=1)
-    best_q = q[np.arange(len(best)), best]
-    choice = np.where(best_q > v_direct, best, -1)  # ties go to the task policy, as in graph.py
-    return Plan(choice=choice, value=np.maximum(v_direct, best_q), rho=table.rho)
+    choice = best_options(q, v_graph, v_direct)  # the planner's tie rules
+    return Plan(choice=choice, value=np.maximum(v_direct, q.max(axis=1)), rho=table.rho)
 
 
 def direct_actions(lm: LandmarkModel, z_r: np.ndarray) -> np.ndarray:
@@ -149,7 +146,7 @@ def plan_actions(lm: LandmarkModel, plan: Plan, z_r: np.ndarray) -> np.ndarray:
     """Action id per state of the policy that re-picks the best option at every step: [n]."""
     states = np.arange(lm.model.maze.n_states)
     options = lm.option_actions[np.maximum(plan.choice, 0), states]
-    return np.where(plan.choice >= 0, options, direct_actions(lm, z_r))
+    return np.where(plan.choice != DIRECT, options, direct_actions(lm, z_r))
 
 
 def markov_actions(lm: LandmarkModel, cfg: StudyPlannerConfig, z_r: np.ndarray) -> np.ndarray:
@@ -169,7 +166,7 @@ def plan_route(lm: LandmarkModel, plan: Plan, start: int) -> list[int]:
     """Landmark states the plan visits from `start` if every option succeeds."""
     route: list[int] = []
     state = start
-    while plan.choice[state] >= 0 and int(lm.landmarks[plan.choice[state]]) not in route:
+    while plan.choice[state] != DIRECT and int(lm.landmarks[plan.choice[state]]) not in route:
         state = int(lm.landmarks[plan.choice[state]])
         route.append(state)
     return route
