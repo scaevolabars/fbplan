@@ -26,7 +26,7 @@ from collections.abc import Mapping, Sequence
 from functools import cached_property
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 import flax
 import gymnasium as gym
@@ -203,7 +203,8 @@ _RELEASE_URL = "https://github.com/scaevolabars/fbplan/releases/download/{tag}/{
 
 # Shared folders below ~/.cache/fbplan, one per kind of file. The env variable of a kind moves
 # its folder, for example so that a smoke run does not replace the real models.
-CacheKind = Literal["checkpoints", "baselines", "approach_b"]
+TrainedKind = Literal["baselines", "approach_b"]  # fbplan.train_high, fbplan.learned.train_b
+CacheKind = Literal["checkpoints", TrainedKind]
 _CACHE_ENV_VARS: dict[str, str] = {
     "checkpoints": "FBPLAN_CKPT_DIR",
     "baselines": "FBPLAN_BASELINE_DIR",
@@ -256,9 +257,20 @@ def trained_dir(key: str) -> Path:
     (fbplan.learned.train_b). The key also names the published checkpoint (download_trained).
     """
     kind, _, rest = key.partition("/")
-    if kind not in ("baselines", "approach_b") or not rest:
+    if kind not in get_args(TrainedKind) or not rest:
         raise ValueError(f"trained checkpoint key {key!r} is not baselines/... or approach_b/...")
     return cache_dir(kind) / rest
+
+
+def trained_key(kind: TrainedKind, env_name: str, seed: int, name: str | None = None) -> str:
+    """Key of one trained checkpoint: "<kind>/<maze>[/<name>]/seed<seed>".
+
+    `name` is the approach B folder (a variant such as "clean", or "value-single"); a baseline
+    has none.
+    """
+    if kind not in get_args(TrainedKind):
+        raise ValueError(f"unknown trained kind {kind!r}; kinds: {get_args(TrainedKind)}")
+    return "/".join([kind, maze_name(env_name), *([name] if name else []), f"seed{seed}"])
 
 
 def download_checkpoint(env_name: str) -> Path:
@@ -429,7 +441,26 @@ def example_batch(params: Mapping[str, Any]) -> dict[str, np.ndarray]:
     }
 
 
-def save_trained_checkpoint(agent: Any, flags: dict[str, Any], out_dir: Path) -> None:
+def save_flags(flags: Mapping[str, Any], out_dir: Path) -> None:
+    """Write out_dir/flags.json, the record of how a trained checkpoint was made."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "flags.json").write_text(json.dumps(flags, indent=2))
+
+
+def load_trained_file(key: str, name: str) -> Any:
+    """The numpy pickle `name` of trained checkpoint `key`, from trained_dir(key).
+
+    Downloads the published checkpoint when `name` or flags.json is missing. A present file is
+    used as it is, without a hash check, so that a model trained on this machine loads before
+    it is published.
+    """
+    folder = trained_dir(key)
+    if not all((folder / file).exists() for file in (name, "flags.json")):
+        download_trained(key)
+    return load_numpy_pickle(folder / name)
+
+
+def save_trained_checkpoint(agent: Any, flags: Mapping[str, Any], out_dir: Path) -> None:
     """Write the retrained pi_h of `agent` to out_dir: high_actor.pkl and flags.json.
 
     Only pi_h is stored (2.7 MB instead of 18.3 MB for the full state): F, B and pi_l stay the
@@ -438,24 +469,22 @@ def save_trained_checkpoint(agent: Any, flags: dict[str, Any], out_dir: Path) ->
     """
     pi_h = flax.serialization.to_state_dict(agent.network.params[_TRAINED_MODULE])
     save_numpy_pickle(pi_h, out_dir / HIGH_ACTOR_FILE)
-    (out_dir / "flags.json").write_text(json.dumps(flags, indent=2))
+    save_flags(flags, out_dir)
 
 
 def load_trained_model(env_name: str, key: str) -> FrozenFBModel:
     """The provided model of env_name with the pi_h of the trained checkpoint `key`.
 
-    `key` as in trained_dir, for example "baselines/medium/seed0". Downloads a missing
-    published checkpoint. Raises if the checkpoint belongs to another env.
+    `key` as in trained_dir, for example trained_key("baselines", env_name, 0). Downloads a
+    missing published checkpoint (see load_trained_file). Raises if the checkpoint belongs to
+    another env.
     """
-    ckpt = trained_dir(key)
-    if not all((ckpt / name).exists() for name in (HIGH_ACTOR_FILE, "flags.json")):
-        download_trained(key)
-    flags = json.loads((ckpt / "flags.json").read_text())
+    saved = load_trained_file(key, HIGH_ACTOR_FILE)
+    flags = json.loads((trained_dir(key) / "flags.json").read_text())
     if flags["env_name"] != f"ogbench-{env_name}":
-        raise ValueError(f"{ckpt} holds a checkpoint for {flags['env_name']}, not for {env_name}")
+        raise ValueError(f"{key} holds a checkpoint for {flags['env_name']}, not for {env_name}")
     agent = load_model(env_name).agent
     params = flax.core.unfreeze(agent.network.params)
-    saved = load_numpy_pickle(ckpt / HIGH_ACTOR_FILE)
     params[_TRAINED_MODULE] = flax.serialization.from_state_dict(params[_TRAINED_MODULE], saved)
     return FrozenFBModel(env_name, agent.replace(network=agent.network.replace(params=params)))
 
@@ -506,14 +535,28 @@ class FrozenFBModel:
         about 1e-7 and the 1e-8 in normalize_z is not negligible. We return the upstream value;
         high_latent normalizes it, upstream does not (effect on success: design.md §2 and §8).
         """
+        return self._goal_reward_latent({"task_id": task_id}, f"task {task_id}")
+
+    def infer_goal_latent(self, goal_ij: tuple[int, int]) -> np.ndarray:
+        """Latent [d] of a goal at the centre of maze cell goal_ij, as infer_task_latent computes
+        z_r: for goals that are not OGBench tasks, such as the held-out goals of fbplan.evaluate.
+        """
+        options = {"task_info": {"init_ij": goal_ij, "goal_ij": goal_ij}}
+        return self._goal_reward_latent(options, f"cell {tuple(goal_ij)}")
+
+    def _goal_reward_latent(self, reset_options: dict[str, Any], goal: str) -> np.ndarray:
+        """Upstream infer_latent on the val split relabeled for the goal that the reset sets."""
         env = make_env(self.env_name)
-        env.reset(options={"task_id": task_id})
+        env.reset(options=reset_options)
         relabel = upstream_module("utils.env_utils").relabel_dataset
         relabeled = relabel(f"ogbench-{self.env_name}", env, self._val_dataset)
         n = self.agent.config["num_zero_shot_samples"]
         if relabeled.size < n:
             raise ValueError(f"validation split has {relabeled.size} rows, upstream uses {n}")
-        batch = {"observations": relabeled["observations"][:n], "rewards": relabeled["rewards"][:n]}
+        rewards = relabeled["rewards"][:n]
+        if not rewards.any():
+            raise ValueError(f"no validation state within the goal radius of {goal}")
+        batch = {"observations": relabeled["observations"][:n], "rewards": rewards}
         return np.asarray(self.agent.infer_latent(batch))
 
     @cached_property
@@ -527,7 +570,8 @@ class FrozenFBModel:
 def forward(agent: Any, obs: Array, z: Array) -> jax.Array:
     """F(s, z) of both heads [2, N, d] of an upstream agent, as upstream calls it.
 
-    Not jitted, so that jitted code of other components can call it inside its own jit.
+    A plain function: FrozenFBModel.forward jits it, and code of other components (the V_H
+    of approach B) uses it inside its own jitted functions.
     """
     return agent.network.select("forward_repr")(obs, agent.normalize_z(z), goal_encoded=True)
 
@@ -598,16 +642,18 @@ def _download_dataset(env_name: str, split: Literal["train", "val"]) -> Path:
 
 
 def _known_env(name: str) -> str:
-    """argparse type: an env with a provided checkpoint."""
-    if name not in ENV_NAMES:
-        raise argparse.ArgumentTypeError(f"{name!r} is not one of {', '.join(ENV_NAMES)}")
+    """argparse type: an env with a provided checkpoint (maze_name checks it)."""
+    try:
+        maze_name(name)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from None
     return name
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     """CLI: download checkpoints and, on request, OGBench data. See the module docstring."""
     parser = argparse.ArgumentParser(
-        description="Download the provided checkpoints into ~/.cache/fbplan/checkpoints."
+        description="Download the provided checkpoints into cache_dir('checkpoints')."
     )
     parser.add_argument(
         "env_names",
