@@ -79,6 +79,14 @@ def test_classify_separates_flipped_stuck_and_other_episodes():
     assert failures.classify(_ant(1000, upright=True, moving=True)) == "other"
 
 
+def test_failure_class_marks_episodes_that_end_where_the_goal_cannot_be_walked_to():
+    moving = _ant(1000, upright=True, moving=True)
+    assert failures.failure_class(moving, cells_left=-1) == "trapped"
+    assert failures.failure_class(moving, cells_left=3) == "other"
+    flipped = _ant(1000, upright=False, moving=True)
+    assert failures.failure_class(flipped, cells_left=-1) == "flipped"
+
+
 def test_failure_table_keeps_tasks_without_failures_and_counts_shares():
     episodes = pd.DataFrame({"task_id": [1, 1, 2, 2], "episode": [0, 1, 0, 1]})
     failed = pd.DataFrame({"task_id": [1, 1], "episode": [0, 1], "failure": ["flipped", "other"]})
@@ -90,6 +98,18 @@ def test_failure_table_keeps_tasks_without_failures_and_counts_shares():
     none = failures.failure_table(episodes, failed.iloc[:0])
     assert none.loc["all", "failures"] == 0
     assert np.isnan(none.loc["all", "flipped_share"])
+
+
+def test_wormhole_table_counts_unreachable_pairs_apart():
+    rho_raw = np.array([[1.0, 0.9], [0.9, 1.0]])
+    table = OptionTable(rho=np.minimum(rho_raw, 0.99), rho_raw=rho_raw, reward=None,
+                        n_clipped_low=0, n_clipped_high=0)
+    geodesic = np.array([[0.0, np.inf], [np.inf, 0.0]])  # a teleport trap: no walk between them
+    xy = np.array([[0.0, 1.0], [1.0, 0.0]])
+    (row,) = calibration.wormhole_table(table, geodesic, xy, 0.99, 0.1, [0.3], 6.0).to_dict(
+        "records"
+    )
+    assert (row["wormholes"], row["unreachable_on_foot"], row["longest_geodesic"]) == (2, 2, 0.0)
 
 
 def test_fb_distance_inverts_the_discount():

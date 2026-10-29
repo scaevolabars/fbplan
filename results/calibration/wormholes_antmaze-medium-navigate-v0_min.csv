@@ -1,4 +1,4 @@
-rho_min,pairs_above_rho_min,raw_rho_ge_rho_max,trusted_pairs,wormholes,wormhole_share,wormholes_within_xy_cap,longest_geodesic,env,head_agg,n_states,top_speed,max_edge_xy
-0.3,62200,1118,61082,3385,0.05541730788120887,1965,28.0669067604448,antmaze-medium-navigate-v0,min,400,0.2677639126777649,6.0
-0.5,28962,1118,27844,3353,0.1204209165349806,1965,26.76556562590318,antmaze-medium-navigate-v0,min,400,0.2677639126777649,6.0
-0.7,12146,1118,11028,2997,0.2717627856365615,1965,26.76556562590318,antmaze-medium-navigate-v0,min,400,0.2677639126777649,6.0
+rho_min,pairs_above_rho_min,raw_rho_ge_rho_max,trusted_pairs,wormholes,wormhole_share,wormholes_within_xy_cap,unreachable_on_foot,longest_geodesic,env,head_agg,n_states,top_speed,max_edge_xy
+0.3,62200,1118,61082,3405,0.05574473658360892,1965,0,28.0669067604448,antmaze-medium-navigate-v0,min,400,0.2677639126777649,6.0
+0.5,28962,1118,27844,3362,0.1207441459560408,1965,0,27.55256317822846,antmaze-medium-navigate-v0,min,400,0.2677639126777649,6.0
+0.7,12146,1118,11028,2997,0.2717627856365615,1965,0,27.55256317822846,antmaze-medium-navigate-v0,min,400,0.2677639126777649,6.0

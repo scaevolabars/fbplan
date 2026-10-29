@@ -80,6 +80,7 @@ def wormhole_table(
 ) -> pd.DataFrame:
     """One row per rho_min: trust counts, wormholes by walking speed and their share."""
     off_diagonal = ~np.eye(len(geodesic), dtype=bool)
+    walkable = np.isfinite(geodesic)  # a teleport trap exit cannot be reached on foot
     rows = []
     for rho_min in rho_mins:
         above = (table.rho_raw >= rho_min) & off_diagonal
@@ -95,7 +96,8 @@ def wormhole_table(
             "wormholes": int(holes.sum()),
             "wormhole_share": holes.sum() / max(trusted.sum(), 1),
             "wormholes_within_xy_cap": int((holes & (xy_dist <= max_edge_xy)).sum()),
-            "longest_geodesic": float(geodesic[holes].max()) if holes.any() else 0.0,
+            "unreachable_on_foot": int((holes & ~walkable).sum()),
+            "longest_geodesic": float(geodesic[holes & walkable].max(initial=0.0)),
         })
     return pd.DataFrame(rows)
 
@@ -173,13 +175,13 @@ def main() -> None:
     speeds = step_speeds(data)
     median_speed, top_speed = float(np.median(speeds)), float(np.quantile(speeds, 0.99))
 
-    off_diagonal = ~np.eye(args.n, dtype=bool)
-    rho, geo = table.rho[off_diagonal], geodesic[off_diagonal]
+    plotted = ~np.eye(args.n, dtype=bool) & np.isfinite(geodesic)
+    rho, geo = table.rho[plotted], geodesic[plotted]
     tag = f"{args.env}, n = {args.n}, F heads: {args.head_agg}"
     plot_calibration(geo, fb_distance(rho, model.discount), median_speed,
                      f"FB distance vs. maze geodesic ({tag})",
                      args.out_dir / f"calibration_{args.env}_{args.head_agg}.png")
-    print(f"{tag}: {off_diagonal.sum()} ordered pairs; rho clipped low {table.n_clipped_low}, "
+    print(f"{tag}: {plotted.sum()} walkable ordered pairs; rho clipped low {table.n_clipped_low}, "
           f"high {table.n_clipped_high}; rho = 0 for {np.mean(rho == 0):.1%}")
     print(f"step speed: median {median_speed:.3f}, p99 {top_speed:.3f} xy units per step\n")
 
