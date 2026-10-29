@@ -255,6 +255,15 @@ Shared contracts: `fbplan/contracts.py` (`FBModel`, `Controller`, `TaskSpec`, `E
     table (≤ +1 pp: stop; +1 to +3 not significant: H1's held-out check first; significant:
     H1 is the first test). The 2× gate (10 seeds): baseline 2× − retrained +2.2 pp [+0.0, +4.4];
     B clean 2× − baseline 2× −0.6 pp: a `π_h` tuning effect, no gain of chaining.
+  - **H1 on large** (h-papers H1, `docs/hypotheses/h-papers.md`; fixed on 2026-10-30 at 02:55 MSK,
+    before any H1 result). G0 on large: the 10-seed oracle is +1.2 pp [−1.3, +3.8] over the bar
+    (`baseline`, 37.7 %), the middle band, so H1's held-out check comes first. Selection on the
+    large held-out goals only, with the grid and tie rule of h-papers H1 item 5 (executor ×
+    `K`). Held-out check, on the same held-out episodes: H1 is falsified if its selected config
+    scores more than 2 pp below the oracle or not above `baseline`; then large route methods
+    stop. Otherwise the selected config runs on large eval seeds 0–9, paired against both
+    baseline rows, and the gain rule decides. The report states that the route comes from
+    recorded trajectories, not from FB values.
   - Not in wave 1: an unfrozen `π_l` (h-exec H2, H5: low chance of a high-level gain, and every
     row would need it); the `z_r` norm knob (h-repr: c = 1 is best on medium); new critics
     (h-learn H5, H6) wait for the 2× result.
