@@ -96,6 +96,13 @@ Queue, in the coordinator's priority:
   teleport runs, then the 9 giant runs and the giant oracle failure classes. Same code (84a8127)
   as (a)–(c), so the ablations pair with the main planner runs.
 - 85 jobs queued at 20:12. Speed: a medium baseline-type config takes about 55 s.
+- Added (coordinator, after B and before giant): c-planner's act-ahead run
+  (`planner_high --opt landmarks.seed=0 act_ahead_xy=8.0` →
+  `results/medium/planner_ablations/high_act_ahead8/l0.csv`). `act_ahead_xy` exists only on main,
+  so this job runs from a second code tree on the instance (`~/fbplan_main`, main 8a202e6), with
+  a check job before it: planner_high l0 with default options from that tree. If its records
+  equal `results/medium/planner_high/l0.csv` (84a8127), the act-ahead run pairs with the main
+  run; otherwise it pairs with the check run, which then goes to results/ as its default.
 
 First Linux numbers (medium, 5 eval seeds): baseline 77.0 %, baseline_raw 80.8 %, retrained
 seeds 0–4: 79.1, 79.7, 77.5, 76.6, 78.4 %. Mac: 77.8, 80.5 and 77.8, 80.6, 76.9, 77.7, 78.6 %.
