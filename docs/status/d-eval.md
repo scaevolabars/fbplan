@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-30, 01:45. Branch merged with `main` at 3e36461.
+Last update: 2026-10-30, 01:55. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -453,8 +453,18 @@ episodes); ensembles are single runs (T1, code 0be1249). Paired on the same 2,50
   w0.5 r1.5 46.5, w0.5 r2.5 44.7, w1.0 r1.5 40.2, w1.0 r2.5 39.8, w2.0 r1.5 27.2, w2.0 r2.5 29.7;
   ungated controls w0.5 44.2, w1.0 37.8, w2.0 29.8 %. b-theory's rule selects weight 0.5,
   trap_radius 1.5 (unique best). Every candidate is below the baseline on the held-out goals.
-  Step 3 (that candidate, eval seeds 0–9) is running. Teleport baseline and baseline_raw on
-  eval seeds 0–9: `results/teleport_10seeds/` (27.6 and 25.1 %).
+  Teleport baseline and baseline_raw on eval seeds 0–9: `results/teleport_10seeds/`.
+- T3 step 3 (`results/teleport_10seeds/trap_aware.csv`, weight 0.5, trap_radius 1.5, eval seeds
+  0–9, 2,500 episodes, paired):
+
+  | method | success [95 % CI] | vs baseline (pp) | vs baseline_raw (pp) | trapped | other failures |
+  |---|---|---|---|---|---|
+  | baseline | 27.6 [25.9, 29.3] | – | +2.5 [+0.6, +4.4], p 0.011 | 54.8 % | 17.6 % |
+  | baseline_raw | 25.1 [23.5, 26.8] | −2.5, p 0.011 | – | 56.5 % | 18.4 % |
+  | trap_aware (T3) | 17.9 [16.4, 19.4] | −9.7 [−11.6, −7.7], p 3e-21 | −7.2 [−9.2, −5.2], p 8e-13 | 51.8 % | 30.2 % |
+
+  T3 fails: the trap share drops by 3 points, but the failures that are not traps nearly double
+  (17.6 → 30.2 %), so success falls by 9.7 points. Trap rule: b-theory's (theory.md §11.3).
 
 T4 result (medium, eval seeds 0–9, 2,500 episodes per run; `results/medium_10seeds/
 ensemble_raw_<family>.csv`; T1 rows for comparison):
