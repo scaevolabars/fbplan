@@ -3,7 +3,12 @@ import pytest
 from planner_fakes import GridFB
 
 from fbplan.graph import GraphSolution, extract_route, q_values, trusted_edges, value_iteration
-from fbplan.landmarks import LandmarkConfig, farthest_point_sampling, select_landmarks
+from fbplan.landmarks import (
+    LandmarkConfig,
+    farthest_point_sampling,
+    region_latents,
+    select_landmarks,
+)
 
 NEG = -np.inf
 
@@ -167,7 +172,7 @@ def test_select_landmarks_covers_every_cell_and_keeps_full_observations(space):
 
 def test_select_landmarks_is_reproducible_for_a_seed():
     obs = dataset_obs(GridFB())
-    cfg = LandmarkConfig(count=4, pool_size=20, seed=3)
+    cfg = LandmarkConfig(count=4, pool_size=20, seed=3, latent="state")
     np.testing.assert_array_equal(
         select_landmarks(obs, cfg).dataset_index, select_landmarks(obs, cfg).dataset_index
     )
@@ -176,3 +181,30 @@ def test_select_landmarks_is_reproducible_for_a_seed():
 def test_select_landmarks_in_backward_space_needs_a_model():
     with pytest.raises(ValueError):
         select_landmarks(dataset_obs(GridFB()), LandmarkConfig(count=3, space="backward"))
+
+
+def test_region_latents_average_b_over_the_states_within_the_radius():
+    fb = GridFB()
+    obs = dataset_obs(fb, repeats=1)
+    z = region_latents(fb, obs, np.array([[1.0, 1.0]]), radius=1.0)
+    inside = [(1, 1), (2, 1), (1, 2)]  # (1, 1) and its two neighbours in the U maze
+    expected = np.mean([np.eye(fb.latent_dim)[fb.index[c]] for c in inside], axis=0)
+    np.testing.assert_allclose(z[0], expected)
+
+
+def test_select_landmarks_gives_region_latents_by_default():
+    fb = GridFB()
+    obs = dataset_obs(fb)
+    marks = select_landmarks(obs, LandmarkConfig(count=3, region_xy=1.0), fb)
+    expected = region_latents(fb, obs, marks.observations[:, :2], radius=1.0)
+    np.testing.assert_allclose(marks.latents, expected)
+
+
+def test_select_landmarks_with_single_state_latents_gives_none():
+    marks = select_landmarks(dataset_obs(GridFB()), LandmarkConfig(count=3, latent="state"))
+    assert marks.latents is None
+
+
+def test_region_latents_need_a_model():
+    with pytest.raises(ValueError):
+        select_landmarks(dataset_obs(GridFB()), LandmarkConfig(count=3))

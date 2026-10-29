@@ -3,7 +3,12 @@
 Farthest-point sampling (greedy k-center) gives an even cover, so that every state has a
 landmark within a short, trustworthy FB edge. Two spaces: maze position xy (obs[:2]) and
 the normalized backward embedding B(s), which needs no maze knowledge. Landmarks keep the
-full observation, because B(w) and F(w, .) need the whole state.
+full observation, because F(w, .) needs the whole state.
+
+The latent of a landmark is the intention z_w that the agent follows to reach it. B(w) of one
+state carries the pose and velocity of w, and the ant overshoots; the mean of B over the
+states within region_xy of w (as upstream builds z_r) asks for the region instead (d-eval: the
+privileged oracle on medium rose from 58 % to 87 %). The region mean is the default.
 """
 
 from __future__ import annotations
@@ -16,24 +21,38 @@ import numpy as np
 from fbplan.contracts import FBModel, normalize_z
 
 LandmarkSpace = Literal["xy", "backward"]
+LandmarkLatent = Literal["region", "state"]
 _B_BATCH = 4096
 
 
 @dataclass(frozen=True)
 class LandmarkConfig:
     """count landmarks by farthest-point sampling in `space`, from a random pool of
-    pool_size dataset observations (the pool bounds the cost of sampling)."""
+    pool_size dataset observations (the pool bounds the cost of sampling).
+
+    latent: "region" gives each landmark the mean of raw B over the pool states within
+    region_xy xy units of it; "state" uses B(w) of the landmark state.
+    """
 
     count: int = 300
     space: LandmarkSpace = "xy"
     pool_size: int = 100_000
     seed: int = 0
+    latent: LandmarkLatent = "region"
+    region_xy: float = 0.5
+
+    def __post_init__(self) -> None:
+        if self.space not in ("xy", "backward"):
+            raise ValueError(f"unknown space {self.space!r}")
+        if self.latent not in ("region", "state"):
+            raise ValueError(f"unknown latent {self.latent!r}")
 
 
 @dataclass(frozen=True)
 class Landmarks:
     observations: np.ndarray  # [N, obs_dim]
     dataset_index: np.ndarray  # [N] rows of the dataset they come from
+    latents: np.ndarray | None  # [N, d] region-mean B; None: use B(w) of each landmark state
 
 
 def farthest_point_sampling(points: np.ndarray, count: int, first: int = 0) -> np.ndarray:
@@ -57,19 +76,42 @@ def select_landmarks(
     """Choose landmarks from dataset observations [P, obs_dim]."""
     rng = np.random.default_rng(config.seed)
     pool_size = min(config.pool_size, len(observations))
-    pool = rng.choice(len(observations), size=pool_size, replace=False)
-    features = _features(observations[pool], config.space, fb)
+    rows = rng.choice(len(observations), size=pool_size, replace=False)
+    pool = observations[rows]
+    needs_b = config.space == "backward" or config.latent == "region"
+    if needs_b and fb is None:
+        raise ValueError("backward-space landmarks and region latents need an FB model")
+    b = _backward(fb, pool) if needs_b else None
+    features = pool[:, :2] if config.space == "xy" else np.asarray(normalize_z(b, b.shape[-1]))
     first = int(rng.integers(pool_size))
-    picked = pool[farthest_point_sampling(features, config.count, first)]
-    return Landmarks(observations[picked], picked)
+    picked = farthest_point_sampling(features, config.count, first)
+    latents = None
+    if config.latent == "region":
+        latents = _region_mean(b, pool[:, :2], pool[picked, :2], config.region_xy)
+    return Landmarks(pool[picked], rows[picked], latents)
 
 
-def _features(obs: np.ndarray, space: LandmarkSpace, fb: FBModel | None) -> np.ndarray:
-    if space == "xy":
-        return obs[:, :2]
-    if fb is None:
-        raise ValueError("landmarks in backward space need an FB model")
-    b = np.concatenate(
+def region_latents(
+    fb: FBModel, observations: np.ndarray, centres_xy: np.ndarray, radius: float
+) -> np.ndarray:
+    """Mean of raw B over the observations within `radius` xy units of each centre. [N, d]"""
+    return _region_mean(_backward(fb, observations), observations[:, :2], centres_xy, radius)
+
+
+def _region_mean(
+    b: np.ndarray, xy: np.ndarray, centres_xy: np.ndarray, radius: float
+) -> np.ndarray:
+    out = np.empty((len(centres_xy), b.shape[1]))
+    for i, centre in enumerate(centres_xy):
+        inside = np.sum((xy - centre) ** 2, axis=1) <= radius**2
+        if not inside.any():
+            raise ValueError(f"no observation within {radius} of {centre}")
+        out[i] = b[inside].mean(axis=0)
+    return out
+
+
+def _backward(fb: FBModel, obs: np.ndarray) -> np.ndarray:
+    """Raw B(s) in batches. [P, d]"""
+    return np.concatenate(
         [np.asarray(fb.backward(obs[i : i + _B_BATCH])) for i in range(0, len(obs), _B_BATCH)]
     )
-    return np.asarray(normalize_z(b, b.shape[-1]))

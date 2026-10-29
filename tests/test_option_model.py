@@ -148,3 +148,13 @@ def test_rho_is_the_exact_hitting_discount_on_the_tabular_medium_maze():
     for j, w in enumerate(targets):
         exact = hitting_discount(fb.maze, fb.policy(fb.backward(states[[w]])[0]), w, fb.discount)
         np.testing.assert_allclose(t.rho[:, j], exact, atol=1e-9)
+
+
+def test_targets_take_given_latents_instead_of_b_of_the_target_state():
+    fb = GridFB()
+    om = OptionModel(fb, OptionModelConfig())
+    obs = all_cells(fb)[:3]
+    z = fb.backward(all_cells(fb)[3:6])
+    targets = om.targets(obs, z)
+    np.testing.assert_array_equal(targets.z, z)
+    np.testing.assert_allclose(targets.self_forward, fb.forward(obs, z))

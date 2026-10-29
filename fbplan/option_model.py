@@ -1,6 +1,7 @@
 """Option model of "follow pi_{z_w} until w is hit", read off a frozen FB model.
 
-With z_w = B(w) and per F head h (docs/design.md §3):
+With the option latent z_w (B(w), or a region mean of B around w) and per F head h
+(docs/design.md §3):
 
     rho_h(s, w) = F_h(s, z_w)^T B(w) / F_h(w, z_w)^T B(w)              ~ E[gamma^H]
     R_h(s, w)   = F_h(s, z_w)^T z_r - rho_h(s, w) * F_h(w, z_w)^T z_r  reward before the hit
@@ -88,8 +89,14 @@ class OptionModel:
         self.fb = fb
         self.config = config
 
-    def targets(self, obs: np.ndarray) -> Targets:
-        z = np.concatenate([self._backward(obs[c]) for c in self._chunks(len(obs))])
+    def targets(self, obs: np.ndarray, z: np.ndarray | None = None) -> Targets:
+        """Targets at observations obs, with option latents z (default: B(obs)).
+
+        Region-mean latents (fbplan.landmarks) make the option "reach the region around w";
+        rho is then measured against the value of that option at the landmark state w.
+        """
+        if z is None:
+            z = np.concatenate([self._backward(obs[c]) for c in self._chunks(len(obs))])
         return Targets(obs, z, self._forward(obs, z))
 
     def pair_table(

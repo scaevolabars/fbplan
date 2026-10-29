@@ -6,7 +6,8 @@ Q(s, w) = R(s, w) + hop_discount * rho(s, w) * V_H(w) over trusted edges, and th
 becomes the waypoint w*, unless the task policy has a higher value F(s, z_r)^T z_r.
 Edges from landmarks and from s follow the same trust rules (see PlannerConfig).
 The controller keeps w* until it is reached (see PlannerConfig.reached_xy) or until a
-timeout, and acts with pi_l(a | s, B(w*)) (or pi_l(a | s, z_r) on the task policy).
+timeout, and acts with pi_l(a | s, z_w*) (or pi_l(a | s, z_r) on the task policy), where
+z_w is the landmark's option latent: by default the mean of B around w (fbplan.landmarks).
 With lookahead, it moves on along the planned route as soon as the next stop is worth at
 least as much from s as the current waypoint, so the agent does not slow down at each one.
 """
@@ -100,13 +101,19 @@ class GraphPlannerController:
     name = "graph_planner"
 
     def __init__(
-        self, fb: FBModel, landmarks: np.ndarray, config: PlannerConfig | None = None
+        self,
+        fb: FBModel,
+        landmarks: np.ndarray,
+        config: PlannerConfig | None = None,
+        latents: np.ndarray | None = None,
     ) -> None:
+        """landmarks: observations [N, obs_dim]; latents: their option latents z_w [N, d]
+        (default: B of each landmark state)."""
         self.fb = fb
         self.config = config or PlannerConfig()
         self.options = OptionModel(fb, self.config.options)
         self.landmarks = landmarks
-        self.targets = self.options.targets(landmarks)
+        self.targets = self.options.targets(landmarks, latents)
         self.plan: TaskPlan | None = None
         self._edges: OptionTable | None = None
         self._plans: dict[bytes, TaskPlan] = {}
@@ -120,9 +127,10 @@ class GraphPlannerController:
     def from_dataset(
         cls, fb: FBModel, observations: np.ndarray, config: PlannerConfig | None = None
     ) -> GraphPlannerController:
-        """Select landmarks from dataset observations with config.landmarks."""
+        """Select landmarks and their latents from dataset observations (config.landmarks)."""
         config = config or PlannerConfig()
-        return cls(fb, select_landmarks(observations, config.landmarks, fb).observations, config)
+        marks = select_landmarks(observations, config.landmarks, fb)
+        return cls(fb, marks.observations, config, marks.latents)
 
     @property
     def edges(self) -> OptionTable:
