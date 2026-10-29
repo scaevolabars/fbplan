@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-29, 20:20. Branch merged with `main` at 3e36461.
+Last update: 2026-10-29, 20:55. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -111,6 +111,25 @@ vast.ai log (team account, label `fbplan-gpu-eval`):
 
 Selection rule now (coordinator): CPU model AMD EPYC Zen 2/3/4 or Xeon Gold/Platinum, ≥ 64
 effective cores, ≥ 128 GB RAM, reliability ≥ 0.99, ≤ $1/h; destroy after 15 min without SSH.
+
+## Large (Linux, `results/large/`, 5 eval seeds × 5 tasks × 50 episodes)
+
+Planner rows pool landmark sets 0–2 (bootstrap over config_hash and episodes).
+
+| method | success [95 % CI] | vs baseline (pp) | vs baseline_raw (pp) |
+|---|---|---|---|
+| baseline | 37.4 [35.0, 39.9] | – | +2.3 [−1.0, +5.6] |
+| baseline_raw | 35.1 [32.8, 37.4] | −2.3 [−5.6, +1.0] | – |
+| oracle (privileged) | 39.4 [36.7, 42.0] | +1.9 [−1.8, +5.6] | +4.2 [+0.7, +7.7] |
+| planner | 28.1 [24.7, 32.1] | −9.3 [−13.8, −4.5] | −7.0 [−11.4, −2.2] |
+| planner_high | 29.5 [27.4, 31.4] | −8.0 [−11.2, −4.6] | −5.7 [−9.0, −2.4] |
+| planner_region | 26.4 [24.7, 28.2] | −11.1 [−14.2, −7.8] | −8.7 [−11.8, −5.7] |
+
+- Per landmark set: planner 32.2 / 24.8 / 27.4 %, planner_high 30.9 / 27.8 / 29.7 %,
+  planner_region 27.8 / 25.8 / 25.6 %.
+- Even the privileged oracle does not beat the baseline on large (task 3: 54.8 against 78.8 %).
+- Failure classes of baseline and oracle: requeued (the first try hit the container's thread
+  limit: 122 unpinned workers; replay and parity jobs now run pinned to 24 cores).
 
 ## Teleport (Linux, `results/teleport/`, 5 eval seeds × 5 tasks × 50 episodes)
 
