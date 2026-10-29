@@ -9,6 +9,8 @@ the planned routes are clean (they follow the corridors and end at the goal). Wa
 not the plan, was the bottleneck: an earlier switch (reached_xy 3) plus a look-ahead along the
 route lifted the planner from 56/100 to 79/100 on held-out medium episodes. The baseline pi_h
 gets 84/100 on the same start states, so the planner does not beat it on medium yet.
+On large (probe, 5 tasks × 10) the planner is worse than the baseline (9–15/50 against 22/50):
+plans are mostly clean, but the agent leaves the planned route and replans about 40 times.
 All real-model numbers come from a probe with a-frozen's uncommitted loader; redo them after
 a-frozen merges.
 
@@ -125,14 +127,28 @@ validation split. Probe scripts are throw-away and not committed.
 
   The baseline's 84 % matches the paper (87 %); the 68 % in the smoke run came from a hard set
   of start states. Neither the radius nor the look-ahead alone helps much; together they do.
+- Large (probe, 400 landmarks from the validation split, defaults, 5 tasks × 10 paired episodes):
+
+  | Method | Success | Per task 1–5 | Median steps | Replans / advances |
+  |---|---|---|---|---|
+  | baseline pi_h | 22/50 | .3 .5 .9 .3 .2 | 1000 | – |
+  | planner pi_l | 9/50 | .2 .3 .2 .1 .1 | 1000 | 40 / 24 |
+  | planner pi_h | 15/50 | .2 .4 .6 .2 .1 | 1000 | 36 / 19 |
+
+  FB is noisier on large: rho < 0 in 22 % of pairs (medium 10 %). Trusted edges that cross a wall
+  (geodesic > 1.5 × xy + 0.5): large 17 of 11407, medium 51 of 5451. Planned routes from the 5
+  start states: 16–20 hops, one wall-crossing hop in total (task 2: xy 5.9, geodesic 19.3).
+  Route plot `runs/c-planner/routes_large.png`: in tasks 4–5 the agent takes another way than the
+  plan, so replans change the route on the way (two ways around a loop can have close values).
 - Route plots: `runs/c-planner/routes_medium.png` (not committed). Planned routes follow the
   corridors, cross no wall and end at the goal. Executed paths wobble around waypoints and
   sometimes loop back: execution, not the plan, costs the time.
 
 ## Next
 
-1. Long horizons: medium is short for pi_h (84 %). The planner's case is large and giant (paper
-   baseline 66 % and 1 %). Run the same probe on large with landmarks from its validation split.
+1. Large: find why the agent leaves the route (timeouts, reached events or route switching
+   between near-equal ways around a loop). A candidate fix is hysteresis: keep the current route
+   unless a new one is clearly better.
 2. After a-frozen merges: redo the numbers with landmarks from the train split, and hand the
    factories to d-eval for a full evaluation (the probe samples are too small to rank methods).
 3. Switch the tests to `fbplan/tabular/fake_fb.py` when b-theory merges it.
