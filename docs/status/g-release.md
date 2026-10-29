@@ -42,8 +42,13 @@ Last update: 2026-10-29.
   `MUJOCO_GL=osmesa`; packages only, no data. With an empty `HOME`, `pytest` downloads nothing.
   Linux check (user approved): the same steps in a `python:3.11-slim-bookworm` container
   (arm64, uv 0.11.8, `libosmesa6`, the 16 CUDA packages left out) on commit 8ce6821: ruff
-  clean, pytest 247 passed, 30 skipped. Not checked: the x86_64 runner, the CUDA wheels, and
-  today's `pyproject.toml` settings on Linux (the first GitHub Actions run checks them).
+  clean, pytest 247 passed, 30 skipped.
+  GitHub Actions on the public repo (x86_64, CUDA wheels installed, about 2 min): the workflow
+  works (sync, OSMesa, ruff), and pytest gives 335 passed, 40 skipped, 1 failed on every push
+  since the merge. The failure is c-planner's
+  `test_planner_with_region_latents_solves_every_task_of_the_exact_tabular_maze` (13 of 15
+  tasks, float rounding on another CPU; e-learner saw the same on a GPU). c-planner's "CI fix"
+  run was in progress at 15:50 UTC.
 - `pyproject.toml` (X15): removed `h5py` (no import in our code, upstream or the packages we use;
   only dm_control's mocap loader imports it, which antmaze never loads; 343 tests pass without
   it); `addopts = "-ra"`; `pythonpath = [".", "tests"]` (`planner_fakes`, and tests of
