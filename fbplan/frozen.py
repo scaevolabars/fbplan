@@ -4,12 +4,14 @@ Owner: component a-frozen. Other components import only the public names below.
 All access to upstream code (third_party/ssm) goes through `upstream_module`, so the rest of
 fbplan does not depend on the upstream sys.path layout.
 
-Download the checkpoints with `uv run python -m fbplan.frozen [env_name ...]`.
-OGBench dataset files download on the first `load_dataset` call.
+Download the checkpoints with `uv run python -m fbplan.frozen [env_name ...]`; `--trained` also
+gets our published trained checkpoints. OGBench dataset files download on the first
+`load_dataset` call.
 """
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import importlib
 import json
@@ -19,6 +21,8 @@ import pickle
 import shutil
 import sys
 import urllib.request
+import uuid
+from collections.abc import Sequence
 from functools import cached_property
 from pathlib import Path
 from types import ModuleType
@@ -88,6 +92,13 @@ _CHECKPOINT_FILES: dict[str, dict[str, tuple[str, str]]] = {
 }
 _DRIVE_URL = "https://drive.usercontent.google.com/download?id={}&export=download&confirm=t"
 
+# Our trained checkpoints (fbplan.train_high, fbplan.learned.train_b), published as assets of
+# GitHub releases of the public repo. Key: the checkpoint's folder below ~/.cache/fbplan, for
+# example "baselines/medium/seed0". Per file: (release tag, sha256 of the content).
+# The asset name is the key with "/" replaced by "-", then "-" and the file name.
+_TRAINED_FILES: dict[str, dict[str, tuple[str, str]]] = {}
+_RELEASE_URL = "https://github.com/scaevolabars/fbplan/releases/download/{tag}/{asset}"
+
 # The only classes a checkpoint pickle may reference: together they rebuild numpy arrays.
 _PICKLE_ALLOWED = frozenset(
     {("numpy._core.multiarray", "_reconstruct"), ("numpy", "ndarray"), ("numpy", "dtype")}
@@ -116,23 +127,62 @@ def checkpoint_dir(env_name: str) -> Path:
 def download_checkpoint(env_name: str) -> Path:
     """Download flags.json and params.pkl of one env into checkpoint_dir(env_name).
 
-    Idempotent: a file that is present is only hash-checked. A present file with a wrong hash
-    raises instead of being replaced, because then the file was edited or the source changed.
+    Idempotent: a file that is present is only hash-checked (see _fetch_pinned).
     """
     target = checkpoint_dir(env_name)
-    for name, (file_id, sha256) in _CHECKPOINT_FILES[_maze_name(env_name)].items():
-        path = target / name
-        if path.exists():
-            _check_sha256(path, sha256)
-        else:
-            _download(_DRIVE_URL.format(file_id), path, sha256)
+    files = _CHECKPOINT_FILES[_maze_name(env_name)]
+    _fetch_pinned(
+        {target / name: (_DRIVE_URL.format(id_), sha256) for name, (id_, sha256) in files.items()}
+    )
     return target
 
 
+def _asset_name(key: str, file_name: str) -> str:
+    """Release asset name of one file of a trained checkpoint (a release has no folders)."""
+    return f"{key.replace('/', '-')}-{file_name}"
+
+
+def download_trained(key: str, target: Path | None = None) -> Path:
+    """Download the published files of one trained checkpoint into target, and return target.
+
+    key is the checkpoint's folder below ~/.cache/fbplan, for example "baselines/medium/seed0"
+    or "approach_b/medium/clean/seed0". target defaults to that folder; a loader with its own
+    folder (an env override) passes it. Idempotent and hash-checked like download_checkpoint.
+    """
+    if key not in _TRAINED_FILES:
+        published = ", ".join(sorted(_TRAINED_FILES)) or "none"
+        raise ValueError(f"trained checkpoint {key} is not published; published: {published}")
+    target = target or Path.home() / ".cache" / "fbplan" / key
+    _fetch_pinned(
+        {
+            target / name: (_RELEASE_URL.format(tag=tag, asset=_asset_name(key, name)), sha256)
+            for name, (tag, sha256) in _TRAINED_FILES[key].items()
+        }
+    )
+    return target
+
+
+def _fetch_pinned(files: dict[Path, tuple[str, str]]) -> None:
+    """For each path -> (url, sha256): hash-check the file if present, else download it.
+
+    A present file with a wrong hash raises instead of being replaced, because then the file
+    was edited or the source changed.
+    """
+    for path, (url, sha256) in files.items():
+        if path.exists():
+            _check_sha256(path, sha256)
+        else:
+            _download(url, path, sha256)
+
+
 def _download(url: str, path: Path, sha256: str | None = None) -> None:
-    """Fetch url into path. Writes a .part file first, so path never holds a partial file."""
+    """Fetch url into path through a .part file of its own, then rename it to path.
+
+    So path never holds a partial file, and parallel eval workers that download the same
+    missing file at the same time do not write into one .part file.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    part = path.with_name(path.name + ".part")
+    part = path.with_name(f"{path.name}.{uuid.uuid4().hex}.part")
     _log.info("downloading %s -> %s", url, path)
     try:
         with urllib.request.urlopen(url) as response, part.open("wb") as file:
@@ -367,7 +417,20 @@ def load_dataset(env_name: str, split: Literal["train", "val"]) -> dict[str, np.
     return data
 
 
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Download checkpoints into ~/.cache/fbplan.")
+    parser.add_argument("env_names", nargs="*", help="frozen checkpoints to get (default: all 4)")
+    parser.add_argument(
+        "--trained", action="store_true", help="also get every published trained checkpoint"
+    )
+    args = parser.parse_args(argv)
+    for name in args.env_names or ENV_NAMES:
+        print(download_checkpoint(name))
+    if args.trained:
+        for key in _TRAINED_FILES:
+            print(download_trained(key))
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    for name in sys.argv[1:] or ENV_NAMES:
-        print(download_checkpoint(name))
+    main()
