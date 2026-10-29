@@ -1,0 +1,11 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.18.5/.schema/devbox.schema.json",
+  "packages": ["uv@latest"],
+  "shell": {
+    "scripts": {
+      "setup": ["git submodule update --init", "uv sync"],
+      "test": "uv run pytest",
+      "lint": "uv run ruff check ."
+    }
+  }
+}
