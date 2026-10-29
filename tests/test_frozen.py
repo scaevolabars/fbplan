@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pickle
 import urllib.request
+from pathlib import Path
 
 import jax
 import numpy as np
@@ -71,6 +72,20 @@ def test_numpy_pickle_loader_rejects_other_classes(tmp_path):
 
     with pytest.raises(pickle.UnpicklingError, match="builtins.print"):
         frozen.load_numpy_pickle(path)
+
+
+def test_upstream_module_imports_from_the_submodule():
+    upstream_dir = Path(frozen.__file__).resolve().parents[1] / "third_party" / "ssm"
+
+    module = frozen.upstream_module("agents.fbpiswitch")
+
+    assert Path(module.__file__).resolve().is_relative_to(upstream_dir)
+    assert hasattr(module, "FBpiSwitchAgent")
+
+
+def test_upstream_module_refuses_a_module_from_outside_the_submodule():
+    with pytest.raises(ImportError, match="not to"):
+        frozen.upstream_module("json")
 
 
 def test_download_checkpoint_refuses_files_with_a_wrong_hash(tmp_path, monkeypatch):

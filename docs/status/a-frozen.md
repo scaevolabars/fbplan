@@ -5,9 +5,9 @@ Last update: 2026-10-29.
 ## Done
 
 - `fbplan/frozen.py`: `load_model`, `make_env`, `load_dataset`, `download_checkpoint`,
-  `dataset_path`, `load_numpy_pickle`, class `FrozenFBModel` (implements `FBModel`).
-  `tests/test_frozen.py`: 26 tests, all pass on this machine. A test that needs a checkpoint
-  or an OGBench file skips when the file is absent.
+  `dataset_path`, `load_numpy_pickle`, `upstream_module`, class `FrozenFBModel` (implements
+  `FBModel`). `tests/test_frozen.py`: 28 tests, all pass on this machine. A test that needs a
+  checkpoint or an OGBench file skips when the file is absent.
 - Checkpoints: all 4 are in `~/.cache/fbplan/checkpoints/<maze>/` and load.
   Drive file ids and sha256 are pinned in `frozen.py`.
   `uv run python -m fbplan.frozen [env_name ...]` downloads them (idempotent, hash-checked).
@@ -21,6 +21,11 @@ Last update: 2026-10-29.
   The restored params are equal to the pickle arrays, bit for bit (test).
 - OGBench data in `~/.ogbench/data`: medium train and val, val of large, giant, teleport (340 MB).
   `load_dataset` downloads one split when it is absent.
+- Merged `main` (8b8a9d8, with b-theory) into `a-frozen`: fast-forward, 103 tests pass.
+- Request of d-eval and e-learner: the upstream import helper is public now,
+  `upstream_module(module)` (was `_upstream`). The old name has no alias. Its 4 callers are in
+  `frozen.py` and are updated. 2 new tests: an upstream import, and the refusal of a module
+  from outside `third_party/ssm`.
 - Sanity check (step 6): done. The result is below the paper; see below.
 
 ## Sanity check
@@ -112,7 +117,8 @@ fails if the physics drift again.
 4. JAX compiles each jitted method once per batch shape (about 0.2 s). In a hot loop, keep the
    batch size fixed.
 5. `FrozenFBModel.agent` is the upstream `FBpiSwitchAgent` (on device). e-learner can retrain
-   `pi_h` on it; upstream `evaluate` can run on it.
+   `pi_h` on it; upstream `evaluate` can run on it. Import other upstream modules with
+   `fbplan.frozen.upstream_module("utils.evaluation")`, not with your own sys.path change.
 6. `load_dataset` returns a new dict of writable numpy arrays on each call, with `qpos` and `qvel`.
    Medium train: 1M rows, 1.4 s.
 7. `infer_task_latent` takes about 1 s (100k states through `B`) and is deterministic.
@@ -120,7 +126,7 @@ fails if the physics drift again.
 
 ## Next
 
-- a-frozen is done. The coordinator can merge `a-frozen` into `main`.
+- a-frozen is done. The coordinator can merge `a-frozen` into `main` again.
 - Download the train splits of large, giant, teleport (240 MB each) when c-planner or e-learner
   need them.
 
@@ -130,13 +136,10 @@ fails if the physics drift again.
 
 ## Requests to the coordinator
 
-- README setup: add `uv run python -m fbplan.frozen` after `uv sync` (downloads 73 MB of checkpoints).
-- design.md §2 says "`z_r` ... then normalized". Precise: norm 0.79-0.98 sqrt(d) (fact 1).
-  Decide if the baseline gives `pi_h` the raw `z_r` (exact upstream) or the normalized one
-  (contract, current).
-- design.md §5: add the reset recipe of fact 2 to the paired design.
-- design.md §1/§5: the provided checkpoints score below the paper numbers (see the sanity check).
-- Baseline definition: on large, the normalized `z_r` (FBModel path) scores 14 points above the
-  exact upstream path (one seed). Decide which path is "the baseline"; maybe report both.
-- Merge: this branch changes `pyproject.toml` and `uv.lock` (mujoco==3.1.6, dm-control 1.0.20).
-- Optional, `pyproject.toml`: a `filterwarnings` entry for the tfp-nightly DeprecationWarning.
+- Open: the baseline definition. Does `pi_h` get the raw `z_r` (exact upstream) or the normalized
+  one (contract, current)? On large, the normalized `z_r` scores 14 points higher (one seed).
+  This waits for the user's decision.
+- Optional, not done: a `filterwarnings` entry in `pyproject.toml` for the tfp-nightly
+  DeprecationWarning.
+- Applied by the coordinator (2026-10-29): README setup line, design.md §2 (`z_r` norm),
+  §5 (reset recipe), §1/§5 (gap to the paper numbers), merge of `pyproject.toml` and `uv.lock`.
