@@ -32,10 +32,31 @@
   (8 decisions in its §10). Revised after the merge: `R = 0` for goal latents as A, region
   latents (d-eval's oracle result), `ρ` cap vs. design's `[0, γ]`, small headroom on medium.
 
+- GPU job 1 (user approved, 2026-10-29): medium seeds 0-4 on vast.ai instance 58234389
+  (RTX 3090, US, $0.209/h, label `fbplan-gpu`), code at commit 9557a55. Started 14:10 MSK.
+  Speed: 5 ms/step per run with 4 runs in parallel, so about 45 min per run. Seed 2 crashed at
+  start (thread limit, below) and was restarted at 14:22 with `taskset -c 0-1`, same code; its
+  first log is kept as `stdout.crash1.log`, and the launcher log will count it as failed.
+  Problems found on the instance and fixed in the scripts:
+  - SSH direct port: uploads of 20 MB or more broke the connection; the vast.ai proxy carried
+    60 MB both ways. `vast.sh` now uses the proxy.
+  - The OGBench maze env builds a MuJoCo renderer; the headless instance needs `MUJOCO_GL=osmesa`
+    and `libosmesa6` (EGL needs NVIDIA graphics libraries that the CUDA image lacks).
+  - On the RTX 3090, JAX multiplies float32 in TF32 by default. Two a-frozen tests fail by
+    about 1.6e-3 (`test_forward_ignores_the_scale_of_z`,
+    `test_baseline_policy_matches_upstream_sample_actions`) and pass with
+    `JAX_DEFAULT_MATMUL_PRECISION=highest`. `remote_setup.sh` tests at that precision; training
+    keeps the JAX default, as upstream `main.py` does.
+  - XLA sizes thread pools to the host's 80 cores (about 500 threads per run); the container
+    allows 2304. `train_baselines.sh` now pins each run to 2 cores (39 threads per run).
+- At `create`, the vast.ai API answered "SSH key already associated with instance": the key may
+  already be registered for the user in the team account, not only on our instance.
+
 ## Next
 
+- Medium: pull results, check the 5 training curves, destroy the instance or ask the user
+  about large (the user wants a question before large).
 - After approval: implement B1 (option targets in JAX, `V_H`, AWR `π_h`, CLI, tests).
-- First GPU job: medium, seeds 0-4. Ready; waits for the user's go (cost question in the brief).
 
 ## Blockers
 
@@ -52,3 +73,7 @@ For a-frozen (`fbplan/frozen.py`). Updated after reading a-frozen's work in prog
    `third_party/ssm` to `sys.path` themselves (marked TODO in two test files).
 3. `load_dataset(...)["terminals"]` = 1 at the last state of each trajectory (non-compact OGBench
    layout), as upstream `GCDataset` expects. (Checked on medium: 1000 trajectories of 1000 steps, every end marked.)
+
+For the coordinator: a-frozen's tests assume CPU float32. On an Ampere GPU two of them fail
+(TF32, see Done). Options: set `jax_default_matmul_precision` to `highest` in those tests, or
+document that the suite runs on CPU.
