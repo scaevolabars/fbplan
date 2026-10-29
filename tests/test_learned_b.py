@@ -23,6 +23,7 @@ from fbplan.learned.train_b import (
     example_batch,
     load_b_model,
     load_value,
+    parse_args,
     policy_chunk,
     save_value,
     value_chunk,
@@ -114,6 +115,15 @@ def test_region_latents_average_within_the_trajectory_only():
     terminals[[5, 11]] = 1.0
     region = region_latents(latents, terminals, half_width=1)[:, 0]
     np.testing.assert_allclose(region[[0, 1, 5, 6]], [0.5, 1.0, 4.5, 6.5])
+
+
+def test_ablation_runs_get_their_own_folders():
+    env = ["--env", "antmaze-medium-navigate-v0", "--seed", "0"]
+    main = parse_args(["value", *env])
+    ablation = parse_args(["value", *env, "--rho-max", "1.0", "--name", "value-single-cap1"])
+    assert (main.name, ablation.name) == ("value-single", "value-single-cap1")
+    policy = parse_args(["policy", *env, "--variant", "region"])
+    assert (policy.name, policy.value_name) == ("region", "value-region")
 
 
 # ----- stage 1 -----
