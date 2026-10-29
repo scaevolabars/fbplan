@@ -47,7 +47,7 @@
     keeps the JAX default, as upstream `main.py` does.
   - XLA sizes thread pools to the host's 80 cores (about 500 threads per run); the container
     allows 2304. `train_baselines.sh` now pins each run to 2 cores (39 threads per run).
-- Medium baseline done (15:05 MSK, 55 min of GPU, about $0.20 incl. setup). 5 retrained `π_h` in
+- Medium baseline done (15:05 MSK, 55 min of GPU; cost in the GPU log below). 5 retrained `π_h` in
   `~/.cache/fbplan/baselines/medium/seed{0..4}/`, loadable with `load_baseline_model`; curves in
   `runs/train_high/medium/seed*/train.csv`, plot `runs/train_high/medium/curves.png`.
   Checks: train actor loss 791 -> 780 in every seed, no NaN; validation MSE 0.73 -> 0.72 (train
@@ -75,6 +75,24 @@
   `ρ_max ∈ {0.9, 1.0}` tests it. Exact `R` is noisy (10–90 %: −8.8 to +29), which supports
   `R = 0` for goals. One-hop gain with `R = 0` is positive on 26 % of pairs.
 
+## GPU time and cost
+
+vast.ai, a shared team account, label `fbplan-gpu`. Times in MSK, 2026-10-29.
+
+| Instance | GPU, place | $/h (with disk) | Start | End | Hours | Cost |
+|---|---|---|---|---|---|---|
+| 58234389 | RTX 3090, US | 0.209 | 13:16 | running | | |
+
+What ran on 58234389:
+
+| From | To | What |
+|---|---|---|
+| 13:16 | 14:10 | setup: 2 pushes broke on the direct SSH port, 1 setup stopped at the MuJoCo renderer (fixed) |
+| 14:10 | 15:05 | medium baseline seeds 0-4 (GPU 100 %) |
+| 15:05 | 15:20 | pull, curve checks, user question |
+| 15:20 | 15:41 | push of B1 code, 271 tests on the instance (2 GPU-only failures, below) |
+| 15:45 | | push of the self-loop fix, tests; then stage 1 |
+
 ## Next
 
 - Ask the user about the next GPU jobs (large baselines, B1 medium) or destroy instance 58234389.
@@ -95,6 +113,11 @@ For a-frozen (`fbplan/frozen.py`). Updated after reading a-frozen's work in prog
 2. Done on main: `upstream_module`. My tests use it; no `sys.path` changes left.
 3. `load_dataset(...)["terminals"]` = 1 at the last state of each trajectory (non-compact OGBench
    layout), as upstream `GCDataset` expects. (Checked on medium: 1000 trajectories of 1000 steps, every end marked.)
+
+For the coordinator: on the GPU (full float32 precision) c-planner's
+`test_planner_with_region_latents_solves_every_task_of_the_exact_tabular_maze` solved 13 of 15
+tasks instead of 15 (269 of 271 tests passed; the other failure was mine, fixed in a189a49).
+Small float differences change planner choices; on CPU it passes.
 
 For the coordinator: a-frozen's tests assume CPU float32. On an Ampere GPU two of them fail
 (TF32, see Done). Options: set `jax_default_matmul_precision` to `highest` in those tests, or
