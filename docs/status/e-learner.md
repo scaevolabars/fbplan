@@ -28,10 +28,8 @@
   goals), a retrained `π_h` reloads through `load_baseline_model(env, seed)` (for d-eval), and
   a file with changed `F`/`B`/`π_l` is refused. 117 tests pass. CLI smoke run on CPU (10 steps,
   medium train split): loads, trains, logs, saves.
-- `docs/plans/approach-b.md`: draft plan for approach B, waiting for the user's approval
-  (8 decisions in its §10). Revised after the merge: `R = 0` for goal latents as A, region
-  latents (d-eval's oracle result), `ρ` cap vs. design's `[0, γ]`, small headroom on medium.
-
+- `docs/plans/approach-b.md`: approved by the user (2026-10-29) with one change: B-clean keeps
+  single-state latents; region latents are the variant B-region. B2 waits for a B1 gain.
 - GPU job 1 (user approved, 2026-10-29): medium seeds 0-4 on vast.ai instance 58234389
   (RTX 3090, US, $0.209/h, label `fbplan-gpu`), code at commit 9557a55. Started 14:10 MSK.
   Speed: 5 ms/step per run with 4 runs in parallel, so about 45 min per run. Seed 2 crashed at
@@ -69,8 +67,7 @@ For a-frozen (`fbplan/frozen.py`). Updated after reading a-frozen's work in prog
 1. Done without a change in a-frozen: `train_high` uses `load_model(env).agent`, and
    `fbplan.train_high.load_baseline_model(env, seed)` gives d-eval an `FBModel` with a retrained
    `π_h`. This needs `FrozenFBModel` and `load_numpy_pickle` to stay public.
-2. Make `_upstream(module)` public (for example `upstream`), so my tests do not add
-   `third_party/ssm` to `sys.path` themselves (marked TODO in two test files).
+2. Done on main: `upstream_module`. My tests use it; no `sys.path` changes left.
 3. `load_dataset(...)["terminals"]` = 1 at the last state of each trajectory (non-compact OGBench
    layout), as upstream `GCDataset` expects. (Checked on medium: 1000 trajectories of 1000 steps, every end marked.)
 
