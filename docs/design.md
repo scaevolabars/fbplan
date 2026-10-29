@@ -205,6 +205,12 @@ Closed:
   [−0.5, +5.8], p = 0.11; large 38.1 % against 38.0 %. The earlier 14-point gap on large came from
   one eval seed on the old MuJoCo. Rule for the report: a gain counts only if it also holds
   paired against `baseline_raw`.
+  Update with the canonical Linux runs (2026-10-29): on medium `baseline_raw` is stronger,
+  +3.8 pp [+0.7, +6.8] over the normalized baseline; on large +2.3 pp the other way (not
+  significant); on teleport −3.5 pp [−6.2, −1.0]. So no single row is the strongest everywhere.
+  The normalized baseline stays the controlled reference (same input path as B and the retrained
+  baselines); the report shows both rows in every table, and the rule above makes the stronger one
+  the bar. Against `baseline_raw` the privileged oracle gains only +0.5 pp on medium.
 - Held-out goals (d-eval proposal H, accepted): `task_id` 101..110 identify held-out goals; only
   the `TaskSpec` docstring changes. Checkpoint fields in `EpisodeRecord` (proposal C): rejected;
   one CSV holds one checkpoint, and `write_csv` adds its columns.
