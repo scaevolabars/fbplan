@@ -16,7 +16,8 @@ def pair_terms(fb, s_obs, w_obs, z, is_goal, config):
     """option_terms for the pairs (s_obs[i], w_obs[i]) of a numpy FBModel."""
     z_w = fb.backward(w_obs)
     f_s_zw, f_w_zw = fb.forward(s_obs, z_w), fb.forward(w_obs, z_w)
-    return option_terms(f_s_zw, f_w_zw, z_w, z, is_goal, config), f_w_zw, z_w
+    distinct = np.any(s_obs != w_obs, axis=-1)
+    return option_terms(f_s_zw, f_w_zw, z_w, z, is_goal, distinct, config), f_w_zw, z_w
 
 
 def goal_latent(fb, state):
@@ -59,7 +60,7 @@ def test_terms_do_not_depend_on_the_scale_of_the_subgoal_latent():
     z_w = fb.backward(w_obs)
     terms = [
         option_terms(
-            fb.forward(s_obs, c * z_w), fb.forward(w_obs, c * z_w), c * z_w, z, goal, NO_CAP
+            fb.forward(s_obs, c * z_w), fb.forward(w_obs, c * z_w), c * z_w, z, goal, goal, NO_CAP
         )
         for c in (1.0, 3.0)
     ]
@@ -77,6 +78,16 @@ def test_a_state_and_itself_is_not_a_valid_edge():
     np.testing.assert_allclose(terms.rho, 0.9)
 
 
+def test_a_self_loop_stays_invalid_when_rounding_puts_its_rho_below_one():
+    f_w_zw = jnp.ones((2, 1, 3))
+    f_s_zw = f_w_zw * (1.0 - 1e-7)  # the raw rho a GPU gave for s = w: 0.99999994
+    z_w = jnp.ones((1, 3))
+    distinct = jnp.array([False])
+    terms = option_terms(f_s_zw, f_w_zw, z_w, z_w, jnp.array([True]), distinct, OptionConfig())
+    assert float(terms.rho_raw[0]) < 1.0
+    assert not bool(terms.valid[0])
+
+
 def test_goal_zero_drops_the_reward_of_goal_latents_only():
     fb = TabularFB(FakeFBConfig(rank=24, rho_noise=0.05))
     s_obs, w_obs = fb.maze.xy[[3, 3]], fb.maze.xy[[30, 30]]
@@ -92,7 +103,8 @@ def test_nonpositive_self_measure_in_one_head_makes_the_edge_invalid():
     f = jnp.ones((2, 1, 3))
     z_w = jnp.ones((1, 3))
     f_w_zw = f.at[1].set(-1.0)
-    terms = option_terms(0.5 * f, f_w_zw, z_w, z_w, jnp.array([True]), OptionConfig())
+    yes = jnp.array([True])
+    terms = option_terms(0.5 * f, f_w_zw, z_w, z_w, yes, yes, OptionConfig())
     assert not bool(terms.valid[0])
 
 

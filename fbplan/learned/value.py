@@ -84,8 +84,15 @@ def switch_targets(
 ) -> tuple[jax.Array, jax.Array, OptionTerms]:
     """(y, V_1(s, z), option terms) for each sample. `params` give the gain at w."""
     s, w, z_w, z = batch.observations, batch.subgoals, batch.subgoal_latents, batch.task_latents
+    distinct = jnp.any(s != w, axis=-1)
     terms = option_terms(
-        forward(agent, s, z_w), forward(agent, w, z_w), z_w, z, batch.is_goal, config.option
+        forward(agent, s, z_w),
+        forward(agent, w, z_w),
+        z_w,
+        z,
+        batch.is_goal,
+        distinct,
+        config.option,
     )
     v_w = direct_value(forward(agent, w, z), z) + value.gain(w, z, params).min(axis=0)
     y = terms.reward + terms.rho * v_w - config.hop_cost
