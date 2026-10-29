@@ -91,16 +91,26 @@ below. Review: first pass (B1–B15, X2, X13, X7 my part, K2) and second pass (B
   `ArgumentDefaultsHelpFormatter` (request to g-release below).
 - Tests: all pass (`uv run pytest`), ruff clean.
 
-## Results (preliminary, Mac, MuJoCo 3.1.6, planner code of f1ae57d)
+## Results
 
-5 eval seeds × 5 tasks × 50 episodes; success % [95 % CI]; paired against the baseline.
+Teleport, Linux (final; main 43a03db), 5 eval seeds × 5 tasks × 50 episodes, planner rows pool
+landmark sets 0–2; success % [95 % CI], paired against the baseline:
 
-| maze | baseline | nonhier | planner (landmarks 0) | oracle |
-|---|---|---|---|---|
-| teleport | 28.8 [26.4, 31.2] | 19.0 [16.9, 21.2], −9.8 pp | 18.2 [16.2, 20.4], −10.6 pp | – |
-| giant | 0.6 [0.2, 1.0] | 0.7 [0.3, 1.2], +0.2 pp | – | 2.2 [1.5, 3.0], +1.7 pp (privileged) |
+| method | all | vs. baseline | trap |
+|---|---|---|---|
+| baseline | 27.7 [25.3, 30.2] | – | 54.7 % |
+| baseline_raw | 24.2 [21.8, 26.6] | −3.5 pp [−6.2, −1.0] | 57.4 % |
+| planner | 18.6 [16.5, 21.0] | −9.1 pp [−12.2, −6.0] | 64.2 % |
+| planner_high | 24.1 [21.5, 26.4] | −3.6 pp [−6.7, −0.5] | 53.9 % |
 
-- Teleport: 55 % (baseline), 65 % (nonhier), 66 % (planner) of all episodes end in the trap exit.
+Still preliminary (Mac, MuJoCo 3.1.6, planner code of f1ae57d; `runs/mac/`, not committed):
+
+| maze | baseline | nonhier | oracle |
+|---|---|---|---|
+| teleport | 28.8 [26.4, 31.2] | 19.0 [16.9, 21.2], −9.8 pp | – |
+| giant | 0.6 [0.2, 1.0] | 0.7 [0.3, 1.2], +0.2 pp | 2.2 [1.5, 3.0], +1.7 pp (privileged) |
+
+- Teleport: 54–64 % of all episodes end in the trap exit (Linux; nonhier 65 % on the Mac).
   An exact risk-neutral agent (max `E[γ^H]`, γ = 0.99) takes the teleporter on every task and
   succeeds with probability ≤ 1/2; it walks only for γ ≥ 0.9977–0.9993 (theory.md §11.1).
   π_l itself walks into the entries (the data route through them: 91 up vs. 2 down at (5,6)).
@@ -153,8 +163,10 @@ Docs figures and tables (Mac, light):
 
 ## Next
 
-- When d-eval commits the Linux CSVs: replace the preliminary numbers in theory.md §11.3 (and
-  the trap shares: final distance within 2 xy units of the trap centre's distance to the goal).
+- Teleport baseline, baseline_raw, planner and planner_high are final in theory.md §11.3. When
+  d-eval commits teleport nonhier, the two oracle_teleport runs and the giant runs: replace the
+  remaining Mac rows (and the trap shares: final distance within 2 xy units of the trap
+  centre's distance to the goal).
 
 ## Blockers
 

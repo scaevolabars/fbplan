@@ -317,8 +317,9 @@ exact controller; value from the task start (V* ≈ 11).
 
 Runs: the protocol of design.md §5 (5 eval seeds × 5 tasks × 50 episodes, paired start states),
 method defaults. The final runs are on the Linux evaluation instance (d-eval, CSVs in
-`results/teleport/` and `results/giant/`, commands in `docs/status/b-theory.md`). The numbers in
-§11.3 are preliminary runs on the Mac (MuJoCo 3.1.6, same code); the Linux runs replace them.
+`results/teleport/` and `results/giant/`, commands in `docs/status/b-theory.md`). §11.3 marks
+the rows that still come from preliminary Mac runs (`runs/mac/`, same code, MuJoCo 3.1.6); the
+Linux runs replace them.
 
 ### 11.1 Teleport: the value is risk-neutral, the success metric is not
 
@@ -418,16 +419,22 @@ carry no reliable direction. This is the regime of §9.1: the controller fails a
 a graph of short trusted edges can supply the direction (the planner's edges are ≤ 6 xy units,
 well inside the calibrated range). Chaining cannot fix the time budget or the flips.
 
-### 11.3 Measured results (preliminary, Mac)
+### 11.3 Measured results
 
-Success (%), 95 % stratified bootstrap CI (`analysis/tables.py`), paired difference against the
-baseline on the same 1,250 episodes. Planner: landmark set 0 only.
+Success (%), 95 % stratified bootstrap CI, paired difference against the baseline on the same
+episodes: `uv run python analysis/tables.py results/teleport/*.csv results/teleport/planner*/*.csv
+--label-root results/teleport --cluster config_hash`. Planner rows pool landmark sets 0–2
+(3,750 episodes, cluster bootstrap over the sets).
 
 | teleport | task 1 | task 2 | task 3 | task 4 | task 5 | all | vs. baseline (pp) |
 |---|---|---|---|---|---|---|---|
-| baseline | 24.4 | 48.0 | 32.0 | 23.2 | 16.4 | 28.8 [26.4, 31.2] | |
-| nonhier | 20.8 | 25.2 | 15.2 | 16.4 | 17.6 | 19.0 [16.9, 21.2] | −9.8 (p 8e-13) |
-| planner | 20.8 | 25.6 | 17.6 | 12.0 | 15.2 | 18.2 [16.2, 20.4] | −10.6 (p 4e-16) |
+| baseline | 22.8 | 43.6 | 29.2 | 24.4 | 18.4 | 27.7 [25.3, 30.2] | |
+| baseline_raw (upstream z_r) | 18.8 | 39.6 | 26.4 | 21.2 | 14.8 | 24.2 [21.8, 26.6] | −3.5 [−6.2, −1.0] |
+| planner | 17.5 | 24.8 | 20.3 | 15.6 | 14.7 | 18.6 [16.5, 21.0] | −9.1 [−12.2, −6.0] |
+| planner_high | 17.1 | 33.6 | 28.1 | 21.7 | 19.9 | 24.1 [21.5, 26.4] | −3.6 [−6.7, −0.5] |
+| nonhier (Mac, preliminary) | 20.8 | 25.2 | 15.2 | 16.4 | 17.6 | 19.0 [16.9, 21.2] | −9.8 vs. the Mac baseline (28.8) |
+
+Giant, preliminary Mac runs (planner not run):
 
 | giant | task 1 | task 2 | task 3 | task 4 | task 5 | all | vs. baseline (pp) |
 |---|---|---|---|---|---|---|---|
@@ -439,21 +446,25 @@ baseline on the same 1,250 episodes. Planner: landmark set 0 only.
 its final distance to the goal is within 2 xy units of the trap centre's (26.8 for goal (7,10),
 33.9 for goal (7,1)). On eval seed 0 of the baseline this rule finds all 129 trapped episodes of
 an exact replay (d-eval's `replay_failures`, trap = `cells_left = −1`) and adds 3 of the 48 other
-failures. Over all 1,250 episodes:
+failures (Mac CSV). Over all episodes:
 
 | teleport | success | trap | other failures |
 |---|---|---|---|
-| baseline | 28.8 % | 54.7 % | 16.5 % |
-| nonhier | 19.0 % | 64.5 % | 16.5 % |
-| planner | 18.2 % | 66.3 % | 15.4 % |
+| baseline | 27.7 % | 54.7 % | 17.6 % |
+| baseline_raw | 24.2 % | 57.4 % | 18.4 % |
+| planner | 18.6 % | 64.2 % | 17.3 % |
+| planner_high | 24.1 % | 53.9 % | 22.1 % |
+| nonhier (Mac) | 19.0 % | 64.5 % | 16.5 % |
 
 - A policy that jumps until it lands on a good exit ends in the trap half the time (Proposition
-  4). All three agents end there more often: they also jump when the walk is short, and they
-  jump again after a good exit when π_l does not finish.
-- The planner plans walks (its xy cap removes the jump edges), yet 66 % of its episodes end in
-  the trap. π_l walks into the entries by itself: on dev episodes (eval seed 100, not used for
-  any reported number) the teleport-aware oracle with waypoints *below* (5,6) still saw π_l walk
-  up into entry (4,6) and jump to the trap. The data explain this: trajectories that leave (5,6)
+  4). All agents end there more often: they also jump when the walk is short, and they jump
+  again after a good exit when π_l does not finish.
+- The planner plans walks (its xy cap removes the jump edges), yet 64 % of its episodes end in
+  the trap. π_h after the waypoint (planner_high) is as trapped as the baseline (54 %) and
+  recovers most of the gap (−3.6 pp against −9.1 pp).
+- π_l walks into the entries by itself: on dev episodes (eval seed 100, not used for any
+  reported number) the teleport-aware oracle with waypoints *below* (5,6) still saw π_l walk up
+  into entry (4,6) and jump to the trap. The data explain this: trajectories that leave (5,6)
   go up 91 times and down 2 times (§11.1). π_l learned the expert's route through the entries.
 - On the same 30 dev episodes, the teleport-aware oracle succeeded 2/30 with π_l and 6/30 when
   π_h follows the waypoints, against 8/30 for the baseline. Even with the true risk-free route,
