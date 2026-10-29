@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-29, 23:10. Branch merged with `main` at 3e36461.
+Last update: 2026-10-30, 00:20. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -114,7 +114,13 @@ vast.ai log (team account, label `fbplan-gpu-eval`):
 | 58258733 | RTX A2000, Denmark | 0.154 | 16:57 | 17:07 | ~0 | host GPU error at start |
 | 58259579 | Xeon Phi 7210, Texas | 0.333 | 17:08 | 19:07 | ~0.66 | 56 steps/s per worker (Mac 476) |
 | 58272696 | EPYC 7V13, Texas | 0.802 | 19:08 | 19:36 | ~0.37 | image never loaded, no SSH |
-| 58279543 | EPYC 7662, Belgium | 0.80 | 19:53 | running | | evaluation queue |
+| 58279543 | EPYC 7662, Belgium | 0.80 | 19:53 | running | ~3.3 at 00:00 | evaluation queue |
+
+Mistake: the queue was empty from 22:56 to 00:00 (waiting for B region), and my destroy watcher
+did not fire, because its emptiness test used `ls` on two folders, which prints their names
+even when they are empty. About 50 idle minutes were billed (~$0.70). The watcher now calls
+`runs/queue/idle_check.sh` (tested on the instance: busy → 1, empty → 0). Total vast.ai so
+far: about $4.3 (failed hosts ~$1.0 + this instance ~$3.3).
 
 Selection rule now (coordinator): CPU model AMD EPYC Zen 2/3/4 or Xeon Gold/Platinum, ≥ 64
 effective cores, ≥ 128 GB RAM, reliability ≥ 0.99, ≤ $1/h; destroy after 15 min without SSH.
@@ -140,7 +146,10 @@ bootstrap over training seeds (both sides) and episodes.
   pooled 78.4 %; vs baseline_retrained +0.2 [−3.8, +3.7], vs baseline +1.4 [−2.7, +5.3], vs
   baseline_raw −2.4 [−6.4, +1.4]. Seeds 1 and 3 are low again, as in B clean (e-learner's
   temperature explanation predicts this pattern).
-- B region: waiting for e-learner's export (queued automatically).
+- B region (`results/medium/b_region/`, `b:region:<k>`): seeds 0–4 80.6, 79.8, 80.8, 77.1,
+  81.1 %, pooled 79.9 [78.1, 81.3]; vs baseline_retrained +1.6 [−0.9, +4.1], vs baseline +2.8
+  [−0.1, +5.7], vs baseline_raw −0.9 [−3.8, +1.9]. Its seeds spread less than clean and wide.
+- Summary: no B variant gains over the retrained baselines or baseline_raw (pooled).
 
 ## Held-out seed selection (design.md §8; `results/medium/heldout/`, `heldout_selection.csv`)
 
@@ -153,12 +162,12 @@ to the lower id), then the selected seeds on the 5 eval tasks:
 | retrained | 87.8, 86.3, 83.7, 87.7, 86.0 | seed 0 | 79.1 | – | −1.7 [−4.7, +1.4], p 0.31 |
 | B clean | 87.0, 86.0, 87.7, 85.3, 82.2 | seed 2 | 83.0 | +3.8 [+0.9, +6.9], p 0.014 | +2.2 [−1.0, +5.1], p 0.18 |
 | B wide | 86.5, 84.0, 84.8, 82.0, 83.3 | seed 0 | 81.0 | +1.8 [−1.2, +4.9], p 0.25 | +0.2 [−2.9, +3.1], p 0.96 |
+| B region | 86.0, 87.8, 86.3, 86.5, 85.7 | seed 1 | 79.8 | +0.6 [−2.4, +3.7], p 0.72 | −1.0 [−4.1, +2.0], p 0.53 |
 
 - The selected B clean seed beats the selected retrained baseline, but not baseline_raw, so by
   the rule of §8 it is no gain. Held-out differences between seeds are small (one seed: 600
   episodes, standard error about 1.4 points), so the selection itself is noisy: seeds 0 and 3
   of the retrained baseline differ by 0.1 point.
-- B region follows when e-learner exports it (queued automatically).
 
 ## Giant (Linux, `results/giant/`, 5 eval seeds × 5 tasks × 50 episodes)
 
@@ -392,8 +401,13 @@ each other, the original retrained baselines and baseline_raw, and the held-out 
 for both families. `--checkpoint retrained:<variant>:<seed>` (new) loads a variant folder of the
 retrained baselines (`baselines/medium/<variant>/seed<k>`); B uses `b:<variant>:<seed>`. These
 jobs need my branch's code on the instance (a separate tree, checked against a committed run).
-The instance stays up; it is destroyed after 30 idle minutes and rented again when the
-checkpoints arrive.
+Instance rule (coordinator, 2026-10-30 00:15; budget raised to $50): instance 58279543 stays up
+while the 2× families and the H1 control are expected; it is destroyed when the coordinator says
+so or when nothing is queued or expected for 2 hours. No automatic destroy watcher runs.
+The 2× jobs run from a third code tree on the instance, `~/fbplan_deval` (d-eval 7b7770f, with
+`retrained:<variant>:<seed>`). Check: from that tree, eval seed 0 of the baseline repeats
+`results/medium/baseline.csv` exactly (250 of 250 records), so its runs pair with all
+committed medium rows.
 
 ## Next
 
