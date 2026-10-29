@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-29, 21:15. Branch merged with `main` at 3e36461.
+Last update: 2026-10-29, 21:50. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -96,6 +96,13 @@ Queue, in the coordinator's priority:
   teleport runs, then the 9 giant runs and the giant oracle failure classes. Same code (84a8127)
   as (a)–(c), so the ablations pair with the main planner runs.
 - 85 jobs queued at 20:12. Speed: a medium baseline-type config takes about 55 s.
+- Added (coordinator, after B and before giant): c-planner's act-ahead run
+  (`planner_high --opt landmarks.seed=0 act_ahead_xy=8.0` →
+  `results/medium/planner_ablations/high_act_ahead8/l0.csv`). `act_ahead_xy` exists only on main,
+  so this job runs from a second code tree on the instance (`~/fbplan_main`, main 8a202e6), with
+  a check job before it: planner_high l0 with default options from that tree. If its records
+  equal `results/medium/planner_high/l0.csv` (84a8127), the act-ahead run pairs with the main
+  run; otherwise it pairs with the check run, which then goes to results/ as its default.
 
 First Linux numbers (medium, 5 eval seeds): baseline 77.0 %, baseline_raw 80.8 %, retrained
 seeds 0–4: 79.1, 79.7, 77.5, 76.6, 78.4 %. Mac: 77.8, 80.5 and 77.8, 80.6, 76.9, 77.7, 78.6 %.
@@ -135,6 +142,41 @@ Planner rows pool landmark sets 0–2 (cluster config_hash); retrained rows pool
   planner_region 58.7 / 72.2 / 63.8 %. Retrained seeds 0–4: 79.1, 79.7, 77.5, 76.6, 78.4 %.
 - Large failure classes (Linux, `runs/linux/large/failures/`): baseline 72.0 % other, 27.7 %
   flipped; oracle 70.4 % other, 29.6 % flipped. Unlike medium, large failures are mostly not flips.
+
+## Medium analyses (Linux)
+
+- Parity: upstream `evaluate` − our baseline = +0.9 pp [−2.3, +4.1] (unpaired, 2,500 episodes,
+  `results/medium/upstream.csv`); upstream − baseline_raw = −2.9 [−6.0, +0.2]. Holds.
+- Failure classes (`results/medium/failures/`, share of failures):
+
+  | run | failures | flipped | other | stuck |
+  |---|---|---|---|---|
+  | baseline | 287 | 70.4 % | 27.5 % | 2.1 % |
+  | baseline_raw | 240 | 74.6 % | 25.0 % | 0.4 % |
+  | oracle | 234 | 75.2 % | 23.5 % | 1.3 % |
+  | non-hier | 432 | 35.9 % | 52.1 % | 12.0 % |
+  | planner l0 / l1 / l2 | 390 / 376 / 419 | 53.8 / 56.1 / 49.9 % | 44.4 / 42.3 / 49.6 % | ≤ 1.8 % |
+  | planner_high l0 / l1 / l2 | 327 / 357 / 347 | 52.9 / 51.8 / 49.3 % | 45.9 / 47.3 / 48.7 % | ≤ 2.0 % |
+  | planner_region l0 / l1 / l2 | 516 / 348 / 452 | 34.5 / 45.1 / 40.3 % | 64.1 / 52.9 / 58.8 % | ≤ 2.0 % |
+
+  The planner variants add "other" failures (slow or wrong routes), not flips.
+- Oracle ablation, eval seed 0 (`results/medium/oracle_sweep/`; the baseline scores 72.8 % on
+  these 250 episodes):
+
+  | waypoint latent | lookahead 1 | 2 | 3 |
+  |---|---|---|---|
+  | single state | 50.0 | 57.2 | 63.2 |
+  | region, radius 0.5 | 78.4 | 80.4 | 82.4 |
+  | region, radius 1.0 | 81.6 | 76.8 | 79.6 |
+  | region, radius 1.5 | 76.8 | 80.8 | 77.2 |
+
+  CIs are about ±5 pp: region latents beat single-state ones; no region config stands out.
+- Mac-vs-Linux check (`analysis/platform_check.py`, `results/platform_check.csv`, 36 runs on
+  both): unpaired Linux − Mac differences lie between −6.0 and +5.2 pp; 1 of 36 CIs excludes 0
+  (medium planner set 2, −4.6 pp; about 2 are expected at 95 %, and the planner code differs:
+  the Mac runs predate the tie-break fix). Only 55–75 % of episodes have the same outcome and
+  few the same step count: small float differences grow along a trajectory, so tables never
+  mix platforms.
 
 ## Large (Linux, `results/large/`, 5 eval seeds × 5 tasks × 50 episodes)
 
