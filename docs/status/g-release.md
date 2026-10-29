@@ -84,9 +84,22 @@ Last update: 2026-10-29.
   smoke run trained, so its episodes differ from the committed ones.
 - CI on the public repo is green from 7ae64a5 (= local dded908): ruff clean, pytest 345 passed,
   40 skipped, 74 s.
+- Merged `main` 3f169ae (review fixes of a-frozen, b-theory, e-learner). `reproduce.sh`: the
+  checkpoints stage also gets the medium datasets (`fbplan.frozen --datasets`, a-frozen's new
+  flag); `run_study --out-dir` (b-theory renamed the flag). README: the setup line gets the
+  medium data, so the medium tests run instead of skipping; "none is published yet" for
+  `--trained` (finding A12).
+- Second review pass of a-frozen, b-theory and e-learner: section below.
 
 ## Next
 
+- Second review pass of c-planner and d-eval when their runs end.
+- Platform (coordinator's decision): the canonical numbers come from Linux x86_64 on CPU
+  (d-eval's cloud instance, `JAX_PLATFORMS=cpu`); the Mac CSVs move to a separate folder as a
+  cross-platform check. Done now: `reproduce.sh` sets `JAX_PLATFORMS=cpu` for every stage except
+  GPU training. Waiting for d-eval's move: the README paragraph on the platform and on chaotic
+  MuJoCo dynamics (written, held back because it is false until the Linux CSVs are committed),
+  the new paths in `RUNS`, and the smoke wording "on Linux x86_64 all of them do".
 - Smoke run of the new `RUNS` and stages (running), then commit.
 - Add a `RUNS` line for every CSV whose command an owner writes in its status file: large,
   approach B, held-out goals.
@@ -94,7 +107,6 @@ Last update: 2026-10-29.
   `python -m fbplan.frozen --trained` downloads it, check the download on a clean `HOME` and say
   in the README that the retrained runs need no GPU. The README setup and the checkpoints stage
   already call `--trained` (a no-op while nothing is published).
-- When a-frozen adds `python -m fbplan.frozen --datasets <env>`: a data step in the README setup.
 
 ## Blockers
 
@@ -194,6 +206,138 @@ Notes:
   "repository layout and code rules" section could replace them (coordinator's file).
 - Alternative: move the two folders to `docs/dev/`. This keeps the trail, but needs a scrub of
   account details and of numbers without a CSV.
+
+## Review findings, second pass: a-frozen, b-theory, e-learner (2026-10-29, merged main 3f169ae)
+
+Three read-only reviewers checked every M and S finding of these owners against the code at
+e77587e (main 275dfe1 + 3f169ae), and read all code changed since 386b4e5. I checked the items
+marked (checked). Verdicts: fixed / rejected (reason OK or weak) / partly / open. ruff passes on
+all three areas; owner tests: a-frozen 52 passed, b-theory 115 passed, e-learner 45 passed.
+
+### a-frozen: all M and S findings fixed, except A3 (waits for the release)
+
+- Fixed: K1, K2 (in a-frozen's files), K3, K4, A1, A2 (a-frozen side), A4-A9; A6 is now two
+  tests that can fail; A8 has a test that fails without `device_put`.
+- A3 partly: `download_trained`, `--trained` exist; `_TRAINED_FILES` is empty until the release.
+- X8, X9: the public helpers exist (`maze_name`, `cache_dir`, `trained_dir`,
+  `save_numpy_pickle`, `example_batch`, `forward`); e-learner has not adopted them (see e-learner).
+- X14 pending: `test_frozen.py:24-42` keeps its own skip helpers; `require_files` can replace
+  them. Keeping its module `model` fixture is fine (checkpoint-only tests need no val split).
+- K2 leftovers in other owners' files: `tabular/fake_fb.py:116-130, 242-244` (`temperature`,
+  `seed`, `_require_greedy`) and its test `test_tabular_fake_fb.py:174-176`; test fakes with the
+  old signature in `planner_fakes.py:75,82`, `test_eval_controllers.py:47,50`,
+  `test_oracle_teleport.py:110,113`, `test_planner.py:66`. Owners: b-theory, c-planner, d-eval.
+
+New findings:
+- A10 M (checked; owners a-frozen and e-learner, coordinator decides). The trained-checkpoint
+  format now has two writers and two readers: `frozen.save_trained_checkpoint`,
+  `frozen.load_trained_model` (test callers only) and `learned/checkpoint.py`
+  `save_high_actor`, `load_high_actor_model`, `with_high_actor` (used by `train_high`,
+  `train_b`, `evaluate`). Also defined in both modules: `save_numpy_pickle`, `example_batch`,
+  `trained_dir` (different signatures), `maze_name` (the e-learner copy does not reject unknown
+  envs). X8/X9 meant to remove copies; now there are more. Pick one side before the release
+  pins hashes: e-learner switches to the `frozen` names (a-frozen's status lists the mapping),
+  or a-frozen deletes its unused pair.
+- A11 S (d-eval). `evaluate.py:215-237` (`goal_latent`, `_val_dataset`) repeats the
+  `infer_task_latent` pipeline (relabel, first n rows, `infer_latent`) with a different guard,
+  and loads the val split a second time. Fix: a-frozen offers `infer_goal_latent(task_info)`,
+  `infer_task_latent` calls it, d-eval deletes its copy.
+- A12 S (a-frozen, g-release). `python -m fbplan.frozen --trained` prints nothing while nothing
+  is published. Fix: print "no trained checkpoint is published yet". g-release: the README now
+  says "none is published yet" (done).
+- N: `test_frozen.py:428-435, 495` compare two compute paths at 1e-5 / rtol 1e-6 without
+  `jax.default_matmul_precision("highest")` (fails on TF32 GPUs, a-frozen's own fact 11);
+  `frozen.py:428` gives a wrong reason for not jitting `forward`; the cache kinds are written 3
+  times (`frozen.py:104-109, 157`); `_known_env` repeats `maze_name`'s check; the CLI
+  description hard-codes `~/.cache/fbplan/checkpoints`; `load_trained_model` hash-checks only on
+  download; `contracts.py:4` still says "tell the user" (coordinator); the status file counts
+  51 tests, pytest collects 47.
+
+### b-theory: all M and S findings fixed in the code; the status file has no review response
+
+- Fixed: B1-B14, and the b-theory parts of X2 (the study uses `OptionModel`, `trusted_edges` on
+  raw rho, `value_iteration`, `q_values`, pinned by `test_tabular_study.py:37`), X3
+  (`head_agg`, exact/paper/zero, `StudyPlannerConfig`), X7 (`test_tabular_maze.py:92-111`
+  compares all 4 maps, tasks and teleporters with OGBench), X13 (`rho_bound_wormholes`; theory.md
+  states both definitions). B15 partly.
+- Numbers: the study code is unchanged since its CSVs were regenerated (89c4c74); the §9.1,
+  §9.3, §9.4 and §9.5 numbers of theory.md match the committed CSVs.
+- X11 partly: `run_study` adopted (`--out-dir`, 4 workers, `--quick` to `runs/run_study`);
+  `study_plots --dir` and `time_limit --out` not adopted, no reason recorded.
+
+New findings:
+- B16 S (checked). `fbplan/tabular/time_limit.py:226-234`: `main` writes `time_limit.csv`
+  before any folder exists (only `plot` creates it), so `--out <new folder>` fails with
+  `OSError`; `reproduce.sh` works only because `run_study` creates the folder first. `--out` has
+  no help. Fix: `mkdir(parents=True, exist_ok=True)` first, help text, `--out-dir` (X11).
+- B17 S (checked). `docs/theory.md:175, 237` and `fbplan/controllers/oracle_teleport.py:16`
+  refer to a §11 that does not exist (theory.md ends at §10). The time-limit results (walk
+  thresholds 0.9977-0.9993, "the gamble fails with p >= 1/2") are written up nowhere. Fix:
+  write §11 or point to existing sections.
+- B18 S. `study.py:135-139` (`make_plan`) keeps its own argmax and strict `best_q > v_direct`;
+  the planner now uses `graph.best_options` (1e-9 tie tolerance, ties by largest V_H, added by
+  c-planner after the study refactor). theory.md:166 says the study "tests the same code that
+  runs on AntMaze"; the commit timeout rule also differs. Fix: call `best_options`; reword.
+- B19 S. K2 leftover: `fake_fb.py:115-130, 242-244` keeps `temperature`, `seed`,
+  `_require_greedy` and `import jax`; `test_tabular_fake_fb.py:174-176` tests the dead guard.
+- B20 S. `oracle_teleport.py:65-122` and `time_limit.py:43-75` both write the no-teleporter
+  shortest walk and the risk-neutral cell MDP; a test pins only the discounted pair
+  (`test_tabular_time_limit.py:55`); `oracle_teleport.py:35, 59-62` copies the oracle's
+  neighbour helpers. Fix: build the oracle on `GridMaze(name, 1)` with `walk_policy` and
+  `discounted_policy`, or pin `reach_plan` to `walk_policy` on every cell.
+- B21 S. `docs/status/b-theory.md` has no review response and no X11 decision, and is stale
+  (`high_advantage`, "1 min on 12 cores", "75 pass" against 115 now; no teleport oracle or
+  time limit). B6: `run_study.py:3-5` says "14 min with 4 workers, 10 CPU min", which reads oddly.
+- N: `oracle_teleport` has no alias in `controllers/__init__.py` and is not in the privileged
+  set of `tables.py:35` / `plots.py:50` (coordinator, d-eval); new test copies of the teleport
+  and medium maps and of `SAFE_WALK_CELLS` (`test_oracle_teleport.py:17-31, 182-197`,
+  `test_tabular_time_limit.py:19, 59-61`) where `GridMaze` has them; `discounted_values` loops
+  without a limit; `study.py:32` repeats `PlannerKind`; `matplotlib.use` with `noqa` remains
+  (the per-file ignore makes the `noqa` redundant); B10's gap test asserts `> 0.3` while
+  theory.md:70 marks 0.56/0.36 with ✓.
+
+### e-learner: M findings fixed except E4 (copies of a-frozen's helpers remain)
+
+- Fixed: E1 (`VAST_LABEL` required, neutral comments; the surname and account name are in no
+  tracked file outside `docs/status/`, but they remain in git history, e.g. 386b4e5 — the
+  publish step must handle history), E2 (the test iterates the production `switch_target`
+  with hop costs and a random valid mask against `graph_value_iteration`), E3, E5, E6, E7, E8,
+  E9, E12, E13; X4 (own part), X12.
+- E4 partly, X8 open, X9 open: see A10. `value.py:99-104` copies `frozen.forward`, and its
+  TODO says "when it exists" (it exists, `frozen.py:425`); e-learner's request 2 is out of date.
+- E10, E11 partly: no help on `train_high.py:99 --env`, `train_b.py:311 --env, 318 --latents,
+  321 --edge-reward, 324 --variant`; no docstring on `OptionTerms` (named in E11),
+  `ValueState.create`, `Split.load/obs_dim/batch`, `save_flags`, `diagnostics.plot`,
+  `parse_args`.
+- E14 (checked): `scripts/gpu/run_seeds.sh` is still mode 100644 although commit 3de3cfb and the
+  status table say it is executable. Fix: `git update-index --chmod=+x`.
+- X3 partly: `rho_cap` done; R modes `goal_zero|exact|paper` against A's `exact|paper|zero` and
+  latents `"single"` against `"state"` stay, with no reason recorded (`goal_zero` has a real
+  difference, R = 0 for goal latents only: write it down). `approach-b.md:31,133,190` still say
+  rho_max.
+- X11 partly: `train_high --out-dir`, `--run-dir` done; help shows `<cache>/...` not the real
+  path; `train_b` writes its model with no flag; `diagnostics` CLI: `--env` without choices, 4
+  arguments without help, default `runs/train_b/diagnostics`.
+- X14: `require_files`, `medium_model` not used; 3 own skip blocks, `MEDIUM` and `same()` 3
+  times each; `tiny_agent` adoption pending (3 own tiny agents remain).
+
+New findings:
+- E15 S. `diagnostics.py:103, 110`: `--value` accepts only `value-single` and `value-region`
+  and reads the latent kind from the folder name, so the planned check of the ablation folders
+  (`value-single-expectile0.7`, ...) cannot run. Fix: any folder; latent kind from its
+  `flags.json`.
+- E16 S (checked; f-report's file). `REPORT.md:605, 613` name `OptionConfig.rho_max = 0.9`,
+  `gain_network` and "softplus(gain)", which no longer exist (`rho_cap`, `delta_network`,
+  softplus(delta)). e-learner sends the renames to f-report.
+- N: `diagnostics.py` has no test (index arithmetic of `value_grid`), `main()` takes no `argv`,
+  bin width written two ways; `switch_targets` assembly is untested (swapping s and w passes);
+  two places build "flags + seed + steps + commit" with the commit in different keys
+  (`train_high.py:131-137`, `train_b.py:297-300`); `vast.sh:180` prints a cut usage; an
+  unexported value folder fails with a bare `TypeError` on `rho_max` (`value.py:60`);
+  `--edge-reward` default is a literal; `high_policy.py:20` imports `Agent` from `value`;
+  `evaluate.py:487` names the removed `load_retrained_model` (d-eval); `tests/test_evaluate.py:384`
+  skips unless `params.pkl` exists, which new-format folders lack (d-eval); the status file
+  claims E14 and E4 done.
 
 ## Review findings, first pass (2026-10-29, commit 386b4e5)
 
