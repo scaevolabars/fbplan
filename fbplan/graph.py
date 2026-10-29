@@ -17,6 +17,9 @@ from dataclasses import dataclass
 import numpy as np
 
 DIRECT = -1  # best_next value: switch to the task policy instead of another landmark
+# Q values closer than this (relative) are ties. They differ only in rounding, which depends on
+# the CPU and the BLAS build, so an argmax over them can differ between machines.
+TIE_RTOL = 1e-9
 
 
 @dataclass(frozen=True)
@@ -100,8 +103,24 @@ def value_iteration(
         values = new
 
     q = q_values(rho, reward, values, mask, hop_discount)
-    best_next = np.where(q.max(axis=1) > direct, q.argmax(axis=1), DIRECT)
-    return GraphSolution(values, best_next, iterations, converged)
+    return GraphSolution(values, best_options(q, values, direct), iterations, converged)
+
+
+def best_options(q: np.ndarray, values: np.ndarray, direct: np.ndarray) -> np.ndarray:
+    """Greedy choice in each row of q [R, N]: a landmark index, or DIRECT. [R]
+
+    Ties (within TIE_RTOL) follow fixed rules instead of rounding: the direct option wins a tie
+    with the landmarks (a hop that adds no value is not taken); among tied landmarks the one with
+    the largest V_H (values [N]) wins, as it makes the most progress; then the lowest index.
+    Example: with region latents in the exact tabular maze, a landmark ahead and one behind can
+    tie exactly; choosing the one behind makes the agent turn back and forth.
+    """
+    best = q.max(axis=1)
+    tol = TIE_RTOL * np.maximum(np.abs(best), np.abs(direct))
+    tied_values = np.where(q >= (best - tol)[:, None], values[None, :], -np.inf)
+    top = tied_values.max(axis=1)
+    first = np.argmax(tied_values >= (top - TIE_RTOL * np.abs(top))[:, None], axis=1)
+    return np.where(best > direct + tol, first, DIRECT)
 
 
 def extract_route(solution: GraphSolution, start: int) -> list[int]:

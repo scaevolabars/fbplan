@@ -26,7 +26,9 @@ from fbplan.contracts import FBModel, TaskSpec
 from fbplan.frozen import load_dataset
 from fbplan.graph import (
     DIRECT,
+    TIE_RTOL,
     GraphSolution,
+    best_options,
     extract_route,
     q_values,
     trusted_edges,
@@ -278,7 +280,8 @@ class GraphPlannerController:
         """Best waypoint from obs with its Q and rho, or (DIRECT, task value, nan).
 
         Landmarks that count as reached are excluded: the landmark under the agent has
-        Q = rho * V_H ~ V_H, and choosing it again would stall the agent.
+        Q = rho * V_H ~ V_H, and choosing it again would stall the agent. Ties follow
+        graph.best_options.
         """
         cfg, plan = self.config, self.plan
         row, rho, raw = self._row(obs)
@@ -287,9 +290,9 @@ class GraphPlannerController:
         mask = self._trusted(candidates, obs[None])
         q = q_values(rho, row.reward, plan.solution.values, mask, cfg.hop_discount)[0]
         direct = float(self.options.direct_value(obs[None], plan.z_r)[0])
-        if q.max() <= direct:
+        best = int(best_options(q[None], plan.solution.values, np.array([direct]))[0])
+        if best == DIRECT:
             return DIRECT, direct, np.nan
-        best = int(q.argmax())
         return best, float(q[best]), float(row.rho[0, best])
 
     def _advance(self, obs: np.ndarray) -> None:
@@ -297,7 +300,8 @@ class GraphPlannerController:
         while self._waypoint != DIRECT:
             nxt = int(self.plan.solution.best_next[self._waypoint])
             (q_now, q_next), (_, rho_next) = self._stop_values(obs, np.array([self._waypoint, nxt]))
-            if not (np.isfinite(q_next) and q_next >= q_now):
+            # A tie moves on: the next stop is nearer the goal (TIE_RTOL, see graph.best_options).
+            if not (np.isfinite(q_next) and q_next >= q_now - TIE_RTOL * abs(q_now)):
                 return
             self._set_waypoint(nxt, rho_next)
             self._advances += 1
