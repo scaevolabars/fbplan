@@ -329,7 +329,8 @@ What ran on 58234389:
 | 23:54 | 00:02 | baseline 2x seeds 0, 2, 4 crashed at start: `INTERNAL: Autotuning failed for HLO` (XLA GPU autotuning while 5 processes compiled; awr2x.sh sets the platform allocator for all its runs, the earlier baseline runs had none). Seeds 1, 3 ran on. Retried seeds 0, 2, 4 at 00:02 in tmux `awr2x-retry` without the platform allocator, as the earlier baseline runs: `bash scripts/gpu/run_seeds.sh runs/train_high/medium/awr2x "0 2 4" fbplan.train_high --env antmaze-medium-navigate-v0 --name awr2x --high-alpha 0.2`; all 3 step at 00:05. Crash logs kept as `stdout.crash1.log` |
 | 00:41 | 01:48 | calibration (00:38-00:41), B clean 2x seeds 0-4 (00:41-01:48); baseline 2x retry ended about 01:05 |
 | 01:49 | 01:51 | pull + export of awr2x and clean-awr2x; push of 34b17a5 without tests (no job ran) |
-| 01:51 | | H1 (tmux `h1`), then T2 next to it (tmux `t2`, cores 10-19) |
+| 01:51 | | H1 (tmux `h1`, `bash scripts/gpu/awr2x_v1.sh > runs/awr2x_v1.log`): seeds 0-3 crashed at the first validation compile, `INTERNAL: Autotuning failed for HLO ... jit(policy_validation)/reduce_sum ... REDZONE CHECK FAILED`, the same failure as the first 2x baseline group (5 runs compiled at once, platform allocator). Seed 4 trains on. T2 not started then |
+| 01:59 | | staggered launch `runs/wave1b.sh` (tmux `wave1b`, script below): H1 seeds 0-3 again, then T2 seeds 0-4 on cores 10-19; each run starts after the previous one logs its first step. Crash logs kept as `stdout.crash1.log` |
 | 18:58 | | ablations approved (coordinator for the user): queue `runs/queue-ablations.sh` (below) holds queue-b1, then runs value expectile 0.7, resumes queue-b1 (policy clean, wide, region), then value rho cap 1.0 |
 
 The ablation queue. The instance runs code a189a49, which has no `--name`; each ablation writes
@@ -356,6 +357,26 @@ Same runs with the current code (bit-identical, see the refactor check), per see
 `uv run python -m fbplan.learned.train_b value --env antmaze-medium-navigate-v0 --seed k --latents single --expectile 0.7 --name value-single-expectile0.7`
 and `... --rho-cap 1.0 --name value-single-rhocap1.0`. After the pull, the folders move to
 `approach_b/medium/value-single-expectile0.7/` and `.../value-single-rhocap1.0/` and are exported.
+
+The staggered launch of 2026-10-30 01:59 MSK (`runs/wave1b.sh` on the instance; it runs the
+committed scripts' commands, one run at a time until each one steps):
+
+```
+start_one() { # run root, seed, first core, module args: start one run, wait for its first step
+  root=$1 seed=$2 core=$3; shift 3
+  [[ -f $root/seed$seed/stdout.log ]] && mv $root/seed$seed/stdout.log $root/seed$seed/stdout.crash1.log
+  FIRST_CORE=$core bash scripts/gpu/run_seeds.sh "$root" "$seed" "$@" &
+  until grep -q "^step" "$root/seed$seed/stdout.log"; do sleep 10; done   # (exit check omitted)
+}
+export XLA_PYTHON_CLIENT_ALLOCATOR=platform
+for s in 0 1 2 3; do start_one runs/train_b/medium/clean-v1-awr2x $s $((2*s)) fbplan.learned.train_b \
+  policy --env antmaze-medium-navigate-v0 --variant clean --critic v_1 \
+  --alpha-from runs/train_b/medium/clean-awr2x/calibration.json --name clean-v1-awr2x; done
+unset XLA_PYTHON_CLIENT_ALLOCATOR
+for s in 0 1 2 3 4; do start_one runs/train_high/medium/logratio $s $((10+2*s)) fbplan.train_high \
+  --env antmaze-medium-navigate-v0 --name logratio --advantage logratio --goal-alpha 2.45; done
+wait
+```
 
 Launch details (not in a script, so recorded here): every B group runs as
 `env XLA_PYTHON_CLIENT_ALLOCATOR=platform bash scripts/gpu/run_seeds.sh runs/train_b/medium/<name>
