@@ -4,11 +4,11 @@ Formulas and head convention are those of fbplan/option_model.py (approach A), w
 (source, target) tables in numpy; a test checks that both agree. Here each sample carries one pair,
 so the terms are computed inside a jitted training step (docs/plans/approach-b.md §2):
 
-    rho_h(s, w) = F_h(s, z_w)^T z_w / F_h(w, z_w)^T z_w        min over heads, then capped
+    rho_h(s, w) = F_h(s, z_w)^T z_w / F_h(w, z_w)^T z_w     min over heads, capped at rho_cap
     R_h(s, w)   = F_h(s, z_w)^T z - rho_h(s, w) F_h(w, z_w)^T z
     V_1(s, z)   = min_h F_h(s, z)^T z
 
-z_w is the subgoal latent: B(w), or its region mean in the B-region variant.
+z_w is the subgoal latent: B(w), or its trajectory-window mean in the B-region variant.
 """
 
 from __future__ import annotations
@@ -28,22 +28,23 @@ class OptionConfig:
     """edge_reward: "goal_zero" sets R = 0 for goal latents, as approach A does, because FB's exact
     R is a difference of two noisy values; Gaussian latents keep the exact R. "exact" and "paper"
     (drops -rho F(w, z_w)^T z, as the paper's pi_h advantage) are ablations.
-    rho_max: cap on rho. Below 1 it makes the hop-level Bellman operator a contraction.
+    rho_cap: upper bound on rho in the targets. Below 1 it makes the hop-level Bellman operator a
+    contraction with that factor. (The planner's rho_max is a different thing: a trust bound.)
     """
 
     edge_reward: EdgeReward = "goal_zero"
-    rho_max: float = 0.9
+    rho_cap: float = 0.9
 
     def __post_init__(self) -> None:
         if self.edge_reward not in ("goal_zero", "exact", "paper"):
             raise ValueError(f"unknown edge_reward {self.edge_reward!r}")
-        if not 0.0 < self.rho_max <= 1.0:
-            raise ValueError(f"rho_max must be in (0, 1], got {self.rho_max}")
+        if not 0.0 < self.rho_cap <= 1.0:
+            raise ValueError(f"rho_cap must be in (0, 1], got {self.rho_cap}")
 
 
 @flax.struct.dataclass
 class OptionTerms:
-    rho: jax.Array  # [N] in [0, rho_max]
+    rho: jax.Array  # [N] in [0, rho_cap]
     rho_raw: jax.Array  # [N] before the cap, for the clip statistics
     reward: jax.Array  # [N]
     valid: jax.Array  # [N] bool: a usable edge (see option_terms)
@@ -73,15 +74,15 @@ def option_terms(
     An edge is invalid when s and w are the same state (`distinct` False), when
     F(w, z_w)^T z_w <= 0 in a head (w unreachable from itself), or when the raw rho >= 1:
     approach A treats such an edge as untrusted, and a self-loop with rho = 1 leaves the Bellman
-    equation without a unique solution. The self-loop needs its own test: on a GPU its raw rho
-    came out as 0.99999994, not 1.
+    equation without a unique solution. `distinct` catches the self-loop even when rounding puts
+    its raw rho below 1 (0.99999994 on a GPU).
     """
     self_measure = head_dot(f_w_zw, z_w)
     reachable = jnp.all(self_measure > 0, axis=0)
     rho_h = head_dot(f_s_zw, z_w) / jnp.where(self_measure > 0, self_measure, 1.0)
     rho_raw = rho_h.min(axis=0)
     return OptionTerms(
-        rho=jnp.clip(rho_raw, 0.0, config.rho_max),
+        rho=jnp.clip(rho_raw, 0.0, config.rho_cap),
         rho_raw=rho_raw,
         reward=edge_reward(f_s_zw, f_w_zw, rho_h, z, is_goal, config.edge_reward),
         valid=distinct & reachable & (rho_raw < 1.0),

@@ -1,17 +1,22 @@
-"""Multi-switch value V_H(s, z) = V_1(s, z) + softplus(gain_theta(s, z)), stage 1 of approach B.
+"""Multi-switch value V_H, stage 1 of approach B (docs/plans/approach-b.md §2, §5).
 
-V_1 is the frozen single-intention value, so V_H >= V_1: the option "never switch again" always
-exists, and the network learns only the gain from switching. The gain is fit by expectile
-regression on the switch target over subgoals w on the trajectory of s
-(docs/plans/approach-b.md §2, §5):
+    V_H(s, z) = V_1(s, z) + min_j gain_j(s, z),    gain_j = softplus(delta_j)
 
-    y(s, w, z) = R(s, w; z) + rho(s, w) [V_1(w, z) + min_j gain_j(w, z)] - hop_cost
+V_1 is the frozen single-intention value and delta_j (j = 1, 2) are the raw outputs of the
+network, so V_H >= V_1: the option "never switch again" always exists, and the network learns
+only the gain from switching. The gain is fit by expectile regression on the switch target over
+subgoals w on the trajectory of s:
+
+    y(s, w, z) = R(s, w; z) + rho(s, w) V_H(w, z) - hop_cost
 """
 
 from __future__ import annotations
 
+import dataclasses
+import json
 from dataclasses import dataclass, field
 from functools import partial
+from pathlib import Path
 from typing import Any
 
 import flax
@@ -21,16 +26,25 @@ import jax.numpy as jnp
 import optax
 
 from fbplan.frozen import upstream_module
+from fbplan.learned.checkpoint import (
+    Agent,
+    load_trained_file,
+    save_flags,
+    save_numpy_pickle,
+    trained_dir,
+    trained_key,
+)
 from fbplan.learned.option_targets import OptionConfig, OptionTerms, direct_value, option_terms
 from fbplan.learned.sampling import SwitchBatch
-
-Agent = Any  # upstream agents.fbpiswitch.FBpiSwitchAgent with the frozen F, B and pi_l
 
 
 @dataclass(frozen=True)
 class ValueConfig:
-    """expectile: tau of the in-sample soft max over w (1 would be a hard max).
+    """Settings of stage 1.
+
+    expectile: tau of the in-sample soft max over w (1 would be a hard max).
     ema: rate of the target network, as upstream's tau for F and B.
+    hop_cost: subtracted once per switch.
     """
 
     option: OptionConfig = field(default_factory=OptionConfig)
@@ -40,14 +54,22 @@ class ValueConfig:
     ema: float = 0.005
     hop_cost: float = 0.0
 
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ValueConfig:
+        """Inverse of dataclasses.asdict, for the config stored in flags.json."""
+        nested = {"option": OptionConfig(**d["option"]), "hidden_dims": tuple(d["hidden_dims"])}
+        return cls(**(d | nested))
 
-def gain_network(hidden_dims: tuple[int, ...]) -> nn.Module:
+
+def delta_network(hidden_dims: tuple[int, ...]) -> nn.Module:
     """Upstream GCValue on (s, z) with 2 heads, the architecture of upstream value networks."""
     networks = upstream_module("utils.networks")
     return networks.GCValue(hidden_dims=hidden_dims, layer_norm=True, num_ensembles=2)
 
 
 class ValueState(flax.struct.PyTreeNode):
+    """The delta network, its EMA target copy and its optimizer state."""
+
     params: Any
     target_params: Any
     opt_state: Any
@@ -59,24 +81,42 @@ class ValueState(flax.struct.PyTreeNode):
     def create(
         cls, key: jax.Array, obs_dim: int, latent_dim: int, config: ValueConfig
     ) -> ValueState:
-        net = gain_network(config.hidden_dims)
+        net = delta_network(config.hidden_dims)
         params = net.init(key, jnp.zeros((1, obs_dim)), jnp.zeros((1, latent_dim)))["params"]
         tx = optax.adam(config.lr)
         return cls(params, params, tx.init(params), jnp.zeros((), jnp.int32), net, tx)
 
     def gain(self, obs: jax.Array, z: jax.Array, params: Any = None) -> jax.Array:
-        """softplus(gain_j(s, z)) per head: [2, N], >= 0."""
+        """gain_j(s, z) = softplus(delta_j(s, z)) per head: [2, N], >= 0."""
         params = self.params if params is None else params
         return jax.nn.softplus(self.net.apply({"params": params}, obs, z))
 
-    def value(self, agent: Agent, obs: jax.Array, z: jax.Array) -> jax.Array:
-        """V_H(s, z) with the pessimistic (min) head of the gain. [N]."""
-        return direct_value(forward(agent, obs, z), z) + self.gain(obs, z).min(axis=0)
+    def value(self, v1: jax.Array, obs: jax.Array, z: jax.Array, params: Any = None) -> jax.Array:
+        """V_H(s, z) = V_1(s, z) + min_j gain_j(s, z), given V_1(s, z). [N]."""
+        return v1 + self.gain(obs, z, params).min(axis=0)
 
 
 def forward(agent: Agent, obs: jax.Array, z: jax.Array) -> jax.Array:
-    """F(s, z) of both heads [2, N, d], as upstream successor_measure_extract calls it."""
+    """F(s, z) of both heads [2, N, d], as upstream successor_measure_extract calls it.
+
+    TODO(e-learner): use fbplan.frozen's public forward when it exists (review A2, X9).
+    """
     return agent.network.select("forward_repr")(obs, agent.normalize_z(z), goal_encoded=True)
+
+
+def multi_switch_value(
+    agent: Agent, value: ValueState, obs: jax.Array, z: jax.Array
+) -> tuple[jax.Array, jax.Array]:
+    """(V_1(s, z), V_H(s, z)) for each sample. [N] each."""
+    v1 = direct_value(forward(agent, obs, z), z)
+    return v1, value.value(v1, obs, z)
+
+
+def switch_target(
+    reward: jax.Array, rho: jax.Array, value_at_w: jax.Array, hop_cost: float
+) -> jax.Array:
+    """y = R(s, w) + rho(s, w) V_H(w) - hop_cost: the value of switching to w now."""
+    return reward + rho * value_at_w - hop_cost
 
 
 def switch_targets(
@@ -84,18 +124,11 @@ def switch_targets(
 ) -> tuple[jax.Array, jax.Array, OptionTerms]:
     """(y, V_1(s, z), option terms) for each sample. `params` give the gain at w."""
     s, w, z_w, z = batch.observations, batch.subgoals, batch.subgoal_latents, batch.task_latents
+    f_s_zw, f_w_zw = forward(agent, s, z_w), forward(agent, w, z_w)
     distinct = jnp.any(s != w, axis=-1)
-    terms = option_terms(
-        forward(agent, s, z_w),
-        forward(agent, w, z_w),
-        z_w,
-        z,
-        batch.is_goal,
-        distinct,
-        config.option,
-    )
-    v_w = direct_value(forward(agent, w, z), z) + value.gain(w, z, params).min(axis=0)
-    y = terms.reward + terms.rho * v_w - config.hop_cost
+    terms = option_terms(f_s_zw, f_w_zw, z_w, z, batch.is_goal, distinct, config.option)
+    v_w = value.value(direct_value(forward(agent, w, z), z), w, z, params)
+    y = switch_target(terms.reward, terms.rho, v_w, config.hop_cost)
     return y, direct_value(forward(agent, s, z), z), terms
 
 
@@ -114,7 +147,7 @@ def value_loss(
     mask = terms.valid.astype(jnp.float32)
     n_valid = jnp.maximum(mask.sum(), 1.0)
     loss = (expectile_loss(y - v1_s - gain_s, config.expectile) * mask).sum() / n_valid
-    capped = terms.valid & (terms.rho_raw > config.option.rho_max)
+    capped = terms.valid & (terms.rho_raw > config.option.rho_cap)
     return loss, {
         "loss": loss,
         "valid": mask.mean(),
@@ -130,7 +163,7 @@ def value_loss(
 def value_update(
     value: ValueState, agent: Agent, batch: SwitchBatch, config: ValueConfig
 ) -> tuple[ValueState, dict[str, jax.Array]]:
-    """One Adam step on the gain heads, then the EMA step of the target network."""
+    """One Adam step on the delta network, then the EMA step of the target network."""
     grads, info = jax.grad(value_loss, argnums=1, has_aux=True)(
         value, value.params, agent, batch, config
     )
@@ -139,3 +172,28 @@ def value_update(
     target = optax.incremental_update(params, value.target_params, config.ema)
     step = value.step + 1
     return value.replace(params=params, target_params=target, opt_state=opt_state, step=step), info
+
+
+def save_value(
+    value: ValueState, config: ValueConfig, flags: dict[str, Any], out_dir: Path
+) -> None:
+    """value.pkl (params and target params) and flags.json with the config under value_config."""
+    state = {"params": value.params, "target_params": value.target_params, "step": value.step}
+    save_numpy_pickle(state, out_dir / "value.pkl")
+    save_flags(flags | {"value_config": dataclasses.asdict(config)}, out_dir)
+
+
+def load_value(
+    env_name: str, name: str, seed: int, obs_dim: int, latent_dim: int
+) -> tuple[ValueState, ValueConfig]:
+    """The V_H saved by save_value in approach_b/<maze>/<name>/seed<k>, and its config."""
+    folder = trained_dir("approach_b", env_name, seed, name)
+    state = load_trained_file(trained_key("approach_b", env_name, seed, name), folder, "value.pkl")
+    config = ValueConfig.from_dict(json.loads((folder / "flags.json").read_text())["value_config"])
+    template = ValueState.create(jax.random.PRNGKey(0), obs_dim, latent_dim, config)
+    value = template.replace(
+        params=flax.serialization.from_state_dict(template.params, state["params"]),
+        target_params=flax.serialization.from_state_dict(template.params, state["target_params"]),
+        step=jnp.asarray(state["step"]),
+    )
+    return value, config
