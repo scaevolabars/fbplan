@@ -276,7 +276,6 @@ dependencies = [
     { name = "distrax" },
     { name = "flax" },
     { name = "gymnasium" },
-    { name = "h5py" },
     { name = "jax" },
     { name = "jax", extra = ["cuda12"], marker = "sys_platform == 'linux'" },
     { name = "matplotlib" },
@@ -300,7 +299,6 @@ requires-dist = [
     { name = "distrax", specifier = ">=0.1.5" },
     { name = "flax", specifier = ">=0.10.2" },
     { name = "gymnasium", specifier = "==0.29.1" },
-    { name = "h5py", specifier = "==3.12.1" },
     { name = "jax", specifier = ">=0.4.38" },
     { name = "jax", extras = ["cuda12"], marker = "sys_platform == 'linux'", specifier = ">=0.4.38" },
     { name = "matplotlib", specifier = ">=3.10.7" },
@@ -412,22 +410,6 @@ wheels = [
 mujoco = [
     { name = "imageio" },
     { name = "mujoco" },
-]
-
-[[package]]
-name = "h5py"
-version = "3.12.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/cc/0c/5c2b0a88158682aeafb10c1c2b735df5bc31f165bfe192f2ee9f2a23b5f1/h5py-3.12.1.tar.gz", hash = "sha256:326d70b53d31baa61f00b8aa5f95c2fcb9621a3ee8365d770c551a13dbbcbfdf", size = 411457, upload-time = "2024-09-26T16:41:39.883Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/33/61/c463dc5fc02fbe019566d067a9d18746cd3c664f29c9b8b3c3f9ed025365/h5py-3.12.1-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:ccd9006d92232727d23f784795191bfd02294a4f2ba68708825cb1da39511a93", size = 3410828, upload-time = "2024-09-26T16:39:56.19Z" },
-    { url = "https://files.pythonhosted.org/packages/95/9d/eb91a9076aa998bb2179d6b1788055ea09cdf9d6619cd967f1d3321ed056/h5py-3.12.1-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:ad8a76557880aed5234cfe7279805f4ab5ce16b17954606cca90d578d3e713ef", size = 2872586, upload-time = "2024-09-26T16:40:00.204Z" },
-    { url = "https://files.pythonhosted.org/packages/b0/62/e2b1f9723ff713e3bd3c16dfeceec7017eadc21ef063d8b7080c0fcdc58a/h5py-3.12.1-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:1473348139b885393125126258ae2d70753ef7e9cec8e7848434f385ae72069e", size = 5273038, upload-time = "2024-09-26T16:40:06.444Z" },
-    { url = "https://files.pythonhosted.org/packages/e1/89/118c3255d6ff2db33b062ec996a762d99ae50c21f54a8a6047ae8eda1b9f/h5py-3.12.1-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:018a4597f35092ae3fb28ee851fdc756d2b88c96336b8480e124ce1ac6fb9166", size = 5452688, upload-time = "2024-09-26T16:40:13.054Z" },
-    { url = "https://files.pythonhosted.org/packages/1d/4d/cbd3014eb78d1e449b29beba1f3293a841aa8086c6f7968c383c2c7ff076/h5py-3.12.1-cp311-cp311-win_amd64.whl", hash = "sha256:3fdf95092d60e8130ba6ae0ef7a9bd4ade8edbe3569c13ebbaf39baefffc5ba4", size = 3006095, upload-time = "2024-09-26T16:40:17.822Z" },
 ]
 
 [[package]]
