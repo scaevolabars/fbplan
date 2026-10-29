@@ -13,6 +13,7 @@ from fbplan.tabular.time_limit import (
     enters_teleporter,
     hitting_cdf,
     walk_policy,
+    walk_threshold,
 )
 
 SAFE_WALK_CELLS = [23, 15, 14, 25, 27]  # teleport tasks, counted by hand
@@ -94,3 +95,17 @@ def test_deterministic_maze_has_no_gamble():
     policy = discounted_policy(giant, goal, 0.8)
     assert not enters_teleporter(giant, policy, start, goal)
     np.testing.assert_array_equal(policy, walk_policy(giant, goal))
+
+
+def test_walk_threshold_solves_the_gamble_closed_form(teleport):
+    # Task 3 at the threshold: gamble g^2 / (3 - g) = walk g^14 with g = gamma^steps_per_cell.
+    gamma = walk_threshold(teleport, task_id=3, steps_per_cell=40)
+    g = gamma**40
+    np.testing.assert_allclose(g**2 / (3 - g), g**14, rtol=1e-6)
+    start, goal = _ends(teleport, 3)
+    assert enters_teleporter(
+        teleport, discounted_policy(teleport, goal, (gamma - 1e-5) ** 40), start, goal
+    )
+    assert not enters_teleporter(
+        teleport, discounted_policy(teleport, goal, gamma**40), start, goal
+    )

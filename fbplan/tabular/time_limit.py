@@ -11,7 +11,11 @@ moves, gamma_cell = gamma^steps_per_cell), this module compares three policies f
 - best: the policy that maximises P(H <= N) (finite-horizon dynamic programming; it may depend
   on the time left, so it is not one stationary policy).
 
-    uv run python -m fbplan.tabular.time_limit    # writes docs/figures/theory/time_limit.{csv,png}
+It also finds, per teleport task, the smallest per-step discount at which the risk-neutral
+policy walks (`walk_threshold`).
+
+    uv run python -m fbplan.tabular.time_limit
+    # writes docs/figures/theory/time_limit.{csv,png} and time_limit_thresholds.csv
 """
 
 from __future__ import annotations
@@ -110,6 +114,29 @@ def enters_teleporter(maze: GridMaze, policy: np.ndarray, start: int, goal: int)
     return False
 
 
+def walk_threshold(
+    maze: GridMaze, task_id: int, steps_per_cell: float, low: float = 0.99, high: float = 1 - 1e-6
+) -> float:
+    """Smallest per-step discount at which the risk-neutral policy walks from the task start.
+
+    Bisection on gamma; the policy jumps at `low` and walks at `high` (checked).
+    """
+    start_ij, goal_ij = maze.tasks[task_id - 1]
+    start, goal = maze.centre_state(start_ij), maze.centre_state(goal_ij)
+
+    def jumps(gamma: float) -> bool:
+        return enters_teleporter(
+            maze, discounted_policy(maze, goal, gamma**steps_per_cell), start, goal
+        )
+
+    if not jumps(low) or jumps(high):
+        raise ValueError(f"no switch from jumping to walking between {low} and {high}")
+    for _ in range(50):
+        mid = 0.5 * (low + high)
+        low, high = (mid, high) if jumps(mid) else (low, mid)
+    return high
+
+
 def task_rows(maze: GridMaze, gamma: float, task_id: int) -> list[dict]:
     """P(success within EPISODE_STEPS) and E[gamma^H] of each policy, per steps_per_cell."""
     start_ij, goal_ij = maze.tasks[task_id - 1]
@@ -132,16 +159,25 @@ def task_rows(maze: GridMaze, gamma: float, task_id: int) -> list[dict]:
             # E[gamma^H] from the CDF over a long horizon (gamma_cell^moves is then negligible).
             cdf = hitting_cdf(maze, policy, start, goal, 400)
             discounted = float(np.sum(np.diff(cdf, prepend=0.0) * gamma_cell ** np.arange(401)))
-            rows.append({
-                **common,
-                "policy": name,
-                "success": cdf[n_moves],
-                "discounted_value": discounted,
-                "gambles": enters_teleporter(maze, policy, start, goal),
-            })
+            rows.append(
+                {
+                    **common,
+                    "policy": name,
+                    "success": cdf[n_moves],
+                    "discounted_value": discounted,
+                    "gambles": enters_teleporter(maze, policy, start, goal),
+                }
+            )
         best = best_success(maze, start, goal, n_moves)
-        rows.append({**common, "policy": "best", "success": best, "discounted_value": np.nan,
-                     "gambles": np.nan})
+        rows.append(
+            {
+                **common,
+                "policy": "best",
+                "success": best,
+                "discounted_value": np.nan,
+                "gambles": np.nan,
+            }
+        )
     return rows
 
 
@@ -159,8 +195,15 @@ def plot(table: pd.DataFrame, path: Path) -> None:
     for ax, (task_id, rows) in zip(axes, tele.groupby("task_id"), strict=True):
         for name, color in SERIES.items():
             part = rows[rows["policy"] == name]
-            ax.plot(part["steps_per_cell"], part["success"], color=color, lw=2,
-                    marker=MARKERS[name], ms=6, label=name)
+            ax.plot(
+                part["steps_per_cell"],
+                part["success"],
+                color=color,
+                lw=2,
+                marker=MARKERS[name],
+                ms=6,
+                label=name,
+            )
         walk_cells = int(rows["walk_cells"].iloc[0])
         ax.axvline(EPISODE_STEPS / walk_cells, color="#8a8984", lw=1, ls=":")
         ax.set_title(f"task {task_id}: walk {walk_cells} cells", fontsize=10)
@@ -169,8 +212,9 @@ def plot(table: pd.DataFrame, path: Path) -> None:
         ax.spines[["top", "right"]].set_visible(False)
     axes[0].set_ylabel("P(goal within 1000 steps)")
     handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=3,
-               frameon=False)
+    fig.legend(
+        handles, labels, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=3, frameon=False
+    )
     fig.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=150, bbox_inches="tight")
@@ -189,9 +233,24 @@ def main() -> None:
     table = pd.DataFrame(rows)
     table.to_csv(args.out / "time_limit.csv", index=False)
     plot(table, args.out / "time_limit.png")
+    teleport = GridMaze("teleport", resolution=1)
+    thresholds = pd.DataFrame(
+        [
+            {"task_id": t, "steps_per_cell": 40, "walk_threshold": walk_threshold(teleport, t, 40)}
+            for t in range(1, len(teleport.tasks) + 1)
+        ]
+    )
+    thresholds["horizon_steps"] = 1 / (1 - thresholds["walk_threshold"])
+    thresholds.to_csv(args.out / "time_limit_thresholds.csv", index=False)
+    print(thresholds.round(5).to_string(index=False))
     at40 = table[table["steps_per_cell"] == 40]
-    print(at40.pivot_table(index=["maze", "task_id", "walk_cells"], columns="policy",
-                           values="success").round(3).to_string())
+    print(
+        at40.pivot_table(
+            index=["maze", "task_id", "walk_cells"], columns="policy", values="success"
+        )
+        .round(3)
+        .to_string()
+    )
 
 
 if __name__ == "__main__":
