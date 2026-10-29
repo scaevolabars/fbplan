@@ -8,14 +8,15 @@ For n validation states s, w (uniform sample, fixed seed) it compares the FB dis
 -log rho(s, w) / -log gamma (steps, rho from c-planner's OptionModel, clipped to [0, gamma])
 with the exact maze geodesic distance between their xy positions (walls solid, agent a point).
 
-Trust follows the planner: a pair is trusted when its raw rho is at least rho_min. Pairs with
-raw rho >= 1 are counted apart, because the planner distrusts them. A trusted pair with raw
-rho < 1 is a wormhole when the FB distance is shorter than the time the ant needs to walk the
-geodesic at its top speed (99th percentile of the per-step xy displacement in the data); the
-planner's max operator exploits exactly these pairs. The table also counts the wormholes that
-the planner's xy cap (max_edge_xy) leaves. Outputs: a calibration figure, a map of the 200
-longest wormholes, and the table, printed as Markdown and written as CSV
-(<table-dir>/wormholes_<env>_<head-agg>.csv).
+Wormholes by walking speed (walk_speed_wormholes): pairs that the planner trusts
+(fbplan.graph.trusted_edges on the raw rho, as in PlannerConfig) whose FB distance is shorter
+than the time the ant needs to walk the geodesic at its top speed (99th percentile of the
+per-step xy displacement in the data); the planner's max operator exploits exactly these
+pairs. The tabular study counts wormholes by another definition (fbplan.tabular.study). The
+table also counts the pairs above rho_min that the planner distrusts (raw rho >= rho_max) and
+the wormholes that its xy cap (max_edge_xy) leaves. Defaults come from PlannerConfig().
+Outputs: a calibration figure, a map of the 200 longest wormholes, and the table, printed as
+Markdown and written as CSV (<table-dir>/wormholes_<env>_<head-agg>.csv).
 """
 
 from __future__ import annotations
@@ -29,15 +30,18 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
-from matplotlib.patches import Rectangle  # noqa: E402
 
-from fbplan.controllers.oracle import MazeGeometry  # noqa: E402
+from fbplan.controllers.planner import PlannerConfig  # noqa: E402
 from fbplan.frozen import load_dataset, load_model, make_env  # noqa: E402
-from fbplan.option_model import OptionModel, OptionModelConfig  # noqa: E402
+from fbplan.graph import trusted_edges  # noqa: E402
+from fbplan.maze import MazeGeometry, draw_walls  # noqa: E402
+from fbplan.option_model import OptionModel, OptionModelConfig, OptionTable  # noqa: E402
+from fbplan.stats import markdown_table  # noqa: E402
 
 INK, MUTED, GRID, ACCENT, WARN = "#0b0b0b", "#52514e", "#e4e3df", "#2a78d6", "#e34948"
 Y_CAP = 600  # steps; larger FB distances (and rho = 0) are drawn at the cap
 MAX_DRAWN = 200  # wormholes drawn on the map, longest geodesic first
+PLANNER = PlannerConfig()
 
 
 def fb_distance(rho: np.ndarray, discount: float) -> np.ndarray:
@@ -51,7 +55,7 @@ def step_speeds(data: dict[str, np.ndarray]) -> np.ndarray:
     return np.linalg.norm(data["next_observations"][:, :2] - data["observations"][:, :2], axis=1)
 
 
-def wormhole_mask(
+def walk_speed_wormholes(
     rho_raw: np.ndarray,
     rho: np.ndarray,
     geodesic: np.ndarray,
@@ -59,10 +63,41 @@ def wormhole_mask(
     top_speed: float,
     rho_min: float,
 ) -> np.ndarray:
-    """Trusted pairs below raw rho 1 whose FB distance (from the clipped rho) is shorter than
-    the geodesic walk at top speed."""
-    trusted = (rho_raw >= rho_min) & (rho_raw < 1.0)
+    """Pairs that the planner trusts (no self-pairs) whose FB distance, from the clipped rho, is
+    shorter than the geodesic walk at top speed."""
+    trusted = trusted_edges(rho_raw, rho_min, exclude_diagonal=True, rho_max=PLANNER.rho_max)
     return trusted & (fb_distance(rho, discount) < geodesic / top_speed)
+
+
+def wormhole_table(
+    table: OptionTable,
+    geodesic: np.ndarray,
+    xy_dist: np.ndarray,
+    discount: float,
+    top_speed: float,
+    rho_mins: list[float],
+    max_edge_xy: float,
+) -> pd.DataFrame:
+    """One row per rho_min: trust counts, wormholes by walking speed and their share."""
+    off_diagonal = ~np.eye(len(geodesic), dtype=bool)
+    rows = []
+    for rho_min in rho_mins:
+        above = (table.rho_raw >= rho_min) & off_diagonal
+        trusted = trusted_edges(table.rho_raw, rho_min, exclude_diagonal=True,
+                                rho_max=PLANNER.rho_max)
+        holes = walk_speed_wormholes(table.rho_raw, table.rho, geodesic, discount, top_speed,
+                                     rho_min)
+        rows.append({
+            "rho_min": rho_min,
+            "pairs_above_rho_min": int(above.sum()),
+            "raw_rho_ge_rho_max": int((above & ~trusted).sum()),
+            "trusted_pairs": int(trusted.sum()),
+            "wormholes": int(holes.sum()),
+            "wormhole_share": holes.sum() / max(trusted.sum(), 1),
+            "wormholes_within_xy_cap": int((holes & (xy_dist <= max_edge_xy)).sum()),
+            "longest_geodesic": float(geodesic[holes].max()) if holes.any() else 0.0,
+        })
+    return pd.DataFrame(rows)
 
 
 def plot_calibration(
@@ -101,36 +136,31 @@ def plot_wormholes(
     maze: MazeGeometry, xy: np.ndarray, pairs: np.ndarray, title: str, path: Path
 ) -> None:
     fig, ax = plt.subplots(figsize=(5.5, 5.5), dpi=150)
-    for i, j in np.argwhere(maze.maze_map == 1):
-        x, y = maze.centre((i, j)) - maze.unit / 2
-        ax.add_patch(Rectangle((x, y), maze.unit, maze.unit, color=GRID, lw=0))
+    draw_walls(ax, maze, GRID)
     ax.scatter(xy[:, 0], xy[:, 1], s=4, color=ACCENT, lw=0)
     for a, b in pairs:
         ax.plot(*np.stack([xy[a], xy[b]]).T, color=WARN, lw=0.8, alpha=0.6)
-    rows, cols = maze.maze_map.shape
-    lo = maze.centre((0, 0)) - maze.unit / 2
-    hi = maze.centre((rows - 1, cols - 1)) + maze.unit / 2
-    ax.set_xlim(lo[0], hi[0])
-    ax.set_ylim(lo[1], hi[1])
-    ax.set_aspect("equal")
-    ax.axis("off")
     ax.set_title(title, color=INK, fontsize=10, loc="left")
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
 
 
-def main() -> None:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--env", default="antmaze-medium-navigate-v0")
     parser.add_argument("--n", type=int, default=400, help="number of sampled states")
     parser.add_argument("--head-agg", default="min", choices=["min", "mean"])
-    parser.add_argument("--rho-min", type=float, nargs="+", default=[0.3, 0.5, 0.7])
-    parser.add_argument("--max-edge-xy", type=float, default=6.0, help="the planner's xy cap")
+    parser.add_argument("--rho-min", type=float, nargs="+", default=[PLANNER.rho_min, 0.5, 0.7])
+    parser.add_argument("--max-edge-xy", type=float, default=PLANNER.max_edge_xy,
+                        help="the planner's xy cap")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out-dir", type=Path, default=Path("results/figures"))
     parser.add_argument("--table-dir", type=Path, default=Path("results/calibration"))
-    args = parser.parse_args()
+    return parser.parse_args()
 
+
+def main() -> None:
+    args = _parse_args()
     model = load_model(args.env)
     data = load_dataset(args.env, "val")
     idx = np.random.default_rng(args.seed).choice(len(data["observations"]), args.n, replace=False)
@@ -139,47 +169,33 @@ def main() -> None:
     table = option_model.pair_table(obs, option_model.targets(obs))
     maze = MazeGeometry.from_env(make_env(args.env))
     geodesic = maze.geodesic_distances(obs[:, :2], obs[:, :2])
-
-    off_diag = ~np.eye(args.n, dtype=bool)
-    rho, geo = table.rho[off_diag], geodesic[off_diag]
-    fb_steps = fb_distance(rho, model.discount)
+    xy_dist = np.linalg.norm(obs[:, None, :2] - obs[None, :, :2], axis=-1)
     speeds = step_speeds(data)
     median_speed, top_speed = float(np.median(speeds)), float(np.quantile(speeds, 0.99))
 
+    off_diagonal = ~np.eye(args.n, dtype=bool)
+    rho, geo = table.rho[off_diagonal], geodesic[off_diagonal]
     tag = f"{args.env}, n = {args.n}, F heads: {args.head_agg}"
-    plot_calibration(geo, fb_steps, median_speed, f"FB distance vs. maze geodesic ({tag})",
+    plot_calibration(geo, fb_distance(rho, model.discount), median_speed,
+                     f"FB distance vs. maze geodesic ({tag})",
                      args.out_dir / f"calibration_{args.env}_{args.head_agg}.png")
-    print(f"{tag}: {off_diag.sum()} ordered pairs; rho clipped low {table.n_clipped_low}, "
+    print(f"{tag}: {off_diagonal.sum()} ordered pairs; rho clipped low {table.n_clipped_low}, "
           f"high {table.n_clipped_high}; rho = 0 for {np.mean(rho == 0):.1%}")
-    print(f"step speed: median {median_speed:.3f}, p99 {top_speed:.3f} xy units per step")
-    print("\n| rho_min | trusted pairs | of which raw rho >= 1 | wormholes (raw rho < 1) "
-          f"| share of trusted | wormholes within xy {args.max_edge_xy:g} | longest (geodesic) |")
-    print("|---|---|---|---|---|---|---|")
-    xy_dist = np.linalg.norm(obs[:, None, :2] - obs[None, :, :2], axis=-1)
-    rows = []
-    for rho_min in args.rho_min:
-        trusted = (table.rho_raw >= rho_min) & off_diag
-        mask = wormhole_mask(table.rho_raw, table.rho, geodesic, model.discount, top_speed,
-                             rho_min) & off_diag
-        capped = mask & (xy_dist <= args.max_edge_xy)
-        longest = float(geodesic[mask].max()) if mask.any() else 0.0
-        print(f"| {rho_min} | {trusted.sum()} | {(trusted & (table.rho_raw >= 1)).sum()} "
-              f"| {mask.sum()} | {mask.sum() / max(trusted.sum(), 1):.1%} | {capped.sum()} "
-              f"| {longest:.1f} |")
-        rows.append({
-            "env": args.env, "head_agg": args.head_agg, "n_states": args.n,
-            "top_speed": top_speed, "rho_min": rho_min, "trusted_pairs": int(trusted.sum()),
-            "raw_rho_ge_1": int((trusted & (table.rho_raw >= 1)).sum()),
-            "wormholes": int(mask.sum()), "wormhole_share": mask.sum() / max(trusted.sum(), 1),
-            "max_edge_xy": args.max_edge_xy, "wormholes_within_xy_cap": int(capped.sum()),
-            "longest_geodesic": longest,
-        })
+    print(f"step speed: median {median_speed:.3f}, p99 {top_speed:.3f} xy units per step\n")
+
+    result = wormhole_table(table, geodesic, xy_dist, model.discount, top_speed, args.rho_min,
+                            args.max_edge_xy)
+    print(markdown_table(result.round(3)))
+    context = {"env": args.env, "head_agg": args.head_agg, "n_states": args.n,
+               "top_speed": top_speed, "max_edge_xy": args.max_edge_xy}
     args.table_dir.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(rows).to_csv(args.table_dir / f"wormholes_{args.env}_{args.head_agg}.csv",
-                              index=False)
+    result.assign(**context).to_csv(
+        args.table_dir / f"wormholes_{args.env}_{args.head_agg}.csv", index=False
+    )
+
     rho_min = min(args.rho_min)
-    mask = wormhole_mask(table.rho_raw, table.rho, geodesic, model.discount, top_speed,
-                         rho_min) & off_diag
+    mask = walk_speed_wormholes(table.rho_raw, table.rho, geodesic, model.discount, top_speed,
+                                rho_min)
     pairs = np.argwhere(mask)
     drawn = pairs[np.argsort(-geodesic[mask])[:MAX_DRAWN]]
     plot_wormholes(maze, obs[:, :2], drawn,

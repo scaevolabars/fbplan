@@ -27,42 +27,22 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from fbplan.contracts import Controller, TaskSpec
-from fbplan.controllers import resolve_controller
-from fbplan.controllers.oracle import MazeGeometry
 from fbplan.evaluate import (
     Checkpoint,
+    RecordingController,
+    build_controller,
     config_hash,
     make_tasks,
     parse_options,
     run_episode,
     task_latent,
 )
-from fbplan.frozen import make_env
+from fbplan.frozen import load_model, make_env
+from fbplan.maze import MazeGeometry
 from fbplan.stats import CHECKPOINT_DEFAULTS, load_results
 
 FLIP_WINDOW, STUCK_WINDOW, STUCK_RADIUS = 50, 300, 1.0
 CLASSES = ["flipped", "stuck", "other"]
-
-
-class RecordingController:
-    """Passes every call to `inner` and keeps the observations of the current episode."""
-
-    def __init__(self, inner: Controller) -> None:
-        self.inner = inner
-        self.name = inner.name
-        self.observations: list[np.ndarray] = []
-
-    def reset(self, task: TaskSpec, seed: int) -> None:
-        self.observations = []
-        self.inner.reset(task, seed)
-
-    def act(self, obs: np.ndarray) -> np.ndarray:
-        self.observations.append(obs.copy())
-        return self.inner.act(obs)
-
-    def step_info(self) -> dict[str, float | int | str]:
-        return self.inner.step_info()
 
 
 def upright(observations: np.ndarray) -> np.ndarray:
@@ -89,15 +69,16 @@ def replay_failures(
     rows: list[dict],
 ) -> list[dict]:
     """Replay the episodes in `rows` and return one classified row per episode."""
-    model = checkpoint.load(env_name)
-    inner = resolve_controller(method)(model, **options)
+    inner = build_controller(method, env_name, options, checkpoint)
     if config_hash(inner) != expected_hash:
         raise ValueError(f"config hash {config_hash(inner)} differs from the CSV's {expected_hash}")
     controller = RecordingController(inner)
     env = make_env(env_name)
     maze = MazeGeometry.from_env(env)
     task_ids = sorted({r["task_id"] for r in rows})
-    tasks = {t.task_id: t for t in make_tasks(env_name, task_ids, partial(task_latent, model))}
+    # z is the same for every checkpoint (same B), so the provided model infers it.
+    latent = partial(task_latent, load_model(env_name))
+    tasks = {t.task_id: t for t in make_tasks(env_name, task_ids, latent)}
     out = []
     for row in rows:
         task = tasks[row["task_id"]]
@@ -111,15 +92,20 @@ def replay_failures(
 
 
 def failure_table(episodes: pd.DataFrame, failures: pd.DataFrame) -> pd.DataFrame:
-    """Per task and overall ("all"): episodes, failures, the count of each class and its share."""
-    counts = failures.pivot_table(index="task_id", columns="failure", values="episode",
-                                  aggfunc="count", fill_value=0)
-    table = counts.reindex(columns=CLASSES, fill_value=0)
+    """Per task and overall ("all"): episodes, failures, the count of each class and its share
+    of the failures (empty when there is no failure)."""
+    n_episodes = episodes.groupby("task_id").size()
+    table = pd.DataFrame(0, index=n_episodes.index, columns=CLASSES)
+    if len(failures):
+        counts = failures.pivot_table(index="task_id", columns="failure", values="episode",
+                                      aggfunc="count", fill_value=0)
+        table = counts.reindex(index=n_episodes.index, columns=CLASSES, fill_value=0)
     table.insert(0, "failures", table.sum(axis=1))
-    table.insert(0, "episodes", episodes.groupby("task_id").size())
+    table.insert(0, "episodes", n_episodes)
     table.loc["all"] = table.sum()
     for name in CLASSES:
-        table[f"{name}_share"] = (table[name] / table["failures"]).round(3)
+        share = table[name] / table["failures"].where(table["failures"] > 0)
+        table[f"{name}_share"] = share.round(3)
     return table
 
 
@@ -133,7 +119,11 @@ def main() -> None:
     args = parser.parse_args()
 
     df = load_results([args.csv])
-    (env_name,), (expected_hash,) = df["env_name"].unique(), df["config_hash"].unique()
+    for column in ["env_name", "config_hash"]:
+        if df[column].nunique() != 1:
+            raise ValueError(f"{args.csv} holds {df[column].nunique()} values of {column}; "
+                             "replay needs one run (one env, one config)")
+    env_name, expected_hash = df["env_name"].iloc[0], df["config_hash"].iloc[0]
     checkpoints = df[list(CHECKPOINT_DEFAULTS)].drop_duplicates()
     if len(checkpoints) != 1:
         raise ValueError(f"{args.csv} holds {len(checkpoints)} checkpoints; replay needs one")
@@ -142,13 +132,15 @@ def main() -> None:
     failed = df[~df["success"]].to_dict("records")
     chunks = [failed[i :: args.workers] for i in range(args.workers) if failed[i :: args.workers]]
     options = parse_options(args.opt)
-    with ProcessPoolExecutor(len(chunks), mp_context=get_context("spawn")) as pool:
-        futures = [
-            pool.submit(replay_failures, args.method, env_name, options, checkpoint,
-                        expected_hash, chunk)
-            for chunk in chunks
-        ]
-        rows = pd.DataFrame([row for future in futures for row in future.result()])
+    rows = pd.DataFrame(columns=["task_id", "episode", "failure", "cells_left"])
+    if chunks:
+        with ProcessPoolExecutor(len(chunks), mp_context=get_context("spawn")) as pool:
+            futures = [
+                pool.submit(replay_failures, args.method, env_name, options, checkpoint,
+                            expected_hash, chunk)
+                for chunk in chunks
+            ]
+            rows = pd.DataFrame([row for future in futures for row in future.result()])
 
     table = failure_table(df, rows)
     out = args.out or args.csv.parent / "failures" / args.csv.name
