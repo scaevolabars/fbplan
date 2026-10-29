@@ -1,11 +1,13 @@
 {
   "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.18.5/.schema/devbox.schema.json",
-  "packages": ["uv@latest"],
+  "packages": ["uv@0.11.8"],
   "shell": {
     "scripts": {
-      "setup": ["git submodule update --init", "uv sync"],
-      "test": "uv run pytest",
-      "lint": "uv run ruff check ."
+      "setup": ["git submodule update --init", "uv sync --locked"],
+      "test": "uv run --locked pytest",
+      "lint": "uv run --locked ruff check .",
+      "reproduce": "scripts/reproduce.sh",
+      "smoke": "scripts/reproduce.sh --smoke"
     }
   }
 }
