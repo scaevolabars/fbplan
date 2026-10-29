@@ -22,8 +22,11 @@ import pandas as pd  # noqa: E402
 from fbplan.stats import load_results, pool_label, row_labels, summary_table  # noqa: E402
 
 # Fixed color per method (reference categorical order). The privileged oracle is neutral gray.
-METHOD_COLORS = {"baseline": "#2a78d6", "nonhier": "#eb6834", "oracle": "#7a7974"}
-OTHER_COLORS = ["#1baf7a", "#6250d6", "#e87ba4", "#008300", "#e34948", "#eda100"]
+METHOD_COLORS = {
+    "baseline": "#2a78d6", "nonhier": "#eb6834", "oracle": "#7a7974", "baseline_raw": "#1baf7a",
+    "planner": "#6250d6", "planner_high": "#e87ba4", "planner_region": "#eda100",
+}
+OTHER_COLORS = ["#008300", "#e34948"]
 INK, MUTED, GRID = "#0b0b0b", "#52514e", "#e4e3df"
 
 
