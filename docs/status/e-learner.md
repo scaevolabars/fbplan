@@ -152,7 +152,8 @@
   command per seed k: `uv run python -m fbplan.learned.train_b policy --env antmaze-medium-navigate-v0 --seed k --variant region`.
 - **AWR 2x started (23:53 MSK)** on 58234389 with code 97d9200 (`push --no-tests` after region):
   `bash scripts/gpu/awr2x.sh > runs/awr2x.log` in tmux session `awr2x`.
-- **Attribution control (h-learn H1, coordinator 2026-10-29):** B clean with `--critic v_1` (V_1 where
+- **H1 cancelled (coordinator, 2026-10-30 02:12 MSK):** the 2x gate (d-eval, `results/medium/*awr2x*`): baseline 2x 80.9 %, B clean 2x 80.2 % (-0.8 pp against baseline 2x). Both rise together, so the rise is a pi_h tuning effect, and at matched sharpness the critic adds nothing (design.md §8); there is no B win to attribute. I stopped the H1 launchers and runs (seed 4 had saved, seeds 0, 2, 3 ran; nothing pulled, no d-eval name). T2 runs alone: tmux `t2`, `bash scripts/gpu/logratio.sh > runs/logratio.log` (code 34b17a5), started 02:12 MSK.
+- **Attribution control (h-learn H1, coordinator 2026-10-29; cancelled 2026-10-30, see above):** B clean with `--critic v_1` (V_1 where
   the targets and the advantage use V_H), the shared 2x temperature of `clean-awr2x`, the same
   batches; folder `approach_b/medium/clean-v1-awr2x/seed<k>`, d-eval name `b:clean-v1-awr2x:<seed>`.
   Script `scripts/gpu/awr2x_v1.sh` (about 1 GPU hour, about $0.21); start: see the night plan.
@@ -332,6 +333,7 @@ What ran on 58234389:
 | 01:51 | | H1 (tmux `h1`, `bash scripts/gpu/awr2x_v1.sh > runs/awr2x_v1.log`): seeds 0-3 crashed at the first validation compile, `INTERNAL: Autotuning failed for HLO ... jit(policy_validation)/reduce_sum ... REDZONE CHECK FAILED`, the same failure as the first 2x baseline group (5 runs compiled at once, platform allocator). Seed 4 trains on. T2 not started then |
 | 01:59 | | staggered launch `runs/wave1b.sh` (tmux `wave1b`, script below): H1 seeds 0-3 again, then T2 seeds 0-4 on cores 10-19; each run starts after the previous one logs its first step. Crash logs kept as `stdout.crash1.log` |
 | 02:07 | | H1 seed 4 (first launch) saved; seed 0 retry steps; seed 1 retry failed again with the same error although it compiled alone, so concurrent compiles are not the cause. Every failure so far had `XLA_PYTHON_CLIENT_ALLOCATOR=platform`; the 3 baseline retries without it ran. Second retry `runs/wave1d.sh` (tmux `wave1d`): after wave1b has started all runs, each H1 seed whose latest log has the failure restarts without the platform allocator (memory placement only), one at a time. Logs kept as `stdout.crash2.log` |
+| 02:12 | | H1 cancelled (coordinator): wave1b, wave1d and the H1 runs stopped; T2 alone, `bash scripts/gpu/logratio.sh` in tmux `t2` (5 runs at once, no platform allocator) |
 | 18:58 | | ablations approved (coordinator for the user): queue `runs/queue-ablations.sh` (below) holds queue-b1, then runs value expectile 0.7, resumes queue-b1 (policy clean, wide, region), then value rho cap 1.0 |
 
 The ablation queue. The instance runs code a189a49, which has no `--name`; each ablation writes
