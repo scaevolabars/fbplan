@@ -17,7 +17,7 @@ CLI (writes one CSV of EpisodeRecords, prints the success table and the throughp
 
     uv run python -m fbplan.evaluate --method baseline --env antmaze-medium-navigate-v0 \
         --tasks 1 2 3 4 5 --seeds 0 --episodes 50 --workers 8 [--opt key=value ...] \
-        [--checkpoint provided | retrained:<seed> | b:<variant>:<seed>] [--heldout]
+        [--checkpoint provided | retrained:[<variant>:]<seed> | b:<variant>:<seed>] [--heldout]
 
 With many workers on one CPU, `XLA_FLAGS="--xla_cpu_multi_thread_eigen=false
 intra_op_parallelism_threads=1"` gives each worker one XLA thread (about +15 % steps/s with
@@ -46,7 +46,14 @@ import pandas as pd
 
 from fbplan.contracts import Controller, EpisodeRecord, FBModel, TaskSpec
 from fbplan.controllers import ALIASES, resolve_controller
-from fbplan.frozen import ENV_NAMES, load_dataset, load_model, make_env, upstream_module
+from fbplan.frozen import (
+    ENV_NAMES,
+    load_dataset,
+    load_model,
+    load_trained_model,
+    make_env,
+    upstream_module,
+)
 from fbplan.learned import checkpoint as trained
 from fbplan.maze import Cell, MazeGeometry
 from fbplan.stats import CHECKPOINT_DEFAULTS, summary_table
@@ -65,7 +72,9 @@ class Checkpoint:
 
     provided: the paper's checkpoint (fbplan.frozen.load_model).
     retrained: pi_h retrained with the upstream recipe from training seed `seed`
-        (fbplan.learned.checkpoint.load_baseline_model).
+        (fbplan.learned.checkpoint.load_baseline_model); with a variant, the retrained
+        baselines of that sub-folder (baselines/<maze>/<variant>/seed<k>, for example another
+        AWR temperature).
     b: approach B pi_h of `variant` from training seed `seed`
         (fbplan.learned.checkpoint.load_b_model).
     """
@@ -77,7 +86,7 @@ class Checkpoint:
     def __post_init__(self) -> None:
         valid = {
             "provided": self.variant == "" and self.seed == -1,
-            "retrained": self.variant == "" and self.seed >= 0,
+            "retrained": self.seed >= 0,
             "b": self.variant != "" and self.seed >= 0,
         }
         if not valid.get(self.kind, False):
@@ -85,23 +94,27 @@ class Checkpoint:
 
     @classmethod
     def parse(cls, spec: str) -> Checkpoint:
-        """A checkpoint from "provided", "retrained:<seed>" or "b:<variant>:<seed>"."""
+        """A checkpoint from "provided", "retrained:[<variant>:]<seed>" or "b:<variant>:<seed>"."""
         kind, *rest = spec.split(":")
         try:
             if kind == "provided" and not rest:
                 return cls()
-            if kind == "retrained" and len(rest) == 1:
-                return cls("retrained", "", int(rest[0]))
+            if kind == "retrained" and len(rest) in (1, 2):
+                return cls("retrained", rest[0] if len(rest) == 2 else "", int(rest[-1]))
             if kind == "b" and len(rest) == 2:
                 return cls("b", rest[0], int(rest[1]))
         except ValueError:
             pass
         raise ValueError(
-            f"checkpoint {spec!r} is not provided, retrained:<seed> or b:<variant>:<seed>"
+            f"checkpoint {spec!r} is not provided, retrained:[<variant>:]<seed> or "
+            "b:<variant>:<seed>"
         )
 
     def load(self, env_name: str) -> FBModel:
         """The frozen model with this pi_h."""
+        if self.kind == "retrained" and self.variant:
+            key = trained.trained_key("baselines", env_name, self.seed, self.variant)
+            return load_trained_model(env_name, key)
         if self.kind == "retrained":
             return trained.load_baseline_model(env_name, self.seed)
         if self.kind == "b":
@@ -499,7 +512,8 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--opt", nargs="*", default=[], help="controller options key=value")
     parser.add_argument(
-        "--checkpoint", default="provided", help="provided, retrained:<seed> or b:<variant>:<seed>"
+        "--checkpoint", default="provided",
+        help="provided, retrained:[<variant>:]<seed> or b:<variant>:<seed>",
     )
     parser.add_argument("--heldout", action="store_true", help="all held-out goals, not --tasks")
     parser.add_argument("--out", type=Path, help="CSV path (default: runs/<env>_<method>_...)")
