@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-30, 02:35. Branch merged with `main` at 3e36461.
+Last update: 2026-10-30, 02:45. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -388,6 +388,22 @@ CSVs come from the same commands on the instance (one process per eval seed, the
   --label-root results/medium --cluster config_hash`.
 - Large (follows): the same evaluate commands with `--env antmaze-large-navigate-v0`, run on
   the vast.ai host as 5 processes per config (one per eval seed), joined into one CSV.
+
+## Gate G0 on large (design.md §8; Linux, `results/large_10seeds/`, eval seeds 0–9)
+
+Seeds 5–9 ran in the main tree (84a8127), the code of `results/large/`; 2,500 episodes per row,
+paired on the same episodes.
+
+| method | success [95 % CI] | vs baseline (pp) | vs baseline_raw (pp) |
+|---|---|---|---|
+| baseline | 37.7 [35.9, 39.4] | – | +2.2 [−0.2, +4.6], p 0.085 |
+| baseline_raw | 35.5 [33.8, 37.2] | −2.2, p 0.085 | – |
+| oracle (privileged) | 38.9 [37.0, 40.8] | +1.2 [−1.3, +3.8], p 0.37 | +3.4 [+0.8, +5.9], p 0.011 |
+
+- The bar is the stronger row on 10 seeds: baseline (37.7 %). Oracle − bar = +1.2 pp, not
+  significant: by the fixed table (+1 to +3 pp, not significant) H1's held-out check comes first.
+- The oracle trades tasks: it loses task 3 (54.2 against 75.0 %) and wins tasks 2, 4 and 5
+  (+7 to +10 points each).
 
 ## AWR sharpness at 2× (design.md §8; Linux, medium, 5 eval seeds, 1,250 episodes per run)
 
