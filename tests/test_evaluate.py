@@ -213,14 +213,25 @@ def test_write_csv_adds_the_checkpoint_to_every_row(tmp_path):
 def test_checkpoint_parse_reads_provided_retrained_and_b_specs():
     assert Checkpoint.parse("provided") == Checkpoint()
     assert Checkpoint.parse("retrained:3") == Checkpoint("retrained", "", 3)
+    assert Checkpoint.parse("retrained:alpha0.2:3") == Checkpoint("retrained", "alpha0.2", 3)
     assert Checkpoint.parse("b:clean:2") == Checkpoint("b", "clean", 2)
     assert Checkpoint().columns() == CHECKPOINT_DEFAULTS
 
 
-@pytest.mark.parametrize("spec", ["retrained", "retrained:x", "b:clean", "provided:1", "other:1"])
+@pytest.mark.parametrize(
+    "spec", ["retrained", "retrained:x", "retrained:a:b", "b:clean", "provided:1", "other:1"]
+)
 def test_checkpoint_parse_rejects_malformed_specs(spec):
     with pytest.raises(ValueError, match="checkpoint"):
         Checkpoint.parse(spec)
+
+
+def test_retrained_variant_loads_its_own_baselines_folder(monkeypatch):
+    calls = []
+    monkeypatch.setattr(evaluate, "load_trained_model", lambda env, key: calls.append((env, key)))
+    Checkpoint.parse("retrained:alpha0.2:3").load(MEDIUM)
+    assert calls == [(MEDIUM, "baselines/medium/alpha0.2/seed3")]
+    assert Checkpoint("retrained", "alpha0.2", 3).columns()["checkpoint_variant"] == "alpha0.2"
 
 
 def test_checkpoint_load_calls_the_loader_of_its_kind(monkeypatch):
