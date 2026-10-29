@@ -1,7 +1,10 @@
 # Status: d-eval
 
-Last update: 2026-10-29, 19:40. Branch merged with `main` at f1ae57d. Review findings D3–D16
-and my cross items are fixed (see Review). The large batch runs on the Mac (see Large).
+Last update: 2026-10-29, 20:00. Branch merged with `main` at 8dac124.
+
+Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
+from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
+`results/macos/` (a reproducibility check); `results/<env>/` will hold the Linux CSVs.
 
 ## Done
 
@@ -30,7 +33,7 @@ and my cross items are fixed (see Review). The large batch runs on the Mac (see 
 - Refactor check (coordinator rule): eval seed 0 of `results/medium/baseline.csv` and
   `oracle.csv` rerun on the Mac after the fixes: 250 of 250 records identical for both.
 
-## Results on medium (5 eval seeds × 5 tasks × 50 episodes = 1,250 episodes per run)
+## Mac results on medium (`results/macos/medium/`, 5 eval seeds × 5 tasks × 50 episodes)
 
 Planner rows pool 3 landmark sets (`landmarks.seed` 0, 1, 2, each crossed with all eval seeds;
 cluster bootstrap); retrained rows pool 5 training seeds. Paired = same 1,250 episodes.
@@ -55,7 +58,7 @@ per-run paired result is in `analysis/tables.py` output.
 - With baseline_raw as the reference (design.md §8: a gain counts only if it also holds there),
   the oracle gain shrinks to +3.5 pp and still holds (p 0.023); no planner variant gains.
 
-## Failure classes on medium (`results/medium/failures/`, share of failures)
+## Mac failure classes on medium (`results/macos/medium/failures/`, share of failures)
 
 | run | failures | flipped | other | stuck |
 |---|---|---|---|---|
@@ -67,30 +70,53 @@ per-run paired result is in `analysis/tables.py` output.
 | planner_high l0 / l1 | 318 / 315 | 51.6 / 55.6 % | 46.9 / 43.2 % | 1.6 / 1.3 % |
 | planner_region l0 / l1 | 485 / 352 | 34.4 / 45.2 % | 64.3 / 53.4 % | 1.2 / 1.4 % |
 
-Landmark set 2 of the 3 planner variants is replaying (f-report request). The planner adds
-"other" failures (still moving at the time limit: slow or on a wrong route), not flips.
+Set 2: planner 362 failures (53.0 % flipped), planner_high 371 (48.0 %); planner_region set 2
+was stopped by the platform decision. The planner adds "other" failures (still moving at the
+time limit: slow or on a wrong route), not flips. The Linux queue recomputes all of them.
 
-## Large (in progress, Mac)
+## Linux evaluation instance (queue)
 
-All large rows must come from one platform to pair (Linux x86 does not repeat the Mac's float
-results bit for bit). Three vast.ai hosts failed (log below), so the large batch runs on the Mac
-from 19:37: the 7 missing configs (planner set 2, planner_high and planner_region sets 0–2),
-with the code of commit 0de6e0a in a scratch copy, so that the planner config hashes match the
-medium runs and the large sets 0–1 (made before c-planner added `switch_steps`). Done on the
-Mac, 5 eval seeds: baseline 38.0 %, oracle 41.4 %, baseline_raw 38.1 %, planner set 0 32.4 %,
-set 1 24.1 %. Expected end: about 23:00 (other sessions share the Mac). Then the failure
-classes of large baseline and oracle.
+Instance 58279543 (vast.ai, label `fbplan-gpu-eval`): AMD EPYC 7662 (Zen 2), 128 effective
+cores, 1 TB RAM, Belgium, $0.80/h, created 19:53. Code: commit 84a8127 (pushed with
+`scripts/gpu/vast.sh push`; it includes c-planner's tie-break fix 06ea0a8 and `switch_steps`).
+JAX on the CPU. A queue runner (`runs/queue/runner.sh` on the instance) takes job files in
+name order; an eval job runs eval seeds 0–4 as 5 processes of 25 workers each, pinned to a
+fifth of the cores, and joins them into one CSV (records equal to one `--seeds 0 1 2 3 4` run).
 
-vast.ai log (team account, label `fbplan-gpu-eval`, separate from e-learner's):
+Queue, in the coordinator's priority:
+- (a) approach B on medium: `--checkpoint b:<variant>:<k>`, k 0–4, queued as soon as e-learner's
+  export of a variant is complete (clean, then wide, then region); references baseline,
+  baseline_raw and the 5 retrained baselines.
+- (b) large: baseline, baseline_raw, oracle, planner / planner_high / planner_region × landmark
+  sets 0–2; failure classes of baseline and oracle.
+- (c) medium main results again: non-hier, oracle, the 9 planner runs, parity against upstream,
+  failure classes of all of them, the oracle sweep (eval seed 0).
+- (d) c-planner's ablations and b-theory's giant and teleport runs, from their exact commands
+  (send them to me; I add them to the queue).
 
-| instance | host | $/h | from | to | note |
-|---|---|---|---|---|---|
-| 58258733 | RTX A2000, Denmark | 0.154 | 16:57 | 17:07 | host GPU error at start; destroyed |
-| 58259579 | Xeon Phi 7210, Texas | 0.333 | 17:08 | 19:07 | too slow (56 steps/s per worker, Mac 476); destroyed, about $0.65 |
-| 58272696 | EPYC 7V13, 128 cores, Texas | 0.802 | 19:08 | 19:36 | stuck at image loading, no SSH; destroyed |
+vast.ai log (team account, label `fbplan-gpu-eval`):
 
-Lesson: filter offers by CPU model, not only by core count (`cpu_cores_effective` counts
-hyperthreads of any CPU).
+| instance | host | $/h | from | to | cost | note |
+|---|---|---|---|---|---|---|
+| 58258733 | RTX A2000, Denmark | 0.154 | 16:57 | 17:07 | ~0 | host GPU error at start |
+| 58259579 | Xeon Phi 7210, Texas | 0.333 | 17:08 | 19:07 | ~0.66 | 56 steps/s per worker (Mac 476) |
+| 58272696 | EPYC 7V13, Texas | 0.802 | 19:08 | 19:36 | ~0.37 | image never loaded, no SSH |
+| 58279543 | EPYC 7662, Belgium | 0.80 | 19:53 | running | | evaluation queue |
+
+Selection rule now (coordinator): CPU model AMD EPYC Zen 2/3/4 or Xeon Gold/Platinum, ≥ 64
+effective cores, ≥ 128 GB RAM, reliability ≥ 0.99, ≤ $1/h; destroy after 15 min without SSH.
+
+## Mac results on large (`results/macos/large/`, reproducibility check only)
+
+baseline 38.0 %, oracle 41.4 %, baseline_raw 38.1 %, planner set 0 32.4 %, set 1 24.1 % (5 eval
+seeds each; planner code of commit 0de6e0a, before 06ea0a8 and `switch_steps`).
+
+## Planner code behind each planner CSV
+
+- `results/macos/medium/planner*/l<s>.csv`, `results/macos/large/planner/l<0,1>.csv`: planner
+  code of eb5952b (= 0de6e0a): no tie-break fix, no `switch_steps`.
+- All Linux planner CSVs (`results/<env>/planner*/`): commit 84a8127, with the tie-break fix
+  06ea0a8 and `switch_steps` (default off).
 
 ## FB distance calibration (`results/calibration/`, 400 val states, F heads min)
 
@@ -133,7 +159,9 @@ The wormholes left by the xy cap cross no wall: short pairs where FB is overconf
 
 ## Commands for the CSVs in results/
 
-Run from the repository root; `--workers` does not change results.
+Run from the repository root; `--workers` does not change results. The Mac CSVs in
+`results/macos/` came from the same commands with `results/medium` in their paths; the Linux
+CSVs come from the same commands on the instance (one process per eval seed, then joined).
 
 - `results/medium/{baseline,baseline_raw,nonhier,oracle}.csv`:
   `uv run python -m fbplan.evaluate --method <name> --env antmaze-medium-navigate-v0
@@ -166,25 +194,27 @@ Run from the repository root; `--workers` does not change results.
 
 ## Next
 
-1. Large: the Mac batch (above), then tables against both references and failure classes.
-2. Medium planner failure classes, landmark set 2 (replaying).
-3. X4 after c-planner exposes the shared helpers.
+1. Run the queue; pull the Linux CSVs into `results/<env>/`; tables against baseline,
+   baseline_raw and the pooled retrained baselines; report approach B clean as soon as done.
+2. Mac-vs-Linux agreement (unpaired) for every config run on both.
+3. Destroy the instance when the queue has been empty for 15 minutes.
+4. X4 after c-planner exposes the shared helpers.
 
 ## Blockers
 
 - None.
 
-## Questions for the coordinator
-
-- Large runs: three vast.ai hosts failed (GPU error, a slow Xeon Phi CPU, an image that never
-  loaded). Options: (a) keep the Mac batch, running since 19:37, ends about 23:00, no cost;
-  (b) try one more EPYC host (about $0.8/h, about 1.3 h with setup, risk of another failed
-  start); the Mac batch would stop when the host runs. Recommendation: (a).
-
 ## Requests
 
+- f-report, g-release: new paths. The Mac results are in `results/macos/{medium,large,figures}/`.
+  `results/medium/`, `results/large/` and the figures will hold the Linux results (same file
+  names). REPORT numbers and `scripts/reproduce.sh` paths change with them; the medium oracle
+  sweep, parity and failure classes are recomputed on Linux too. The calibration and held-out
+  goal files stay where they are (Mac; they do not depend on MuJoCo).
+- c-planner, b-theory: send me the exact commands of your ablations and giant/teleport runs;
+  they run on the instance after (a)–(c).
 - g-release: `pythonpath = ["."]` in the pytest config would let `tests/test_analysis.py`
   import the scripts normally instead of loading them by path.
 - e-learner, b-theory: `MazeGeometry` now lives in `fbplan/maze.py`; your imports from
-  `fbplan.controllers.oracle` still work, switch when convenient.
+  `fbplan.controllers.oracle` still work.
 - f-report: the wormhole shares changed definition (see Calibration).

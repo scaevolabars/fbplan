@@ -30,6 +30,7 @@ from fbplan.stats import (
     markdown_table,
     paired_table,
     pool_label,
+    pooled_paired_comparison,
     summary_table,
     unpaired_comparison,
 )
@@ -122,34 +123,67 @@ def main() -> None:
 def print_env_tables(
     env_name: str, df: pd.DataFrame, references: list[str], cluster: str | None
 ) -> None:
-    """Success table, then paired (and unpaired) comparisons against each reference."""
+    """Success table, then paired (and unpaired) comparisons against each reference.
+
+    A reference that is one run gets the per-run paired table; with --cluster, a reference
+    that is a pooled label (for example the retrained baselines) gets the pooled paired table.
+    """
     shown = df.assign(method=df["method"].map(pool_label)) if cluster else df
     kind = f"cluster bootstrap over {cluster}" if cluster else "stratified bootstrap"
     print(f"## {env_name}\n\nSuccess (%), 95 % {kind} CI\n")
     privileged = set(shown["method"][shown["controller"].isin(PRIVILEGED)])
     print(success_markdown(summary_table(shown, cluster=cluster), privileged))
     unpaired = df["controller"].isin(UNPAIRED)
-    paired_df = df[~unpaired]
+    paired_df, shown_paired = df[~unpaired], shown[~unpaired]
     for reference in references:
-        if reference not in set(paired_df["method"]):
+        single = reference in set(paired_df["method"])
+        pooled = cluster is not None and reference in set(shown_paired["method"])
+        if not (single or pooled):
             print(f"\nNo comparison against {reference}: no seeded run has that label.")
             continue
-        pairs_with_reference = same_episodes(paired_df, reference)
-        others = sorted(set(paired_df["method"]) - pairs_with_reference)
-        if others:
-            print(f"\nNot paired with {reference} (other episodes): {', '.join(others)}")
-        if len(pairs_with_reference) > 1:
-            print(f"\nPaired difference against {reference} (pp = percentage points)\n")
-            paired = paired_table(paired_df[paired_df["method"].isin(pairs_with_reference)],
-                                  reference)
-            print(paired_markdown(paired))
-            if cluster and shown["method"].nunique() < df["method"].nunique():
-                print("\nPooled methods: mean and range of the paired differences\n")
-                print(pooled_paired_markdown(paired))
-        if unpaired.any():
+        if single:
+            print_run_comparisons(paired_df, reference, pooled_summary=cluster is not None)
+        if pooled:
+            print(f"\nPooled paired difference against {reference} "
+                  f"(bootstrap over {cluster} of both and over episodes)\n")
+            print(pooled_comparison_markdown(shown_paired, reference, cluster))
+        if single and unpaired.any():
             print(f"\nUnpaired difference against {reference} (resets not seeded)\n")
             print(unpaired_markdown(df, sorted(set(df["method"][unpaired])), reference))
     print()
+
+
+def print_run_comparisons(df: pd.DataFrame, reference: str, pooled_summary: bool) -> None:
+    """Paired table of every run against one reference run; runs on other episodes listed."""
+    pairs_with_reference = same_episodes(df, reference)
+    others = sorted(set(df["method"]) - pairs_with_reference)
+    if others:
+        print(f"\nNot paired with {reference} (other episodes): {', '.join(others)}")
+    if len(pairs_with_reference) < 2:
+        return
+    print(f"\nPaired difference against {reference} (pp = percentage points)\n")
+    paired = paired_table(df[df["method"].isin(pairs_with_reference)], reference)
+    print(paired_markdown(paired))
+    if pooled_summary and paired["method"].map(pool_label).nunique() < len(paired):
+        print("\nPooled methods: mean and range of the paired differences\n")
+        print(pooled_paired_markdown(paired))
+
+
+def pooled_comparison_markdown(df: pd.DataFrame, reference: str, cluster: str) -> str:
+    """fbplan.stats.pooled_paired_comparison of every pooled method on the reference's episodes."""
+    rows, skipped = [], []
+    for method in sorted(same_episodes(df, reference) - {reference}):
+        try:
+            est = pooled_paired_comparison(df, method, reference, cluster)
+        except ValueError:  # its runs share a value of the cluster column
+            skipped.append(method)
+            continue
+        n_clusters = df.loc[df["method"] == method, cluster].nunique()
+        diff = f"{100 * est.mean:+.1f} [{100 * est.low:+.1f}, {100 * est.high:+.1f}]"
+        rows.append((method, diff, n_clusters, est.n))
+    table = markdown_table(pd.DataFrame(rows, columns=["method", "diff (pp)", cluster, "episodes"]))
+    note = f"\n\nNot pooled by {cluster} (runs share a value): {', '.join(skipped)}"
+    return table + (note if skipped else "")
 
 
 if __name__ == "__main__":

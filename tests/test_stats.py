@@ -15,6 +15,7 @@ from fbplan.stats import (
     paired_comparison,
     paired_table,
     pool_label,
+    pooled_paired_comparison,
     row_labels,
     success_ci,
     summary_table,
@@ -193,6 +194,45 @@ def test_labelled_results_keep_the_controller_name_beside_the_row_label(tmp_path
 def test_markdown_table_writes_a_header_a_rule_and_one_line_per_row():
     df = pd.DataFrame({"method": ["a", "b"], "n": [1, 2]})
     assert markdown_table(df) == "| method | n |\n|---|---|\n| a | 1 |\n| b | 2 |"
+
+
+def _seeds(method: str, successes_by_seed: list[dict[int, list[int]]]) -> pd.DataFrame:
+    return pd.concat(
+        [_episodes(succ, method=method, ckpt=k) for k, succ in enumerate(successes_by_seed)],
+        ignore_index=True,
+    )
+
+
+def test_pooled_paired_comparison_is_one_when_a_always_and_b_never_succeeds():
+    a = _seeds("a", [{1: [1] * 20, 2: [1] * 20}] * 2)
+    b = _seeds("b", [{1: [0] * 20, 2: [0] * 20}] * 3)
+    est = pooled_paired_comparison(pd.concat([a, b]), "a", "b", cluster="ckpt")
+    assert (est.mean, est.low, est.high, est.n) == (1.0, 1.0, 1.0, 40)
+
+
+def test_pooled_paired_comparison_estimates_the_difference_of_seed_means():
+    a = _seeds("a", [{1: [1, 1, 0, 0]}, {1: [1, 0, 0, 0]}])  # seed means 0.5, 0.25
+    b = _seeds("b", [{1: [0, 0, 0, 0]}])
+    est = pooled_paired_comparison(pd.concat([a, b]), "a", "b", cluster="ckpt")
+    assert est.mean == pytest.approx(0.375)
+
+
+def test_pooled_paired_comparison_widens_with_seed_variance():
+    steady = _seeds("a", [{1: [1, 0] * 50}] * 4)
+    varied = _seeds("a", [{1: [1] * 100}, {1: [0] * 100}, {1: [1] * 100}, {1: [0] * 100}])
+    b = _seeds("b", [{1: [1, 0] * 50}] * 4)
+    narrow = pooled_paired_comparison(pd.concat([steady, b]), "a", "b", cluster="ckpt")
+    wide = pooled_paired_comparison(pd.concat([varied, b]), "a", "b", cluster="ckpt")
+    assert narrow.mean == wide.mean == 0.0
+    assert (narrow.low, narrow.high) == (0.0, 0.0)
+    assert wide.high - wide.low > 0.5
+
+
+def test_pooled_paired_comparison_rejects_runs_on_other_episodes():
+    a = _seeds("a", [{1: [1, 0, 1]}])
+    b = _seeds("b", [{1: [1, 0]}])
+    with pytest.raises(ValueError, match="do not pair"):
+        pooled_paired_comparison(pd.concat([a, b]), "a", "b", cluster="ckpt")
 
 
 def test_summary_table_rejects_results_from_two_envs():
