@@ -6,8 +6,10 @@ Last update: 2026-10-29.
 
 - `fbplan/frozen.py`: `load_model`, `make_env`, `load_dataset`, `download_checkpoint`,
   `dataset_path`, `load_numpy_pickle`, `upstream_module`, class `FrozenFBModel` (implements
-  `FBModel`). `tests/test_frozen.py`: 28 tests, all pass on this machine. A test that needs a
-  checkpoint or an OGBench file skips when the file is absent.
+  `FBModel`); since the first review also `maze_name`, `cache_dir`, `trained_dir`,
+  `download_trained`, `save_trained_checkpoint`, `load_trained_model`, `save_numpy_pickle`,
+  `example_batch`, `forward`. `tests/test_frozen.py`: 51 tests. A test that needs a checkpoint
+  or an OGBench file skips when the file is absent.
 - Checkpoints: all 4 are in `~/.cache/fbplan/checkpoints/<maze>/` and load.
   Drive file ids and sha256 are pinned in `frozen.py`.
   `uv run python -m fbplan.frozen [env_name ...]` downloads them (idempotent, hash-checked).
@@ -36,7 +38,7 @@ Last update: 2026-10-29.
   entry. CPU ignores the setting, so the GPU failure does not reproduce here.
 - Merged `main` (386b4e5: f-report, g-release, rules "no remote, no push" and "at most 4 eval
   workers") into `a-frozen`: fast-forward.
-- Item 7, code: `download_trained(key, target=None)` downloads one trained checkpoint from the
+- Item 7, code: `download_trained(key)` downloads one trained checkpoint from the
   GitHub releases of github.com/scaevolabars/fbplan, idempotent, sha256 pinned per file in
   `_TRAINED_FILES` (empty until the first upload). `key` is the folder below `~/.cache/fbplan`,
   for example `baselines/medium/seed0`; the asset name is the key with `-` for `/`, then `-` and
@@ -48,6 +50,42 @@ Last update: 2026-10-29.
   uploaded; the upload waits for e-learner (see "Trained checkpoints").
 - Item 9, clean-clone check: done (see "Clean-clone check").
 - Sanity check (step 6): done. The result is below the paper; see below.
+- Merged `main` (f1ae57d: g-release's first review) into `a-frozen`: fast-forward.
+- First review: A1-A9, K1-K4, X8, X9 and clean-clone gap 2 done (see "Review findings, first
+  pass"). 357 tests pass.
+
+## Review findings, first pass
+
+From `docs/status/g-release.md` (review of 386b4e5). None rejected.
+
+| Id | What changed |
+|---|---|
+| A1 M | The `z_r` norm is explained once, in `FrozenFBModel.infer_task_latent`, with the range of all 4 mazes (0.79-0.98 `sqrt(d)`) and a pointer to design.md §2 and §8. The class docstring and the 2 tests point there. The wrong "about 1e-3" is gone. |
+| A2 M | `example_batch(params)` and `forward(agent, obs, z)` are public; `forward` is not jitted (the model method jits it). |
+| A3 M | `download_trained` and `--trained` exist (item 7). The upload waits for e-learner's export (see "Trained checkpoints"). |
+| A4 S | argparse CLI: `--help` works, an unknown env gives a usage error (exit 2, no traceback). argparse `choices` fails with `nargs="*"` and no argument on Python 3.11, so a `type=` check does it. |
+| A5 S | The `observations` fixture resets with the design.md §5 recipe. |
+| A6 S | The rho test is now 2 tests: row outputs of `forward` and `backward` do not depend on the batch order (permutation), and `F(w, B(w))^T B(w) > 0`. |
+| A7 S | The `z_r` test asserts `0.75 < norm / sqrt(d) < 0.99`. |
+| A8 S | `FrozenFBModel.__init__` puts the agent on the device (test). |
+| A9 N | All 4 done: a hash error names the URL, not the deleted `.part` file; the env test checks that 2 resets put the goal at the cell centre (checked: with goal noise on, it fails) instead of reading `_add_noise_to_goal`; the param test compares the set of param paths instead of the count 36; the `load_numpy_pickle` docstring says that it refuses other classes; a test checks that a broken download leaves no file. |
+| K1 M | `normalize_z` multiplies by `math.sqrt(d)`, so float32 numpy input stays float32 (test for numpy and JAX). Effect on results: only for numpy callers (`landmarks.py:87` with `space="backward"`, `learned/diagnostics.py`); no committed CSV uses `space="backward"`. |
+| K2 M | `temperature` and `seed` are removed from `FBModel.low_action` and `high_latent` (no production caller used them), and from `FrozenFBModel`, with `_sampling_key` and 3 tests. The jitted policies take `dist.mode()` (the mean): outputs are bit-equal to the old `sample` at temperature 0 (checked on 256 validation states). `fbplan/tabular/fake_fb.py` keeps its own optional parameters, which still satisfy the protocol; b-theory can remove them. |
+| K3 S | `TaskSpec.z_r`: "task embedding from `FBModel.infer_task_latent` (design.md §2)", no "raw". |
+| K4 N | `TaskSpec` is `eq=False` (identity equality and hash; test); `step_info` docstring without "Optional"; module docstring in `tests/test_contracts.py`. |
+| X8 S | `maze_name(env_name)` and `cache_dir(kind)` with kind `checkpoints`, `baselines` or `approach_b`. Each kind keeps its env variable (`FBPLAN_CKPT_DIR`, `FBPLAN_BASELINE_DIR`, `FBPLAN_APPROACH_B_DIR`), so `reproduce.sh --smoke` and e-learner's tests keep working. `trained_dir(key)` maps a key such as `baselines/medium/seed0` to its folder. Adoption by the others: see the requests. |
+| X9 S | One writer and reader for the modules-only format: `save_trained_checkpoint(agent, flags, out_dir)` writes `high_actor.pkl` (pi_h only) and `flags.json`; `load_trained_model(env_name, key)` downloads a missing published checkpoint, checks `flags["env_name"]`, and puts the saved pi_h into the provided model. `save_numpy_pickle(tree, path)` writes numpy arrays and refuses object arrays. |
+| gap 2 | `uv run python -m fbplan.frozen --datasets ENV ...` downloads the OGBench train and val splits of the envs (with the 4 provided checkpoints, as without the option). |
+
+a-frozen commits no CSV to `results/`, so it has no command for `scripts/reproduce.sh`.
+
+Refactor check (coordinator rule), on this Mac after all changes:
+- Model outputs on 256 medium validation states (`forward`, `backward`, `low_action`,
+  `high_latent`, `low_action(high_latent(z_r))`, `z_r`): bit-equal to the code before the review.
+- `uv run python -m fbplan.evaluate --method baseline --env antmaze-medium-navigate-v0 --seeds 0
+  --episodes 50 --workers 4 --out runs/refactor-check/baseline_seed0.csv`: the 250 records equal
+  the eval-seed-0 rows of `results/medium/baseline.csv` in every column except `wall_time_s`
+  (success 76.4 % in both).
 
 ## Sanity check
 
@@ -80,10 +118,9 @@ All envs, eval seed 0 (250 episodes), success %:
 | teleport | 25.2 | - | 40 ± 6 |
 | giant | 0.8 | - | 1 ± 1 |
 
-**Large: the normalized `z_r` helps.** FBModel beats upstream on large by 14 points here, and by
-7 points (40.4 against 33.6) with MuJoCo 3.17. One eval seed each, paired. `pi_h` was trained on
-task latents of norm exactly sqrt(d); the upstream `z_r` on large has norm 0.90-0.95 sqrt(d)
-(fact 1). So the upstream eval quirk seems to hurt the upstream baseline on large.
+**Large, one eval seed:** FBModel scored 14 points above upstream here. With 5 eval seeds
+(d-eval, design.md §8) the difference is gone: large 38.0 % (normalized `z_r`) against 38.1 %
+(raw), medium raw - normalized = +2.6 points, p = 0.11. The one-seed gap was noise.
 
 **The provided checkpoints score below the paper**, by 8 points on medium and by 21-35 points on
 large. The user accepted this (2026-10-29): our re-evaluated numbers are the baseline
@@ -118,19 +155,24 @@ authors' F, B and `pi_l` again; the loader takes F, B and `pi_l` from `load_mode
 cannot differ, and the equality check in `load_retrained_model` becomes unnecessary. Cost: no
 optimizer state, so a published run cannot be resumed (no step needs that).
 
-Proposed format for e-learner (e-learner owns the code; this is a proposal):
-- `high_actor.pkl`: the `modules_high_actor` params only, as nested dicts of numpy arrays,
-  `jax.tree_util.tree_map(np.asarray, flax.serialization.to_state_dict(params["modules_high_actor"]))`.
-  `frozen.load_numpy_pickle` reads it. About 2.7 MB.
-- `flags.json`: as now, with portable values (see the requests).
-- Approach B: `high_actor.pkl` per variant; `value.pkl` per value run, unchanged (already modules
-  only).
-- Loader: `params = flax.core.unfreeze(load_model(env).agent.network.params)`, then
-  `params["modules_high_actor"] = flax.serialization.from_state_dict(params["modules_high_actor"], saved)`,
-  then `agent.replace(network=agent.network.replace(params=params))`.
-- The 5 medium baselines: export once from the local `params.pkl`; no retraining.
-- Checked on medium seed 0: export, then the loader above, gives params equal to
-  `load_baseline_model(env, 0)`, bit for bit; the file is 2.69 MB.
+Format, now in `fbplan/frozen.py` (X9): `save_trained_checkpoint(agent, flags, out_dir)` writes
+`high_actor.pkl` (the `modules_high_actor` params, numpy arrays, about 2.7 MB) and `flags.json`.
+`load_trained_model(env_name, key)` takes F, B and `pi_l` from `load_model(env_name)` and puts
+the saved `pi_h` in; it downloads a missing published checkpoint and refuses a `flags.json` of
+another env. Approach B: `high_actor.pkl` per variant; `value.pkl` per value run stays
+e-learner's format (written with `save_numpy_pickle`). Checked on medium seed 0 before X9: this
+export and load give params equal to `load_baseline_model(env, 0)`, bit for bit.
+
+Export of the 5 medium baselines (once, no retraining; e-learner runs it):
+```python
+for seed in range(5):
+    old = baseline_dir(env, seed)  # the current full-state folder
+    agent = flax.serialization.from_state_dict(
+        frozen.load_model(env).agent, frozen.load_numpy_pickle(old / "params.pkl")["agent"]
+    )
+    flags = json.loads((old / "flags.json").read_text())  # make "from" portable first
+    frozen.save_trained_checkpoint(agent, flags, frozen.trained_dir(f"baselines/medium/seed{seed}"))
+```
 
 Checks of the present files, done on a full-state staging (not uploaded). They apply to the new
 files too:
@@ -169,9 +211,8 @@ Gaps for g-release (`README.md`, `devbox.json`):
    (estimate; measured on 10 episodes).
 2. `uv run pytest` on a new machine skips 16 tests: 15 need the medium val split (24 MB), 1 the
    medium train split (243 MB). OGBench files download only on first use; after the first
-   evaluation the same run gives 276 passed, 1 skipped. Fix: a data step before the tests, or a
-   sentence that these tests skip. (a-frozen can add a `--datasets` flag to `fbplan.frozen` if
-   g-release wants one.)
+   evaluation the same run gives 276 passed, 1 skipped. Fix: a data step before the tests.
+   a-frozen added the tool: `python -m fbplan.frozen --datasets ENV ...` (see the requests).
 3. No download step for the trained checkpoints. Without a GPU, a reviewer cannot evaluate the
    retrained baselines or approach B. Fix after the release: `uv run python -m fbplan.frozen
    --trained` in the setup.
@@ -209,8 +250,8 @@ fails if the physics drift again.
    large 10.70, 10.68, 10.34, 10.18, 10.18; teleport 10.49, 10.96, 10.96, 10.96, 10.49;
    giant 9.18, 8.96, 10.33, 8.90, 10.91. `infer_task_latent` returns this upstream value.
    Upstream gives this `z_r` to `pi_h` as it is. Our `high_latent` normalizes it (the contract).
-   On medium this changes actions by 0.002 on average (max 0.023) and success not significantly.
-   On large the normalized `z_r` scores 14 points higher (one seed, see the sanity check).
+   On medium this changes actions by 0.002 on average (max 0.023); success does not change
+   significantly on medium or large (5 eval seeds, design.md §8).
    `F(s, z_r)^T z_r` scales with `|z_r|`; compare values across tasks with care.
 2. **Paired resets (d-eval).** OGBench `add_noise` draws the start xy from the global `np.random`.
    `env.reset(seed=s)` fixes only the joint noise. `info["goal"]` also depends on the RNG of
@@ -221,14 +262,21 @@ fails if the physics drift again.
 3. Env observations are float64. The jitted model methods cast them to float32.
 4. JAX compiles each jitted method once per batch shape (about 0.2 s). In a hot loop, keep the
    batch size fixed.
-5. `FrozenFBModel.agent` is the upstream `FBpiSwitchAgent` (on device). e-learner can retrain
-   `pi_h` on it; upstream `evaluate` can run on it. Import other upstream modules with
-   `fbplan.frozen.upstream_module("utils.evaluation")`, not with your own sys.path change.
+5. `FrozenFBModel.agent` is the upstream `FBpiSwitchAgent`; the constructor puts it on the
+   device. e-learner can retrain `pi_h` on it; upstream `evaluate` can run on it. Import other
+   upstream modules with `fbplan.frozen.upstream_module("utils.evaluation")`, not with your own
+   sys.path change.
 6. `load_dataset` returns a new dict of writable numpy arrays on each call, with `qpos` and `qvel`.
    Medium train: 1M rows, 1.4 s.
 7. `infer_task_latent` takes about 1 s (100k states through `B`) and is deterministic.
 8. Some tasks share a goal: teleport tasks 2, 3, 4 and tasks 1, 5; large tasks 4 and 5.
-9. **GPU precision.** On an Ampere GPU the model methods use TF32 matmuls (JAX default), so
+9. **Shared helpers (X8, X9).** `maze_name(env_name)`; `cache_dir(kind)` and `trained_dir(key)`
+   for the folders below `~/.cache/fbplan` (with their env variables); `save_numpy_pickle`;
+   `save_trained_checkpoint` and `load_trained_model`; `example_batch(params)`; `forward(agent,
+   obs, z)` (not jitted).
+10. **Policies are deterministic (K2).** `low_action` and `high_latent` return the mean action
+   and the mean intention; they have no temperature or seed.
+11. **GPU precision.** On an Ampere GPU the model methods use TF32 matmuls (JAX default), so
    results differ from CPU by about 1e-3. A test that compares two paths to 1e-4 or less must set
    `jax.default_matmul_precision("highest")` around both paths.
 
@@ -246,32 +294,36 @@ fails if the physics drift again.
 
 ## Requests to the coordinator
 
-- For e-learner (item 7): `load_baseline_model` and `load_b_model` should call
-  `frozen.download_trained(key, folder)` when a file is missing, with the key that matches the
-  folder below `~/.cache/fbplan`:
-  ```python
-  ckpt_dir = baseline_dir(env_name, seed)
-  if not (ckpt_dir / "high_actor.pkl").exists():
-      frozen.download_trained(f"baselines/{env_name.split('-')[1]}/seed{seed}", ckpt_dir)
-  ```
-  (for B: `f"approach_b/{maze}/{variant}/seed{seed}"`). A key that is not published raises
-  `ValueError` with the list of published keys.
-- For e-learner (item 7): the user chose modules-only files. Please adopt a format (proposal
-  under "Trained checkpoints"), and export `high_actor.pkl` for medium seeds 0-4. The upload
-  waits for it.
+- For e-learner (X8, X9, item 7). Adopt the shared helpers; they keep your env variables:
+  - `baseline_dir(env, seed)` -> `frozen.trained_dir(f"baselines/{frozen.maze_name(env)}/seed{seed}")`;
+    `approach_b_dir(env, name, seed)` -> `frozen.trained_dir(f"approach_b/{maze}/{name}/seed{seed}")`.
+  - `save_checkpoint` -> `frozen.save_trained_checkpoint`; `load_retrained_model`,
+    `load_baseline_model`, `load_b_model` -> `frozen.load_trained_model(env, key)`, which also
+    downloads a missing published checkpoint (so the loaders need no download code).
+  - `save_value`: write with `frozen.save_numpy_pickle`. `train_b.example_batch(agent, obs_dim)`
+    -> `frozen.example_batch(agent.network.params)`. `learned/value.py` `forward` ->
+    `frozen.forward`. `env_name.split("-")[1]` (`train_high.py:51, 181`, `train_b.py:73, 399`,
+    `learned/diagnostics.py:130`) -> `frozen.maze_name`.
+  - Export `high_actor.pkl` for medium seeds 0-4 (snippet under "Trained checkpoints"). The
+    upload waits for it.
+  - `scripts/gpu/vast.sh` (X8): use the env variables, or pass the folders.
 - For e-learner: record portable values in `flags.json`. `retrained_high_actor.from` and
   `approach_b.value_dir` hold absolute paths of the training machine (`/root/...` on the GPU,
   the home folder with the user name on the Mac). A path relative to `~/.cache/fbplan`, for example
   `checkpoints/medium`, says the same and holds no user name.
-- For g-release: the 5 gaps under "Clean-clone check".
-- Open: the baseline definition. Does `pi_h` get the raw `z_r` (exact upstream) or the normalized
-  one (contract, current)? On large, the normalized `z_r` scores 14 points higher (one seed).
-  This waits for the user's decision.
-- Optional, not done: a `filterwarnings` entry in `pyproject.toml` for the tfp-nightly
-  DeprecationWarning.
-- Info: on `main` (83dc7e1), `uv run ruff format --check .` reports 12 files of other components
-  (4 in `analysis/`, `fbplan/controllers/oracle.py`, `fbplan/stats.py`, 5 test files,
-  `docs/status/b-theory.md`). §7 requires
-  only `ruff check`, which passes. The files of a-frozen are formatted.
+- For g-release: gap 2 has its tool now. `uv run python -m fbplan.frozen --datasets
+  antmaze-medium-navigate-v0` downloads the 4 provided checkpoints and the medium train and val
+  splits (270 MB); after it, `uv run pytest` skips no test of medium. Put it before `pytest` in
+  the README and in `scripts/reproduce.sh`. Gap 3: `--trained` after the release. Gaps 1 and 4
+  are fixed on `main` (4 workers; uv pinned in `devbox.json`). Optional (`pyproject.toml` is
+  yours now): a `filterwarnings` entry for the tfp-nightly DeprecationWarning.
+- For c-planner: `analysis/planner_routes.py:193` -> `frozen.maze_name(args.env)` (X8).
+- For b-theory (K2): the protocol has no `temperature` or `seed` any more;
+  `fbplan/tabular/fake_fb.py` may drop them (optional; extra optional parameters still satisfy
+  the protocol).
+- For the coordinator: K1-K4 are done in `fbplan/contracts.py` and `tests/test_contracts.py`.
+  design.md §2 points to "per task values in `docs/status/a-frozen.md`", which will be removed
+  before submission: move the `|z_r|` list of fact 1 into §2, or drop the pointer. design.md §7
+  can name `fbplan.frozen.cache_dir` next to `FBPLAN_CKPT_DIR`.
 - Applied by the coordinator (2026-10-29): README setup line, design.md §2 (`z_r` norm),
   §5 (reset recipe), §1/§5 (gap to the paper numbers), merge of `pyproject.toml` and `uv.lock`.
