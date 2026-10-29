@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-30, 00:05. Branch merged with `main` at 3e36461.
+Last update: 2026-10-30, 00:10. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -146,7 +146,10 @@ bootstrap over training seeds (both sides) and episodes.
   pooled 78.4 %; vs baseline_retrained +0.2 [−3.8, +3.7], vs baseline +1.4 [−2.7, +5.3], vs
   baseline_raw −2.4 [−6.4, +1.4]. Seeds 1 and 3 are low again, as in B clean (e-learner's
   temperature explanation predicts this pattern).
-- B region: waiting for e-learner's export (queued automatically).
+- B region (`results/medium/b_region/`, `b:region:<k>`): seeds 0–4 80.6, 79.8, 80.8, 77.1,
+  81.1 %, pooled 79.9 [78.1, 81.3]; vs baseline_retrained +1.6 [−0.9, +4.1], vs baseline +2.8
+  [−0.1, +5.7], vs baseline_raw −0.9 [−3.8, +1.9]. Its seeds spread less than clean and wide.
+- Summary: no B variant gains over the retrained baselines or baseline_raw (pooled).
 
 ## Held-out seed selection (design.md §8; `results/medium/heldout/`, `heldout_selection.csv`)
 
@@ -159,12 +162,12 @@ to the lower id), then the selected seeds on the 5 eval tasks:
 | retrained | 87.8, 86.3, 83.7, 87.7, 86.0 | seed 0 | 79.1 | – | −1.7 [−4.7, +1.4], p 0.31 |
 | B clean | 87.0, 86.0, 87.7, 85.3, 82.2 | seed 2 | 83.0 | +3.8 [+0.9, +6.9], p 0.014 | +2.2 [−1.0, +5.1], p 0.18 |
 | B wide | 86.5, 84.0, 84.8, 82.0, 83.3 | seed 0 | 81.0 | +1.8 [−1.2, +4.9], p 0.25 | +0.2 [−2.9, +3.1], p 0.96 |
+| B region | 86.0, 87.8, 86.3, 86.5, 85.7 | seed 1 | 79.8 | +0.6 [−2.4, +3.7], p 0.72 | −1.0 [−4.1, +2.0], p 0.53 |
 
 - The selected B clean seed beats the selected retrained baseline, but not baseline_raw, so by
   the rule of §8 it is no gain. Held-out differences between seeds are small (one seed: 600
   episodes, standard error about 1.4 points), so the selection itself is noisy: seeds 0 and 3
   of the retrained baseline differ by 0.1 point.
-- B region follows when e-learner exports it (queued automatically).
 
 ## Giant (Linux, `results/giant/`, 5 eval seeds × 5 tasks × 50 episodes)
 
