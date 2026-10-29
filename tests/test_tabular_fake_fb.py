@@ -171,11 +171,6 @@ def test_task_spec_uses_the_ogbench_goal_cell(exact):
     assert exact.task_reward(1).sum() == 4  # the 2 x 2 fine cells of the goal maze cell
 
 
-def test_nonzero_temperature_is_rejected(exact):
-    with pytest.raises(ValueError, match="temperature"):
-        exact.low_action(exact.maze.xy[:1], exact.backward(exact.maze.xy[:1]), temperature=1.0)
-
-
 def test_high_radius_limits_the_subgoals_of_pi_h():
     model = TabularFB(FakeFBConfig(discount=GAMMA, rho_noise=0.02, high_radius=4))
     maze = model.maze

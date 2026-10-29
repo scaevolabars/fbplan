@@ -107,10 +107,10 @@ class _FakeFB:
     def backward(self, obs):
         return np.concatenate([obs[:, :2], np.ones((len(obs), 1))], axis=1)
 
-    def high_latent(self, obs, z_task, temperature=0.0, seed=None):
+    def high_latent(self, obs, z_task):
         return z_task + 100.0  # marks that pi_h picked the intention
 
-    def low_action(self, obs, z, temperature=0.0, seed=None):
+    def low_action(self, obs, z):
         self.low_latents.append(np.asarray(z)[0].copy())
         return np.tanh(z[:, :2] - obs[:, :2])
 
