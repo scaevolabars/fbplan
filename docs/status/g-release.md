@@ -68,13 +68,32 @@ Last update: 2026-10-29.
   writes the committed CSVs (`git diff` shows changes; `--out runs/...` for single runs); tests
   never download data and list their skips; `fbplan.frozen --trained` in the setup; methods
   table with `--checkpoint retrained:<seed>` and `b:<variant>:<seed>`.
-- Merged `main` (f1ae57d): fast-forward.
+- Merged `main` (f1ae57d, then dded908).
+- `tests/conftest.py`, e-learner's request: session fixture `tiny_agent` (`TinyAgent`: the
+  upstream agent with 16x16 networks and latent_dim 4, seed 123, obs dim 5, action dim 2; a
+  read-only `config`; `latent_dim`). Its parameters equal those of the agent that
+  `test_learned_train_high.py:33` builds now, and it works with `fbplan.learned.checkpoint`
+  (`example_batch(tiny.agent, tiny.obs_dim)`, `with_fresh_high_actor(tiny.agent, seed,
+  tiny.obs_dim)`). Variants come from `tiny.agent.replace(...)`, for example the copied F head of
+  `test_learned_b.py:56`. `test_learned_checkpoint.py:34` uses seed 7 and no `batch_size`;
+  e-learner checks that its tests still pass on seed 123.
+- `RUNS`: the 5 retrained baselines (`--method baseline --checkpoint retrained:k`, 5 eval seeds).
+  Checked: a rerun of seed 3 (eval seed 0, 2 episodes) gives 10 of 10 committed episodes. They
+  are not in the main table: all 5 share the config hash `c232a50c`, so `--cluster config_hash`
+  would make them one cluster (request 5). In `--smoke` this group evaluates the model that the
+  smoke run trained, so its episodes differ from the committed ones.
+- CI on the public repo is green from 7ae64a5 (= local dded908): ruff clean, pytest 345 passed,
+  40 skipped, 74 s.
 
 ## Next
 
 - Smoke run of the new `RUNS` and stages (running), then commit.
 - Add a `RUNS` line for every CSV whose command an owner writes in its status file: large,
-  retrained baselines, approach B, held-out goals.
+  approach B, held-out goals.
+- Release of the retrained baselines (a-frozen): when it exists and
+  `python -m fbplan.frozen --trained` downloads it, check the download on a clean `HOME` and say
+  in the README that the retrained runs need no GPU. The README setup and the checkpoints stage
+  already call `--trained` (a no-op while nothing is published).
 - When a-frozen adds `python -m fbplan.frozen --datasets <env>`: a data step in the README setup.
 
 ## Blockers
@@ -105,6 +124,8 @@ Last update: 2026-10-29.
    The smoke run hit it with 1 episode per task: planner landmark set 0 fails the 5 episode-0
    start states (as in the committed CSV). `--smoke` now runs 2 episodes per task, where every
    group has successes. Fix: report the median as missing when there is no success.
+4. d-eval: the command for the table of the retrained baselines (the training seeds as a
+   cluster level; `--cluster checkpoint_seed`?). I add it to the tables stage.
 
 ## CLI convention (X11, proposal; the owners adopt it)
 

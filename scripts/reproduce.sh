@@ -19,9 +19,10 @@
 # laptop: medium only, the first run of each result group (a CSV in results/<maze>/ or a
 # subfolder of it), one eval seed, two episodes per task, no parity run, 10 training steps. It
 # starts from an empty runs/smoke/ and writes only there: results/, docs/figures/ and
-# ~/.cache/fbplan stay unchanged. After each evaluation it prints how many episodes equal the
-# committed ones (resets are seeded, so on the same machine all of them should; another CPU can
-# change the chaotic dynamics).
+# ~/.cache/fbplan stay unchanged; a run of a trained checkpoint evaluates the model that the
+# smoke run trained. After each evaluation it prints how many episodes equal the committed ones
+# (resets are seeded, so on the same machine all of them should, except the runs of models that
+# the smoke run trained; another CPU can change the chaotic dynamics).
 # --workers N sets the number of evaluation processes (default 4, smoke 1).
 # OGBench datasets download to ~/.ogbench/data on first use (medium train and val: 270 MB).
 set -euo pipefail
@@ -32,6 +33,11 @@ cd "$(dirname "$0")/.."
 RUNS='
 medium baseline.csv                    5 baseline
 medium baseline_raw.csv                5 baseline_raw
+medium baseline_retrained/seed0.csv    5 baseline     --checkpoint retrained:0
+medium baseline_retrained/seed1.csv    5 baseline     --checkpoint retrained:1
+medium baseline_retrained/seed2.csv    5 baseline     --checkpoint retrained:2
+medium baseline_retrained/seed3.csv    5 baseline     --checkpoint retrained:3
+medium baseline_retrained/seed4.csv    5 baseline     --checkpoint retrained:4
 medium nonhier.csv                     5 nonhier
 medium oracle.csv                      5 oracle
 medium planner/l0.csv                  5 planner      --opt landmarks.seed=0
