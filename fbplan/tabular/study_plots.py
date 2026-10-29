@@ -16,23 +16,14 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from fbplan.tabular.fake_fb import FakeFBConfig, TabularFB  # noqa: E402
-from fbplan.tabular.study import LandmarkModel, goal_latent  # noqa: E402
-
-FIG_DIR = Path("docs/figures/theory")
-FAR = 11  # "far" pairs: walking distance >= 11 steps (rho <= 0.31)
+from fbplan.tabular.run_study import FAR, MAIN_PLANNERS, OUT_DIR  # noqa: E402
+from fbplan.tabular.study import LandmarkModel, rho_bound_wormholes  # noqa: E402
 
 # Validated categorical slots (dataviz reference palette, light mode), in fixed order.
 SLOTS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"]
 MARKERS = ["o", "s", "^", "D", "v", "P"]
 INK, MUTED, GRID, SURFACE = "#0b0b0b", "#52514e", "#e4e3df", "#fcfcfb"
-PLANNERS = [
-    "direct",
-    "pi_h (idealised)",
-    "single switch",
-    "chained",
-    "chained R=0",
-    "chained R=0, guarded",
-]
+PLANNERS = [planner.name for planner in MAIN_PLANNERS]
 
 plt.rcParams.update(
     {
@@ -80,6 +71,7 @@ def _legend_on_top(fig: plt.Figure, axes: np.ndarray, ncol: int) -> None:
 
 
 def plot_success_vs_distance(noise: pd.DataFrame, out: Path) -> None:
+    """Success vs. goal distance per planner; rows: controller, columns: rho noise."""
     levels = [0.01, 0.02, 0.04]
     fig, axes = plt.subplots(2, 3, figsize=(10, 5.6), sharex=True, sharey=True)
     for row, policy in enumerate(["greedy", "optimal"]):
@@ -103,6 +95,7 @@ def plot_success_vs_distance(noise: pd.DataFrame, out: Path) -> None:
 
 
 def plot_far_success_vs_noise(noise: pd.DataFrame, out: Path) -> None:
+    """Far-pair success vs. rho noise per planner, one panel per controller."""
     stats = far_success(noise, ["low_policy", "rho_noise", "planner"])
     fig, axes = plt.subplots(1, 2, figsize=(9, 3.4), sharey=True)
     for ax, policy in zip(axes, ["greedy", "optimal"], strict=True):
@@ -119,6 +112,7 @@ def plot_far_success_vs_noise(noise: pd.DataFrame, out: Path) -> None:
 
 
 def plot_guards(guards: pd.DataFrame, out: Path) -> None:
+    """Far-pair success of each guard ablation at two noise levels, one panel per controller."""
     stats = far_success(guards, ["low_policy", "rho_noise", "planner"])
     names = list(dict.fromkeys(guards.planner))
     fig, axes = plt.subplots(1, 2, figsize=(9, 5.2), sharey=True)
@@ -146,6 +140,7 @@ def plot_guards(guards: pd.DataFrame, out: Path) -> None:
 
 
 def plot_low_rank(rank: pd.DataFrame, holes: pd.DataFrame, out: Path) -> None:
+    """Far-pair success vs. rank for both bases, and the wormhole rate vs. rank."""
     stats = far_success(rank, ["basis", "rank", "planner"])
     fig, axes = plt.subplots(1, 3, figsize=(11, 3.4))
     for ax, basis in zip(axes[:2], ["laplacian", "euclidean"], strict=True):
@@ -156,7 +151,7 @@ def plot_low_rank(rank: pd.DataFrame, holes: pd.DataFrame, out: Path) -> None:
         ax.set_xlabel("rank d of B (104 = exact)")
         ax.set_ylim(-0.03, 1.03)
     axes[0].set_ylabel(f"success, pairs >= {FAR} steps apart")
-    h = holes[(holes["aggregate"] == "mean") & holes["rank"].notna()]
+    h = holes[(holes["head_agg"] == "mean") & holes["rank"].notna()]
     for i, basis in enumerate(["laplacian", "euclidean"]):
         s = h[h.basis == basis].groupby("rank").wormhole_rate.mean()
         axes[2].plot(s.index, 100 * s.values, label=basis, **_style(i))
@@ -169,18 +164,19 @@ def plot_low_rank(rank: pd.DataFrame, holes: pd.DataFrame, out: Path) -> None:
     plt.close(fig)
 
 
-def _estimated_distance(config: FakeFBConfig) -> tuple[np.ndarray, np.ndarray, float]:
-    """(walking distance, -log rho_hat / -log gamma) for all ordered pairs s != w."""
+def _estimated_distance(config: FakeFBConfig) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """(walking distance, -log rho_hat / -log gamma, wormhole flag) for all pairs s != w."""
     model = TabularFB(config)
-    lm = LandmarkModel(model, np.arange(model.maze.n_states))
-    rho, _, _ = lm.estimates(goal_latent(model, 0), "mean")
+    rho = LandmarkModel(model, np.arange(model.maze.n_states)).table("mean").rho
     dist = model.maze.geodesic_distances()
     off = ~np.eye(model.maze.n_states, dtype=bool)
     est = np.log(np.maximum(rho, 1e-6)) / np.log(model.discount)
-    return dist[off], est[off], model.discount
+    hole = rho_bound_wormholes(rho, dist, model.discount)
+    return dist[off], est[off], hole[off]
 
 
 def plot_calibration(out: Path) -> None:
+    """FB distance vs. walking distance for the exact, a noisy and a wall-blind low-rank fake."""
     cases = [
         ("exact", FakeFBConfig()),
         ("rho noise 0.03", FakeFBConfig(rho_noise=0.03)),
@@ -188,8 +184,7 @@ def plot_calibration(out: Path) -> None:
     ]
     fig, axes = plt.subplots(1, 3, figsize=(10.5, 3.4), sharey=True)
     for ax, (title, config) in zip(axes, cases, strict=True):
-        dist, est, gamma = _estimated_distance(config)
-        hole = est < dist - np.log(2) / -np.log(gamma)
+        dist, est, hole = _estimated_distance(config)
         jitter = np.random.default_rng(0).uniform(-0.25, 0.25, dist.shape)
         ax.scatter(dist[~hole] + jitter[~hole], est[~hole], s=3, alpha=0.25, color=SLOTS[0], lw=0)
         ax.scatter(
@@ -206,6 +201,7 @@ def plot_calibration(out: Path) -> None:
 
 
 def plot_dropped_term(reward: pd.DataFrame, out: Path) -> None:
+    """Regret and predicted - true value per R_hat variant; deception vs. hops of the route."""
     df = reward.assign(
         regret=reward.v_star - reward.v_true, deception=reward.v_predicted - reward.v_true
     )
@@ -235,7 +231,7 @@ def plot_dropped_term(reward: pd.DataFrame, out: Path) -> None:
     axes[1].set_yticklabels([])
     axes[0].legend(loc="lower right")
     exact = df[np.isclose(df.rho_noise, 0.0) & df.planner.str.startswith("chained")]
-    for i, variant in enumerate(["R=full", "R=proxy"]):
+    for i, variant in enumerate(["R=exact", "R=paper"]):
         s = exact[exact.planner.str.endswith(variant)]
         axes[2].scatter(s.hops, s.deception, s=14, label=variant, **_style(i + 2))
     axes[2].set_yscale("symlog", linthresh=1.0)
@@ -248,7 +244,7 @@ def plot_dropped_term(reward: pd.DataFrame, out: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--dir", type=Path, default=FIG_DIR, help="folder with study_*.csv")
+    parser.add_argument("--dir", type=Path, default=OUT_DIR, help="folder with study_*.csv")
     args = parser.parse_args()
     read = {
         name: pd.read_csv(args.dir / f"study_{name}.csv")

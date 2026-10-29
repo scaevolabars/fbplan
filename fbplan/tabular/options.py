@@ -10,6 +10,10 @@ Tables are [n_states, L]: column j is the option to `subgoals[j]`, evaluated fro
 The functions `hitting_discount`, `pre_hit_reward` and `switching_successor_measure` compute the
 same objects from their definitions (first-step analysis, an augmented Markov chain), so tests can
 check the formulas against them.
+
+Everything here uses the true model. The planner computes the same option model from F and B
+(`fbplan.option_model`); graph value iteration and Q-values come from `fbplan.graph` in both cases.
+Names: `r_before` = R, `v_direct` = V_d (value of the last or task policy), `v_graph` = V_H.
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
+from fbplan.graph import value_iteration
 from fbplan.tabular.maze import GridMaze
 from fbplan.tabular.mdp import policy_matrix, successor_measure
 
@@ -65,21 +70,22 @@ def option_tables(
 def chained_value(
     rho: np.ndarray,
     r_before: np.ndarray,
-    v_final: np.ndarray,
+    v_direct: np.ndarray,
     subgoals: np.ndarray,
     start: int,
     chain: Sequence[int],
 ) -> float:
-    """Value of the chain formula: R(s,w1) + rho(s,w1)[R(w1,w2) + ... + rho(.,wk) V_final(wk)].
+    """Value of the chain formula: R(s,w1) + rho(s,w1)[R(w1,w2) + ... + rho(.,wk) V_d(wk)].
 
-    `chain` lists column indices into the tables; `v_final` [n] is the value of the last policy.
+    `chain` lists column indices into the tables; `v_direct` [n] is the value of the last
+    policy (in the graph Bellman equation, the task policy: V_d in docs/theory.md).
     """
     value, discount, state = 0.0, 1.0, start
     for j in chain:
         value += discount * r_before[state, j]
         discount *= rho[state, j]
         state = int(subgoals[j])
-    return value + discount * v_final[state]
+    return value + discount * v_direct[state]
 
 
 def switching_successor_measure(
@@ -114,53 +120,36 @@ def switching_successor_measure(
 
 
 def graph_value_iteration(
-    rho: np.ndarray,
-    r_before: np.ndarray,
-    v_direct: np.ndarray,
-    hop_cost: float = 0.0,
-    n_iters: int | None = None,
-    init: np.ndarray | None = None,
-    tol: float = 1e-12,
+    rho: np.ndarray, r_before: np.ndarray, v_direct: np.ndarray, max_iters: int = 10_000
 ) -> np.ndarray:
-    """Solve V(u) = max(v_direct(u), max_{w != u} R(u,w) - hop_cost + rho(u,w) V(w)) on landmarks.
+    """V_H on exact landmark tables [L, L]: `fbplan.graph.value_iteration` with every edge
+    between distinct landmarks trusted, solved to float precision.
 
-    `rho`, `r_before` are [L, L] landmark-to-landmark tables. Self-loops are excluded: with them
-    (rho = 1, R = 0) every V(u) above the other terms solves the equation, so the fixed point is not
-    unique. Without them the operator is a contraction with modulus max rho <= gamma.
-    `n_iters` runs exactly that many sweeps from `init` (default v_direct) instead of converging.
+    The planner's code runs the same equation on FB estimates with trust rules. Here the tables
+    are exact, so no edge needs a guard. Self-loops are excluded: with them (rho = 1, R = 0)
+    every V(u) above the other terms solves the equation, so the fixed point is not unique.
+    Raises if the iteration does not converge (for instance with a rho >= 1 off the diagonal).
     """
-    values = v_direct.copy() if init is None else init.astype(np.float64).copy()
-    off_diagonal = ~np.eye(len(v_direct), dtype=bool)
-    sweeps = range(n_iters) if n_iters is not None else iter(int, 1)  # iter(int, 1): forever
-    for _ in sweeps:
-        q = np.where(off_diagonal, r_before - hop_cost + rho * values[None, :], -np.inf)
-        new = np.maximum(v_direct, q.max(axis=1))
-        converged = np.max(np.abs(new - values)) <= tol * (1.0 + np.max(np.abs(new)))
-        values = new
-        if n_iters is None and converged:
-            break
-    return values
-
-
-def option_values(
-    rho: np.ndarray, r_before: np.ndarray, v_graph: np.ndarray, subgoals: np.ndarray
-) -> np.ndarray:
-    """Q(s, j) = R(s, w_j) + rho(s, w_j) V_graph(w_j) for all states, -inf where s = w_j: [n, L]."""
-    q = r_before + rho * v_graph[None, :]
-    q[subgoals, np.arange(len(subgoals))] = -np.inf
-    return q
+    trusted = np.ones(rho.shape, dtype=bool)
+    solution = value_iteration(rho, r_before, v_direct, trusted, max_iters=max_iters, tol=1e-13)
+    if not solution.converged:
+        raise RuntimeError(f"graph value iteration did not converge in {max_iters} sweeps")
+    return solution.values
 
 
 def replanning_policy(
     q: np.ndarray,
-    v_final: np.ndarray,
-    subgoals: np.ndarray,
+    v_direct: np.ndarray,
     option_policies: Sequence[np.ndarray],
     final_policy: np.ndarray,
 ) -> np.ndarray:
-    """Markov policy that re-picks the best option at every step (option interruption). [n]."""
-    n = len(v_final)
+    """Markov policy that re-picks the best option at every step (option interruption). [n].
+
+    q: [n, L] option values (-inf where an option is not available), v_direct: [n] value of
+    the final policy, which acts where no option beats it.
+    """
+    n = len(v_direct)
     best = q.argmax(axis=1)
-    use_option = q[np.arange(n), best] > v_final
+    use_option = q[np.arange(n), best] > v_direct
     option_actions = np.stack(option_policies)[best, np.arange(n)]
     return np.where(use_option, option_actions, final_policy)

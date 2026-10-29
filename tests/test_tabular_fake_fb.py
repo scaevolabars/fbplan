@@ -3,7 +3,7 @@ import pytest
 
 from fbplan.contracts import FBModel, normalize_z
 from fbplan.tabular.fake_fb import FakeFBConfig, TabularFB
-from fbplan.tabular.mdp import optimal_policy, successor_measure
+from fbplan.tabular.mdp import optimal_policy, policy_value, successor_measure
 
 GAMMA = 0.9
 
@@ -128,10 +128,23 @@ def test_noise_on_rho_has_the_configured_scale(noisy):
     assert np.std(errors) == pytest.approx(0.05, rel=0.1)
 
 
-def test_greedy_low_policy_deviates_from_the_optimal_policy_under_noise(noisy):
-    z_w = noisy.backward(noisy.maze.xy[[10]])[0]
-    optimal, _ = optimal_policy(noisy.maze, noisy.reward_of_latent(z_w), GAMMA)
-    assert np.any(noisy.policy(z_w) != optimal)
+def test_greedy_low_policy_loses_value_under_noise_only(exact, noisy):
+    # Compare values, not actions: optimal policies tie, so different actions can be optimal.
+    for model, loses in ((exact, False), (noisy, True)):
+        z_w = model.backward(model.maze.xy[[10]])[0]
+        reward = model.reward_of_latent(z_w)
+        _, v_star = optimal_policy(model.maze, reward, GAMMA)
+        v_greedy = policy_value(model.maze, model.policy(z_w), reward, GAMMA)
+        assert np.all(v_greedy <= v_star + 1e-9)
+        assert np.any(v_greedy < v_star - 1e-6) == loses
+
+
+@pytest.mark.parametrize(
+    ("field", "value"), [("basis", "fourier"), ("low_policy", "softmax")]
+)
+def test_unknown_config_values_are_rejected(field, value):
+    with pytest.raises(ValueError, match=field):
+        FakeFBConfig(**{field: value})
 
 
 def test_optimal_low_policy_option_executes_the_optimal_policy():

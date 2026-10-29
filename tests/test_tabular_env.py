@@ -14,13 +14,17 @@ def test_reset_starts_inside_the_task_init_cell_and_reports_the_goal():
     np.testing.assert_allclose(info["goal"], [20.0, 20.0])
 
 
-def test_step_moves_by_one_fine_cell():
+def test_step_moves_by_one_fine_cell_and_stops_at_walls():
+    # Geometry, not the transition table: cell (1, 1) of medium has (1, 2) free on its +x side
+    # and the outer wall (1, 0) on its -x side.
     maze = GridMaze("medium", resolution=2)
     env = TabularMazeEnv(maze)
     obs, _ = env.reset(seed=0, options={"task_id": 1})
-    start = maze.state_index(obs[None])[0]
-    obs, *_ = env.step(np.array([1.0, 0.0]))
-    assert maze.state_index(obs[None])[0] == maze.next_states[start, 1, 0]
+    moved, *_ = env.step(np.array([1.0, 0.0]))
+    np.testing.assert_allclose(moved - obs, [maze.fine_unit, 0.0])
+    for _ in range(3):  # at most 2 moves left inside the cell, then the wall stops the agent
+        obs, *_ = env.step(np.array([-1.0, 0.0]))
+    np.testing.assert_allclose(obs[0], maze.cell_xy((1, 1))[0] - maze.fine_unit / 2)
 
 
 def test_reaching_the_goal_cell_terminates_with_success():
