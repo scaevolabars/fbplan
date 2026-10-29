@@ -281,6 +281,7 @@ What ran on 58234389:
 | 22:40 | 23:50 | policy region seeds 0-4 |
 | 23:51 | 23:53 | push of 97d9200 without tests (no job ran) |
 | 23:53 | | awr2x.sh: baseline high_alpha 0.2, calibration, B clean 2x; then the V_1 control |
+| 23:54 | 00:02 | baseline 2x seeds 0, 2, 4 crashed at start: `INTERNAL: Autotuning failed for HLO` (XLA GPU autotuning while 5 processes compiled; awr2x.sh sets the platform allocator for all its runs, the earlier baseline runs had none). Seeds 1, 3 ran on. Retried seeds 0, 2, 4 at 00:02 in tmux `awr2x-retry` without the platform allocator, as the earlier baseline runs: `bash scripts/gpu/run_seeds.sh runs/train_high/medium/awr2x "0 2 4" fbplan.train_high --env antmaze-medium-navigate-v0 --name awr2x --high-alpha 0.2`; all 3 step at 00:05. Crash logs kept as `stdout.crash1.log` |
 | 18:58 | | ablations approved (coordinator for the user): queue `runs/queue-ablations.sh` (below) holds queue-b1, then runs value expectile 0.7, resumes queue-b1 (policy clean, wide, region), then value rho cap 1.0 |
 
 The ablation queue. The instance runs code a189a49, which has no `--name`; each ablation writes
