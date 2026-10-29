@@ -1,18 +1,20 @@
 """Route plots and edge statistics of the graph planner on one AntMaze env.
 
     uv run python analysis/planner_routes.py --env antmaze-medium-navigate-v0 \
-        [--split train] [--seed 0] [--opt landmarks.count=200 reached_xy=3.0] \
-        [--out-dir runs/c-planner]
+        [--eval-seed 0] [--episode 0] [--opt landmarks.count=200 reached_xy=3.0] \
+        [--out-dir runs/planner_routes]
 
-For each of the 5 tasks: the route that the planner plans from the start state, and the path
-of one episode (reset as in docs/design.md §5). Writes routes_<maze>.png and
+The planner is built as the evaluation CLI builds `--method planner` (landmarks from the
+training split), and each of the 5 tasks runs episode `--episode` of eval seed `--eval-seed`
+with fbplan.evaluate: the same start state as that row of an evaluation CSV. The plot shows
+the route planned at the first step and the executed path. Writes routes_<maze>.png and
 routes_<maze>.json: edge statistics (landmarks, trusted edges, rho clips) and episode outcomes.
 """
 
 from __future__ import annotations
 
 import argparse
-import ast
+import functools
 import json
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
@@ -27,8 +29,15 @@ import numpy as np  # noqa: E402
 from matplotlib.collections import LineCollection  # noqa: E402
 
 from fbplan.contracts import TaskSpec  # noqa: E402
-from fbplan.controllers.planner import GraphPlannerController, config_from_options  # noqa: E402
-from fbplan.frozen import load_dataset, load_model, make_env  # noqa: E402
+from fbplan.controllers.planner import GraphPlannerController, make_planner  # noqa: E402
+from fbplan.evaluate import (  # noqa: E402
+    config_hash,
+    make_tasks,
+    parse_options,
+    run_episode,
+    task_latent,
+)
+from fbplan.frozen import load_model, make_env  # noqa: E402
 
 N_TASKS = 5
 WALL, EDGE, LANDMARK = "#d6d5d1", "#9c9b97", "#52514e"
@@ -41,7 +50,7 @@ class Episode:
 
     task_id: int
     route: list[int]  # landmark ids
-    path: np.ndarray  # [T + 1, 2] xy of the agent
+    path: np.ndarray  # [T, 2] xy of the agent before each step
     goal_xy: np.ndarray
     success: bool
     steps: int
@@ -49,49 +58,41 @@ class Episode:
     advances: int
 
 
-def parse_options(items: Sequence[str]) -> dict[str, object]:
-    """Planner options from "key=value" items; a value is a Python literal or a bare string."""
-    options: dict[str, object] = {}
-    for item in items:
-        key, _, raw = item.partition("=")
-        try:
-            options[key] = ast.literal_eval(raw)
-        except (ValueError, SyntaxError):
-            options[key] = raw
-    return options
+class PathRecorder:
+    """Passes every call to the planner; keeps the agent's xy and the route of the first step."""
+
+    def __init__(self, planner: GraphPlannerController) -> None:
+        self.planner = planner
+        self.name = planner.name
+        self.path: list[np.ndarray] = []
+        self.route: list[int] | None = None
+
+    def reset(self, task: TaskSpec, seed: int) -> None:
+        self.planner.reset(task, seed)
+        self.path, self.route = [], None
+
+    def act(self, obs: np.ndarray) -> np.ndarray:
+        if self.route is None:
+            self.route = self.planner.route(obs)
+        self.path.append(obs[:2].copy())
+        return self.planner.act(obs)
+
+    def step_info(self) -> dict[str, float | int | str]:
+        return self.planner.step_info()
 
 
-def reset(env: gym.Env, task_id: int, seed: int) -> tuple[np.ndarray, dict]:
-    """Reset so that the start and goal depend only on the seed (design.md §5)."""
-    np.random.seed(seed)
-    env.action_space.seed(seed)
-    return env.reset(seed=seed, options={"task_id": task_id})
-
-
-def run_episode(
-    env: gym.Env,
-    ctrl: GraphPlannerController,
-    env_name: str,
-    task_id: int,
-    z_r: np.ndarray,
-    seed: int,
+def run_task(
+    env: gym.Env, recorder: PathRecorder, task: TaskSpec, eval_seed: int, episode: int
 ) -> Episode:
-    obs, info = reset(env, task_id, seed)
-    task = TaskSpec(env_name, task_id, z_r, np.asarray(info["goal"])[:2])
-    ctrl.reset(task, seed)
-    route, path, done = ctrl.route(obs), [obs[:2]], False
-    while not done:
-        obs, _, terminated, truncated, info = env.step(ctrl.act(obs))
-        path.append(obs[:2])
-        done = terminated or truncated
-    stats = ctrl.step_info()
+    record = run_episode(env, recorder, task, eval_seed, episode, config_hash(recorder.planner))
+    stats = recorder.step_info()
     return Episode(
         task_id=task.task_id,
-        route=route,
-        path=np.array(path),
+        route=recorder.route or [],
+        path=np.array(recorder.path),
         goal_xy=task.goal_xy,
-        success=bool(info.get("success", terminated)),
-        steps=len(path) - 1,
+        success=record.success,
+        steps=record.steps,
         replans=int(stats["replans"]),
         advances=int(stats["advances"]),
     )
@@ -172,40 +173,44 @@ def summary(episode: Episode, ctrl: GraphPlannerController) -> dict[str, object]
 
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--env", default="antmaze-medium-navigate-v0")
-    parser.add_argument("--split", default="train", choices=["train", "val"])
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--opt", nargs="*", default=[], help="planner options key=value")
-    parser.add_argument("--out-dir", type=Path, default=Path("runs/c-planner"))
+    parser.add_argument("--env", default="antmaze-medium-navigate-v0", help="OGBench env name")
+    parser.add_argument(
+        "--eval-seed", type=int, default=0, help="eval seed of the reset, as in fbplan.evaluate"
+    )
+    parser.add_argument(
+        "--episode", type=int, default=0, help="episode index of the reset, as in fbplan.evaluate"
+    )
+    parser.add_argument(
+        "--opt", nargs="*", default=[], help="planner options key=value, as in fbplan.evaluate"
+    )
+    parser.add_argument(
+        "--out-dir", type=Path, default=Path("runs/planner_routes"), help="output folder"
+    )
     args = parser.parse_args(argv)
 
     model, env = load_model(args.env), make_env(args.env)
-    observations = load_dataset(args.env, args.split)["observations"]
-    config = config_from_options(parse_options(args.opt))
-    ctrl = GraphPlannerController.from_dataset(model, observations, config)
-    episodes = []
-    for task_id in range(1, N_TASKS + 1):
-        z_r = model.infer_task_latent(task_id)
-        seed = int(np.random.SeedSequence([args.seed, task_id]).generate_state(1)[0])
-        episodes.append(run_episode(env, ctrl, args.env, task_id, z_r, seed))
+    planner = make_planner(model, **parse_options(args.opt))
+    recorder = PathRecorder(planner)
+    tasks = make_tasks(args.env, range(1, N_TASKS + 1), functools.partial(task_latent, model))
+    episodes = [run_task(env, recorder, task, args.eval_seed, args.episode) for task in tasks]
 
-    stats = edge_stats(ctrl)
+    stats = edge_stats(planner)
     maze = args.env.split("-")[1]
     args.out_dir.mkdir(parents=True, exist_ok=True)
     title = (
-        f"Graph planner, {maze} ({args.split} split): {stats['landmarks']} landmarks, "
+        f"Graph planner, {maze}: {stats['landmarks']} landmarks, "
         f"{stats['trusted_per_landmark']:.1f} trusted edges per landmark, "
         f"rho < 0 in {stats['rho_below_0']} / rho >= 1 in "
         f"{stats['rho_at_least_1_off_diagonal']} of {stats['pairs']} pairs"
     )
-    plot(env, ctrl, episodes, title, args.out_dir / f"routes_{maze}.png")
+    plot(env, planner, episodes, title, args.out_dir / f"routes_{maze}.png")
     report = {
         "env": args.env,
-        "split": args.split,
-        "seed": args.seed,
-        "config": asdict(config),
+        "eval_seed": args.eval_seed,
+        "episode": args.episode,
+        "config": asdict(planner.config),
         "edges": stats,
-        "episodes": [summary(e, ctrl) for e in episodes],
+        "episodes": [summary(e, planner) for e in episodes],
     }
     (args.out_dir / f"routes_{maze}.json").write_text(json.dumps(report, indent=2, default=str))
     print(json.dumps({"edges": stats, "success": [e.success for e in episodes]}, indent=2))

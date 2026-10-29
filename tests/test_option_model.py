@@ -1,12 +1,10 @@
 import numpy as np
 import pytest
-from planner_fakes import GridFB
+from planner_fakes import GOAL, START, GridFB
 
-from fbplan.option_model import OptionModel, OptionModelConfig
+from fbplan.option_model import OptionModel, OptionModelConfig, batched_backward
 from fbplan.tabular.fake_fb import TabularFB
 from fbplan.tabular.options import hitting_discount
-
-START, FAR_END = (1, 4), (5, 4)  # the two bottom ends of the U maze, 10 steps apart
 
 
 class ScaledBackward:
@@ -22,13 +20,9 @@ class ScaledBackward:
         return self.c * self.fb.backward(obs)
 
 
-def all_cells(fb: GridFB) -> np.ndarray:
-    return np.stack([fb.obs(c) for c in fb.cells])
-
-
 def table(fb, z_r=None, **cfg):
     om = OptionModel(fb, OptionModelConfig(**cfg))
-    obs = all_cells(fb)
+    obs = fb.all_obs()
     return om.pair_table(obs, om.targets(obs), z_r)
 
 
@@ -63,10 +57,9 @@ def test_paper_reward_drops_the_term_after_the_hit():
     np.testing.assert_allclose(t.reward[i, g], 3.0 * fb.discount**2 / (1 - fb.discount))
 
 
-def test_zero_reward_mode_returns_zeros():
+def test_zero_reward_mode_gives_no_reward_table():
     fb = GridFB()
-    t = table(fb, fb.infer_task_latent(1), edge_reward="zero")
-    assert not t.reward.any()
+    assert table(fb, fb.infer_task_latent(1), edge_reward="zero").reward is None
 
 
 def test_no_task_latent_gives_no_reward_table():
@@ -76,8 +69,8 @@ def test_no_task_latent_gives_no_reward_table():
 def test_direct_value_is_the_task_value_of_the_task_policy():
     fb = GridFB()
     om = OptionModel(fb, OptionModelConfig())
-    obs = all_cells(fb)
-    expected = 3.0 * fb.discount ** fb.dist[:, fb.index[FAR_END]] / (1 - fb.discount)
+    obs = fb.all_obs()
+    expected = 3.0 * fb.discount ** fb.dist[:, fb.index[GOAL]] / (1 - fb.discount)
     np.testing.assert_allclose(om.direct_value(obs, fb.infer_task_latent(1)), expected)
 
 
@@ -85,20 +78,20 @@ def test_direct_value_is_the_task_value_of_the_task_policy():
     ("head_agg", "expected"), [("min", 0.9**10), ("mean", (0.9**10 + 0.95) / 2)]
 )
 def test_head_aggregation_of_a_one_head_wormhole(head_agg, expected):
-    fb = GridFB(wormholes={(1, START, FAR_END): 0.95})
+    fb = GridFB(wormholes={(1, START, GOAL): 0.95})
     rho = table(fb, head_agg=head_agg).rho
-    np.testing.assert_allclose(rho[fb.index[START], fb.index[FAR_END]], expected, rtol=1e-6)
+    np.testing.assert_allclose(rho[fb.index[START], fb.index[GOAL]], expected, rtol=1e-6)
 
 
 def test_rho_of_distinct_states_is_clipped_to_zero_gamma_and_clips_are_counted():
     # E[gamma^H] <= gamma when H >= 1 (design.md §3); 0.95 lies between gamma = 0.9 and 1.
     near = (2, 1)
-    wormholes = {(h, START, FAR_END): 1.5 for h in (0, 1)}
-    wormholes |= {(h, FAR_END, START): -0.2 for h in (0, 1)}
+    wormholes = {(h, START, GOAL): 1.5 for h in (0, 1)}
+    wormholes |= {(h, GOAL, START): -0.2 for h in (0, 1)}
     wormholes |= {(h, START, near): 0.95 for h in (0, 1)}
     fb = GridFB(wormholes=wormholes)
     t = table(fb)
-    i, j, k = fb.index[START], fb.index[FAR_END], fb.index[near]
+    i, j, k = fb.index[START], fb.index[GOAL], fb.index[near]
     assert t.rho[i, j] == t.rho[i, k] == fb.discount
     assert t.rho[j, i] == 0.0
     assert (t.n_clipped_low, t.n_clipped_high) == (1, 2)
@@ -110,15 +103,15 @@ def test_rho_of_a_state_and_itself_stays_one():
 
 
 def test_pair_table_keeps_the_raw_estimate_for_trust_decisions():
-    fb = GridFB(wormholes={(h, START, FAR_END): 1.5 for h in (0, 1)})
+    fb = GridFB(wormholes={(h, START, GOAL): 1.5 for h in (0, 1)})
     t = table(fb)
-    assert t.rho_raw[fb.index[START], fb.index[FAR_END]] == pytest.approx(1.5)
+    assert t.rho_raw[fb.index[START], fb.index[GOAL]] == pytest.approx(1.5)
 
 
 def test_targets_with_nonpositive_self_measure_are_unreachable():
-    fb = GridFB(wormholes={(h, FAR_END, FAR_END): -1.0 for h in (0, 1)})
+    fb = GridFB(wormholes={(h, GOAL, GOAL): -1.0 for h in (0, 1)})
     rho = table(fb).rho
-    assert not rho[:, fb.index[FAR_END]].any()
+    assert not rho[:, fb.index[GOAL]].any()
 
 
 def test_batch_size_does_not_change_the_tables():
@@ -135,10 +128,6 @@ def test_unknown_config_values_are_rejected():
         OptionModelConfig(head_agg="max")
 
 
-def test_default_edge_reward_is_zero_for_goal_reaching():
-    assert OptionModelConfig().edge_reward == "zero"
-
-
 def test_rho_is_the_exact_hitting_discount_on_the_tabular_medium_maze():
     fb = TabularFB()  # b-theory's exact fake: full rank, no noise
     om = OptionModel(fb, OptionModelConfig())
@@ -153,8 +142,16 @@ def test_rho_is_the_exact_hitting_discount_on_the_tabular_medium_maze():
 def test_targets_take_given_latents_instead_of_b_of_the_target_state():
     fb = GridFB()
     om = OptionModel(fb, OptionModelConfig())
-    obs = all_cells(fb)[:3]
-    z = fb.backward(all_cells(fb)[3:6])
+    obs = fb.all_obs()[:3]
+    z = fb.backward(fb.all_obs()[3:6])
     targets = om.targets(obs, z)
     np.testing.assert_array_equal(targets.z, z)
     np.testing.assert_allclose(targets.self_forward, fb.forward(obs, z))
+
+
+def test_batched_backward_equals_one_call_and_keeps_the_dtype():
+    fb = GridFB()
+    obs = fb.all_obs()  # 11 cells: batches of 4, 4 and 3 (padded to 4)
+    out = batched_backward(fb, obs, batch_size=4)
+    np.testing.assert_array_equal(out, fb.backward(obs))
+    assert out.dtype == fb.backward(obs).dtype

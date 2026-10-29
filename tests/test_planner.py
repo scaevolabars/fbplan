@@ -2,21 +2,23 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from planner_fakes import GridFB
+from planner_fakes import GOAL, START, GridFB
 
 from fbplan.contracts import TaskSpec
+from fbplan.controllers.baseline import NonHierController
 from fbplan.controllers.planner import (
     GraphPlannerController,
     GraphPlusHighController,
     PlannerConfig,
     config_from_options,
+    trusted_edges,
 )
+from fbplan.graph import DIRECT, GraphSolution
 from fbplan.landmarks import LandmarkConfig, region_latents
 from fbplan.option_model import OptionModelConfig
 from fbplan.tabular.env import rollout as rollout_tabular
 from fbplan.tabular.fake_fb import FakeFBConfig, TabularFB
 
-START, GOAL = (1, 4), (5, 4)  # the two bottom ends of the U maze, 10 steps apart
 # With horizon 4, edges are trusted up to 4 steps (gamma^4 = 0.656); a waypoint counts as
 # reached only on its own cell (cells are 1 xy unit apart). A small cost per hop makes the
 # route take as few hops as it can, so it is unique. These tests check the plain commitment
@@ -33,12 +35,8 @@ def task(fb: GridFB, task_id: int = 1) -> TaskSpec:
     return TaskSpec(fb.env_name, task_id, fb.infer_task_latent(task_id), np.full(2, np.nan))
 
 
-def all_cells(fb: GridFB) -> np.ndarray:
-    return np.stack([fb.obs(c) for c in fb.cells])
-
-
 def planner(fb, config=HORIZON_CFG, cls=GraphPlannerController):
-    ctrl = cls(fb, all_cells(fb), config)
+    ctrl = cls(fb, fb.all_obs(), config)
     ctrl.reset(task(fb), seed=0)
     return ctrl
 
@@ -52,6 +50,13 @@ def rollout(fb, ctrl, steps: int, start=START) -> tuple[list[tuple[int, int]], l
         waypoints.append(ctrl.step_info()["waypoint"])
     cells.append((int(obs[0]), int(obs[1])))
     return cells, waypoints
+
+
+def cell_of(fb: GridFB, waypoint: int) -> tuple[int, int]:
+    """The cell of a landmark waypoint (every cell is a landmark). DIRECT (-1) would index the
+    last cell, so a wrong fallback to the task policy could pass: it fails here instead."""
+    assert waypoint != DIRECT
+    return fb.cells[waypoint]
 
 
 class StandStill:
@@ -103,6 +108,13 @@ def test_planner_reaches_a_goal_beyond_the_horizon_through_waypoints():
     assert len({w for w in waypoints if w >= 0}) == 2
 
 
+def test_a_task_whose_value_iteration_does_not_converge_raises():
+    fb = GridFB(horizon=4)  # waypoints add value beyond the horizon: one sweep is no fixed point
+    ctrl = GraphPlannerController(fb, fb.all_obs(), replace(HORIZON_CFG, vi_max_iters=1))
+    with pytest.raises(RuntimeError, match="did not converge"):
+        ctrl.reset(task(fb), seed=0)
+
+
 @pytest.mark.parametrize("cfg", [HORIZON_CFG, RHO_RULE_CFG], ids=["xy_rule", "rho_rule"])
 def test_waypoint_is_kept_until_it_is_reached(cfg):
     fb = GridFB(horizon=4)
@@ -110,7 +122,7 @@ def test_waypoint_is_kept_until_it_is_reached(cfg):
     assert GOAL in cells
     for t in range(1, len(waypoints)):
         if waypoints[t] != waypoints[t - 1]:
-            assert cells[t] == fb.cells[waypoints[t - 1]]
+            assert cells[t] == cell_of(fb, waypoints[t - 1])
 
 
 def test_xy_rule_ends_a_waypoint_within_the_radius():
@@ -120,13 +132,13 @@ def test_xy_rule_ends_a_waypoint_within_the_radius():
     switches = [t for t in range(1, len(waypoints)) if waypoints[t] != waypoints[t - 1]]
     assert switches
     for t in switches:
-        gap = np.subtract(cells[t], fb.cells[waypoints[t - 1]])
+        gap = np.subtract(cells[t], cell_of(fb, waypoints[t - 1]))
         assert 0 < np.linalg.norm(gap) <= 1.0  # one cell before the waypoint
 
 
 def test_waypoint_is_dropped_after_the_timeout():
     fb = StandStill(GridFB(horizon=4))
-    ctrl = planner(fb, PlannerConfig(rho_min=0.65, rho_reached=0.95, commit_timeout=3))
+    ctrl = planner(fb, PlannerConfig(rho_min=0.65, commit_timeout=3))
     rollout(fb, ctrl, steps=7)
     assert ctrl.step_info()["replans"] == 3  # at steps 0, 3 and 6
 
@@ -142,7 +154,7 @@ def test_reached_landmarks_are_not_chosen_again(rule):
     fb = GridFB(horizon=4)
     ctrl = planner(fb, replace(HORIZON_CFG, hop_discount=1.0, **rule))
     ctrl.act(fb.obs((2, 1)))
-    assert fb.cells[ctrl.step_info()["waypoint"]] not in {(1, 1), (2, 1), (3, 1)}
+    assert cell_of(fb, ctrl.step_info()["waypoint"]) not in {(1, 1), (2, 1), (3, 1)}
 
 
 def test_without_a_trusted_edge_the_task_policy_acts():
@@ -168,7 +180,7 @@ def test_edge_table_is_computed_once_per_env_and_plans_once_per_task():
     fb = CountingForward(GridFB(goals={1: (5, 4), 2: (3, 1)}))
     n = fb.latent_dim
     cfg = PlannerConfig(options=OptionModelConfig(edge_reward="zero"))
-    ctrl = GraphPlannerController(fb, all_cells(fb), cfg)
+    ctrl = GraphPlannerController(fb, fb.all_obs(), cfg)
     ctrl.reset(task(fb, 1), seed=0)
     rows = fb.rows
     ctrl.reset(task(fb, 2), seed=0)
@@ -181,7 +193,7 @@ def test_edge_table_is_computed_once_per_env_and_plans_once_per_task():
 def test_from_dataset_selects_landmarks_with_the_config():
     fb = GridFB()
     cfg = PlannerConfig(landmarks=LandmarkConfig(count=5))
-    ctrl = GraphPlannerController.from_dataset(fb, np.tile(all_cells(fb), (3, 1)), cfg)
+    ctrl = GraphPlannerController.from_dataset(fb, np.tile(fb.all_obs(), (3, 1)), cfg)
     assert len(ctrl.landmarks) == 5
 
 
@@ -201,7 +213,7 @@ def test_route_is_empty_when_the_task_policy_is_best():
 def test_config_from_options_sets_top_level_and_nested_fields():
     cfg = config_from_options({"rho_min": 0.5, "landmarks.count": 40, "options.head_agg": "mean"})
     assert (cfg.rho_min, cfg.landmarks.count, cfg.options.head_agg) == (0.5, 40, "mean")
-    assert cfg.landmarks.space == PlannerConfig().landmarks.space
+    assert cfg.landmarks.pool_size == PlannerConfig().landmarks.pool_size
 
 
 def test_config_from_options_rejects_unknown_keys():
@@ -210,8 +222,28 @@ def test_config_from_options_rejects_unknown_keys():
             config_from_options(bad)
 
 
-def test_rho_at_one_is_not_a_trusted_edge():
-    fb = GridFB(wormholes={(h, START, GOAL): 1.5 for h in (0, 1)})  # clipped to rho = 1
+def test_trusted_edges_apply_the_rho_bounds_of_the_config():
+    rho, xy = np.array([[0.2, 0.5, 0.99, 1.0]]), np.zeros((4, 2))
+    cfg = PlannerConfig(rho_min=0.5)
+    np.testing.assert_array_equal(trusted_edges(rho, xy[:1], xy, cfg), [[0, 1, 1, 0]])
+    loose = replace(cfg, rho_max=np.inf)
+    np.testing.assert_array_equal(trusted_edges(rho, xy[:1], xy, loose), [[0, 1, 1, 1]])
+
+
+def test_trusted_edges_cap_the_xy_length_and_can_drop_self_loops():
+    xy = np.array([[0.0, 0.0], [3.0, 4.0], [6.0, 8.0]])  # neighbours 5 xy apart, ends 10
+    mask = trusted_edges(np.full((3, 3), 0.8), xy, xy, PlannerConfig(), exclude_diagonal=True)
+    np.testing.assert_array_equal(mask, [[0, 1, 0], [1, 0, 1], [0, 1, 0]])
+
+
+def test_trusted_edges_use_the_planner_defaults_without_a_config():
+    xy = np.array([[0.0, 0.0], [0.0, 0.0], [7.0, 0.0]])  # the third is beyond the 6 xy cap
+    mask = trusted_edges(np.array([[0.29, 0.31, 0.31]]), xy[:1], xy)
+    np.testing.assert_array_equal(mask, [[0, 1, 0]])
+
+
+def test_a_raw_rho_at_or_above_one_is_not_a_trusted_edge():
+    fb = GridFB(wormholes={(h, START, GOAL): 1.5 for h in (0, 1)})  # raw 1.5, valued at gamma
     i, j = fb.index[START], fb.index[GOAL]
     assert not planner(fb, PlannerConfig(rho_min=0.3)).trusted[i, j]
     assert planner(fb, PlannerConfig(rho_min=0.3, rho_max=np.inf)).trusted[i, j]
@@ -219,10 +251,11 @@ def test_rho_at_one_is_not_a_trusted_edge():
 
 def test_first_hop_does_not_trust_a_raw_rho_at_or_above_one():
     # Clipped to gamma, this edge would win the first hop (0.9 * 27 against 10.5 direct).
+    # Untrusted, it leaves the exact task policy as the best choice.
     fb = GridFB(wormholes={(h, START, (5, 3)): 1.5 for h in (0, 1)})
     ctrl = planner(fb, PlannerConfig(rho_min=0.3, max_edge_xy=None))
     ctrl.act(fb.obs(START))
-    assert fb.cells[ctrl.step_info()["waypoint"]] != (5, 3)
+    assert ctrl.step_info()["waypoint"] == DIRECT
 
 
 def test_value_iteration_uses_rho_clipped_to_gamma():
@@ -237,7 +270,7 @@ def test_value_iteration_uses_rho_clipped_to_gamma():
 def test_xy_cap_removes_long_landmark_edges():
     fb = GridFB()
     ctrl = planner(fb, PlannerConfig(rho_min=0.0, max_edge_xy=1.5))
-    xy = all_cells(fb)
+    xy = fb.all_obs()
     lengths = np.linalg.norm(xy[:, None] - xy[None], axis=-1)
     assert ctrl.trusted.any()
     assert (lengths[ctrl.trusted] <= 1.5).all()
@@ -247,7 +280,7 @@ def test_xy_cap_applies_to_the_first_hop():
     fb = GridFB(horizon=4)
     ctrl = planner(fb, replace(HORIZON_CFG, max_edge_xy=1.0))
     ctrl.act(fb.obs(START))
-    waypoint = fb.obs(fb.cells[ctrl.step_info()["waypoint"]])
+    waypoint = fb.obs(cell_of(fb, ctrl.step_info()["waypoint"]))
     assert np.linalg.norm(waypoint - fb.obs(START)) <= 1.0
 
 
@@ -274,16 +307,6 @@ def test_two_way_consistency_applies_to_the_first_hop():
     two_way.act(fb.obs(START))
     assert one_way.step_info()["waypoint"] == fb.index[NEAR_GOAL]
     assert two_way.step_info()["waypoint"] != fb.index[NEAR_GOAL]
-
-
-def test_reached_landmarks_do_not_use_top_k_slots():
-    # top_k = 2 keeps the two corridor neighbours of every cell. With reached_xy = 1 the
-    # neighbours of (2, 1) (rho 0.9, the largest) count as reached. If they took the two slots
-    # before their exclusion, no edge would be left; the next cells must get the slots.
-    fb = GridFB(horizon=4)
-    ctrl = planner(fb, replace(HORIZON_CFG, top_k=2, reached_xy=1.0))
-    ctrl.act(fb.obs((2, 1)))
-    assert fb.cells[ctrl.step_info()["waypoint"]] == (4, 1)
 
 
 # Landmarks on the U path with hops shorter than the 4-step horizon: (1, 1) is 3 steps from
@@ -402,30 +425,26 @@ def test_planner_config_rejects_a_negative_switch_margin():
         PlannerConfig(switch_steps=-1.0)
 
 
+def test_lookahead_ends_on_a_cycle_of_tied_route_stops():
+    # A plan whose route loops (0 -> 1 -> 0) with equal values: from (3, 1) each stop is worth
+    # as much as the other (rho 0.9 to both), so the look-ahead could move on forever.
+    fb = GridFB()
+    landmarks = np.stack([fb.obs((2, 1)), fb.obs((4, 1))])
+    ctrl = GraphPlannerController(fb, landmarks, replace(HORIZON_CFG, lookahead=True))
+    ctrl.reset(task(fb), seed=0)
+    loop = GraphSolution(np.full(2, 100.0), np.array([1, 0]), converged=True)
+    ctrl.plan = replace(ctrl.plan, solution=loop)
+    ctrl.act(fb.obs((3, 1)))  # chooses a waypoint (Q 89 > task value 18)
+    ctrl.act(fb.obs((3, 1)))  # looks ahead along the loop and must return
+    assert ctrl.step_info()["advances"] == len(landmarks)
+
+
 def test_replan_every_step_rescores_all_landmarks_at_each_step():
     fb = GridFB(horizon=4)
     ctrl = planner(fb, replace(HORIZON_CFG, replan_every_step=True))
     cells, _ = rollout(fb, ctrl, steps=12)
     assert cells.index(GOAL) == 10
     assert ctrl.step_info()["replans"] == 12
-
-
-class TaskPolicy:
-    """pi_l(a | s, z_r): the task policy alone, for comparison."""
-
-    name = "task_policy"
-
-    def __init__(self, fb: TabularFB) -> None:
-        self.fb = fb
-
-    def reset(self, task: TaskSpec, seed: int) -> None:
-        self.z_r = task.z_r
-
-    def act(self, obs: np.ndarray) -> np.ndarray:
-        return np.asarray(self.fb.low_action(obs[None], self.z_r[None]))[0]
-
-    def step_info(self) -> dict[str, float | int | str]:
-        return {}
 
 
 def successes(ctrl, fb: TabularFB, episodes: int = 3) -> int:
@@ -449,7 +468,7 @@ def test_planner_beats_the_task_policy_under_fb_noise_on_the_tabular_maze():
     for seed in range(3):
         fb = TabularFB(FakeFBConfig(rho_noise=0.02, seed=seed))
         planner_wins += successes(GraphPlannerController(fb, fb.maze.xy), fb)
-        direct_wins += successes(TaskPolicy(fb), fb)
+        direct_wins += successes(NonHierController(fb), fb)
     assert planner_wins >= direct_wins + 10
 
 

@@ -1,13 +1,14 @@
-"""Landmark graph: edge pruning, SMDP value iteration and route extraction (pure numpy).
+"""Landmark graph: SMDP value iteration, greedy choices and route extraction (pure numpy).
 
-Nodes are landmarks. Edge (u, w) is the option "follow pi_{B(w)} until w is hit", with
+Nodes are landmarks. Edge (u, w) is the option "follow pi_{z_w} until w is hit", with
 discount rho(u, w) and reward R(u, w) (docs/design.md §3). The graph Bellman equation is
 
     V_H(u) = max( direct(u),  max_{w trusted from u} R(u, w) + hop_discount * rho(u, w) * V_H(w) )
 
 where direct(u) = F(u, z_r)^T z_r is the value of switching to the task policy now.
 hop_discount < 1 is a cost per hop: in shortest-path form it adds -log(hop_discount) to
-the edge cost -log rho, and it does not depend on the scale of z_r.
+the edge cost -log rho, and it does not depend on the scale of z_r. Which edges are trusted
+is the planner's rule (fbplan.controllers.planner.trusted_edges); value iteration takes a mask.
 """
 
 from __future__ import annotations
@@ -28,33 +29,23 @@ class GraphSolution:
 
     values: np.ndarray  # V_H [N]
     best_next: np.ndarray  # [N] greedy next landmark, or DIRECT
-    iterations: int
     converged: bool
 
 
 def trusted_edges(
-    rho: np.ndarray,
-    rho_min: float,
-    top_k: int | None = None,
-    exclude_diagonal: bool = False,
-    rho_max: float = 1.0,
+    rho: np.ndarray, rho_min: float, exclude_diagonal: bool = False, rho_max: float = 1.0
 ) -> np.ndarray:
-    """Boolean mask of edges with rho_min <= rho < rho_max, then at most top_k per row.
+    """Boolean mask of edges with rho_min <= rho < rho_max: the rho part of the planner's
+    trust rule (fbplan.controllers.planner.trusted_edges adds the xy cap).
 
     rho is the raw FB estimate, before clipping. rho >= 1 is an FB error, not a free hop: for
     distinct states E[gamma^H] <= gamma < 1. Trusted, such edges join far parts of the maze at
-    almost no cost (wormholes). rho_max > 1 trusts them (an ablation). exclude_diagonal removes
-    self-loops first, so that rho(u, u) = 1 does not use a top-k slot. top_k keeps the largest
-    rho per row.
+    almost no cost (wormholes). rho_max > 1 trusts them (an ablation). exclude_diagonal drops
+    self-loops.
     """
     mask = (rho >= rho_min) & (rho < rho_max)
     if exclude_diagonal:
         mask &= ~np.eye(*rho.shape, dtype=bool)
-    if top_k is not None and top_k < rho.shape[1]:
-        ranked = np.argsort(-np.where(mask, rho, -np.inf), axis=1, kind="stable")[:, :top_k]
-        keep = np.zeros_like(mask)
-        np.put_along_axis(keep, ranked, True, axis=1)
-        mask &= keep
     return mask
 
 
@@ -95,15 +86,15 @@ def value_iteration(
         raise ValueError(f"expected [{n}, {n}] tables for {n} direct values")
     mask = mask & ~np.eye(n, dtype=bool)
 
-    values, iterations, converged = direct.astype(np.float64), 0, False
-    while not converged and iterations < max_iters:
-        iterations += 1
+    values, sweeps, converged = direct.astype(np.float64), 0, False
+    while not converged and sweeps < max_iters:
+        sweeps += 1
         new = np.maximum(direct, q_values(rho, reward, values, mask, hop_discount).max(axis=1))
         converged = np.max(np.abs(new - values)) <= tol * max(1.0, np.max(np.abs(new)))
         values = new
 
     q = q_values(rho, reward, values, mask, hop_discount)
-    return GraphSolution(values, best_options(q, values, direct), iterations, converged)
+    return GraphSolution(values, best_options(q, values, direct), converged)
 
 
 def best_options(q: np.ndarray, values: np.ndarray, direct: np.ndarray) -> np.ndarray:

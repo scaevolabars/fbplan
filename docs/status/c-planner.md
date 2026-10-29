@@ -4,12 +4,18 @@ Last update: 2026-10-29.
 
 ## Summary
 
+Latest (2026-10-29, evening): the approach A ablations moved to the Linux cloud (user decision);
+the exact commands for d-eval are in "Approach A ablations" below, with the Mac numbers as a
+cross-check (no single change beats the defaults; the look-ahead and the reached radius matter
+most). Review findings C1–C12, X4, X5 and X10 are fixed and merged (c187bb7);
+the refactor keeps the records identical (defaults and region latents, eval seed 0).
+
 Time-boxed fix (2026-10-29, see "Time-boxed fixes" below): on dev traces, near the goal the
 full replan overrode the plan's hand-over to the task policy in 74 % of the cases, and on large
 about half of the reach replans were a stall cycle. New option `switch_steps` (route following
 at a reach) removes both, but on held-out episodes success does not change beyond noise
 (medium −2.0 pp, p = 0.69; large +5.3 pp, p = 0.4). Defaults unchanged; recommendation: keep it
-as an ablation, not a default. Next: the approach A ablations (running).
+as an ablation, not a default.
 
 Update after the merge of main (a-frozen, b-theory): main merged into c-planner, 173 tests pass.
 rho is now clipped to [0, gamma] for distinct states (design.md §3); trust uses the raw estimate,
@@ -215,6 +221,96 @@ for tuning), 300 landmarks from the train split:
 - The planner is far below the baseline on this set (68 against 92). The landmark set also moves
   it by several points (see "After the merge").
 
+## Approach A ablations: commands for the Linux rerun (d-eval runs them)
+
+The user decided (2026-10-29) that all final numbers come from the Linux cloud, so d-eval reruns
+the whole ablation table there. One change against the defaults per run, landmark set 0,
+5 eval seeds × 5 tasks × 50 episodes = 1,250 episodes, paired against the defaults and the
+baseline on the same episodes. `--workers` does not change the records. Run from the repository
+root:
+
+    E="uv run python -m fbplan.evaluate --method planner --seeds 0 1 2 3 4 --episodes 50 --workers 4"
+    M=antmaze-medium-navigate-v0; L=antmaze-large-navigate-v0
+    # defaults (the pairs; d-eval's main planner runs, landmark set 0)
+    $E --env $M --opt landmarks.seed=0 --out results/medium/planner/l0.csv
+    $E --env $L --opt landmarks.seed=0 --out results/large/planner/l0.csv
+    # medium: 9 ablations
+    $E --env $M --opt landmarks.seed=0 max_edge_xy=None --out results/medium/planner_ablations/no_xy_cap/l0.csv
+    $E --env $M --opt landmarks.seed=0 reached_xy=1.5 lookahead=False --out results/medium/planner_ablations/reached_1.5_no_lookahead/l0.csv
+    $E --env $M --opt landmarks.seed=0 lookahead=False --out results/medium/planner_ablations/no_lookahead/l0.csv
+    $E --env $M --opt landmarks.seed=0 options.edge_reward=exact --out results/medium/planner_ablations/edge_reward_exact/l0.csv
+    $E --env $M --opt landmarks.seed=0 options.edge_reward=paper --out results/medium/planner_ablations/edge_reward_paper/l0.csv
+    $E --env $M --opt landmarks.seed=0 options.head_agg=mean --out results/medium/planner_ablations/head_agg_mean/l0.csv
+    $E --env $M --opt landmarks.seed=0 two_way=True --out results/medium/planner_ablations/two_way/l0.csv
+    $E --env $M --opt landmarks.seed=0 replan_every_step=True --out results/medium/planner_ablations/replan_every_step/l0.csv
+    $E --env $M --opt landmarks.seed=0 switch_steps=1e999 --out results/medium/planner_ablations/route_following/l0.csv
+    # large: the 3 guard-table runs
+    $E --env $L --opt landmarks.seed=0 max_edge_xy=None --out results/large/planner_ablations/no_xy_cap/l0.csv
+    $E --env $L --opt landmarks.seed=0 reached_xy=1.5 lookahead=False --out results/large/planner_ablations/reached_1.5_no_lookahead/l0.csv
+    $E --env $L --opt landmarks.seed=0 lookahead=False --out results/large/planner_ablations/no_lookahead/l0.csv
+
+Notes: `no_lookahead` keeps reached_xy 3.0 (guard table (c)); `reached_1.5_no_lookahead` is the
+old default (b); `1e999` is inf for `ast.literal_eval`. Time on the Mac (4 niced workers, load
+40–95): 10–20 min per medium run, 18–40 min per large run; `edge_reward=exact` and
+`replan_every_step` are the slowest (a full row of F per replan, or per step).
+
+### Mac cross-check (2026-10-29, MuJoCo 3.1.6, not the final numbers)
+
+Same commands on the 12-core Mac; CSVs kept in `runs/mac_ablations/` (git-ignored). Success in
+%, paired difference in points with the McNemar p-value. Medium pairs with d-eval's committed
+`results/medium/{planner/l0,baseline}.csv`; large with d-eval's uncommitted large runs
+(`planner_l0.csv`, `baseline.csv` in its worktree). `replan_every_step` and `route_following`
+did not finish before the stop.
+
+| run | medium | − defaults | large | − defaults |
+|---|---|---|---|---|
+| baseline pi_h | 77.8 | +6.5 (p 2e-4) | 38.0 | +5.6 (p 0.003) |
+| planner, defaults | 71.4 | – | 32.4 | – |
+| no xy cap | 69.8 | −1.6 (p 0.38) | 27.0 | −5.4 (p 0.003) |
+| reached 3.0, no look-ahead | 67.6 | −3.8 (p 0.03) | 22.9 | −9.5 (p 5e-8) |
+| reached 1.5, no look-ahead (old default) | 50.1 | −21.3 (p 4e-27) | 24.6 | −7.8 (p 5e-6) |
+| head_agg mean | 69.4 | −1.9 (p 0.28) | – | – |
+| two_way | 69.0 | −2.3 (p 0.21) | – | – |
+| edge_reward paper | 62.1 | −9.3 (p 5e-8) | – | – |
+| edge_reward exact | 42.3 | −29.0 (p 4e-54) | – | – |
+
+- No single change beats the defaults; each guard and choice costs or is neutral.
+- The look-ahead and the reached radius matter most: without them the planner loses 4–21 points
+  on medium and 8–10 on large.
+- Exact R collapses task 4 on medium (1.2 %): the max over routes collects R noise.
+- The xy cap and the min over heads do not change medium success much (−1.6, −1.9, within
+  noise), but the cap matters on large (−5.4 without it).
+- The earlier ablation runs used the code before the tie fix and before the merge of main; eval
+  seed 0 of `results/medium/planner/l0.csv` gave identical records with both later codes
+  (250 of 250, twice), so all Mac runs are consistent.
+
+## Review findings, first pass (g-release, 2026-10-29): response
+
+All M and S findings of my section are fixed; C12 (N) partly. Commit c187bb7, merged into
+c-planner. Record identity after the refactor (Mac, eval seed 0, 10 episodes per task,
+4 workers, nice): `results/medium/planner/l0.csv` 50 of 50 identical,
+`results/medium/planner_region/l0.csv` (region latents, which use the new `batched_backward`)
+50 of 50 identical. `planner_routes.py` reproduces eval-CSV rows: episode 1 of eval seed 0 gives
+the same outcomes and step counts for all 5 tasks.
+
+| finding | change |
+|---|---|
+| C1 M | Docstrings write z_w (`option_model`, `graph`, `GraphPlusHighController`); the option model docstring says once what a region latent measures. |
+| C2 M | See X4 and X5. |
+| C3 M | Removed `TaskPlan.reward`, `TaskPlan.direct`, `step_info()["rho_waypoint"]` (`_choose` now returns the waypoint and its Q, which `_on_reach` uses), `GraphSolution.iterations`, `Landmarks.dataset_index`. `landmarks.region_latents` stays public: X4 asks d-eval to import it. |
+| C4 M | Tests use `NonHierController` instead of a copy. |
+| C5 M | `test_a_raw_rho_at_or_above_one_is_not_a_trusted_edge`, comment fixed (raw 1.5, valued at gamma). |
+| C6 S | `_advance` runs at most N steps (a route visits each landmark once); test with a tied loop. |
+| C7 S | `_solve` raises `RuntimeError` when value iteration has not converged after `vi_max_iters` sweeps; test. With rho < 1 the max-product optimum is reached in at most N sweeps. |
+| C8 S | One Q function (`_q`) for choices and route stops. `pair_table` returns no reward table in zero mode; `_solve` asks for R only when `OptionModel.has_reward` (the N × N pass per task is the reason for the branch). |
+| C9 S | Removed `top_k` and `space="backward"` (no decision or result used them). |
+| C10 S | `planner_routes.py`: help texts, `--eval-seed` and `--episode` (the reset of that eval-CSV row), default output `runs/planner_routes/`. |
+| C11 S | `cell_of()` fails on the task policy instead of indexing the last cell. This exposed one test: the first-hop test now asserts the task policy, the correct choice there. The timeout test no longer sets `rho_reached`. |
+| C12 N | U-maze constants and `all_obs()` live in `planner_fakes`; landmark tests moved to `tests/test_landmarks.py`; docstrings for `Landmarks`, `Targets.take`, the PlannerConfig fields; two tests of default values removed. Not done: other duplicate test constants. |
+| X4 S | `fbplan.option_model.batched_backward(fb, obs, batch_size=4096)`: raw B in the model's dtype, batches padded to a power of two (padding does not change B: checked on the medium model). Landmarks and the option model use it. For e-learner: `train_b.latent_table` can call it with `batch_size=65536`. For d-eval: `oracle.region_latents` can be `fbplan.landmarks.region_latents`. |
+| X5 S | `planner_routes.py` uses `parse_options`, `make_tasks`, `task_latent`, `run_episode` and `config_hash` from `fbplan.evaluate`, and builds the planner with `make_planner` (as the eval CLI). It keeps a small recorder (`PathRecorder`) until d-eval makes `RecordingController` public. |
+| X10 S | `fbplan.controllers.planner.trusted_edges(rho_raw, sources, targets, config=PlannerConfig(), exclude_diagonal=False)`: raw-rho bounds and the xy cap. The controller uses it; d-eval's calibration can call it. The rho bounds stay in `fbplan.graph.trusted_edges(rho, rho_min, exclude_diagonal, rho_max)`, which b-theory's tabular study imports. |
+
 ## CI fix: ties between options (2026-10-29)
 
 CI (ubuntu-24.04, x86_64) failed `test_planner_with_region_latents_solves_every_task_of_the_exact_tabular_maze`
@@ -317,11 +413,11 @@ following does not touch. The option stays, off by default, as an ablation.
 
 ## Next
 
-1. Approach A ablations (assigned by the user through the coordinator, running): 5 eval seeds
-   × 50 episodes, landmark sets 0–2, one change against the defaults per run, paired against
-   the baseline. Medium first, then large if time allows. CSVs in
-   `results/<maze>/planner_ablations/<variant>/l<seed>.csv`; the defaults are d-eval's
-   `results/medium/planner/l<seed>.csv`.
+1. d-eval reruns the ablation table on Linux (commands above). When the CSVs are on main, I
+   compare them with the Mac cross-check and write the ablation table for the report.
+2. d-eval: `oracle.region_latents` can import `fbplan.landmarks.region_latents`, and
+   `analysis/failures.RecordingController` can become public so that `planner_routes.py` imports
+   it (X4, X5). e-learner: `train_b.latent_table` can import `batched_backward` (X4).
 
 ## Blockers
 
@@ -329,10 +425,14 @@ following does not touch. The option stays, off by default, as an ablation.
 
 ## Requests to the coordinator
 
-- Merge c-planner: new option `switch_steps` (off by default, defaults unchanged) and the
-  time-boxed fix results. design.md §4.A could note that route following was tested and is not
-  a default (held-out: medium −2.0 pp, large +5.3 pp, both within noise).
+- Merge c-planner: review fixes (c187bb7), ablation commands and Mac cross-check. API changes
+  for other components: `fbplan.graph.trusted_edges(rho, rho_min, exclude_diagonal, rho_max)`
+  lost `top_k` (b-theory's study and d-eval's calibration call it compatibly); new public
+  `fbplan.controllers.planner.trusted_edges` (full rule with the xy cap) and
+  `fbplan.option_model.batched_backward`; removed `LandmarkConfig.space`, `top_k`,
+  `Landmarks.dataset_index`, `GraphSolution.iterations`, `step_info()["rho_waypoint"]`.
+- design.md §4.A could note that route following (`switch_steps`) was tested and is not a
+  default (held-out: medium −2.0 pp, large +5.3 pp, both within noise).
 - d-eval / report: in the probe the privileged oracle (waypoint = dataset state nearest to a cell
   centre, `pi_l(B(w))`) was not an upper bound (17/30 against 22/30 for the baseline). The report
   should not call it "the best any high-level method can get" without that caveat.
-- Landmark tests are in `tests/test_graph.py`, because my brief lists no `tests/test_landmarks.py`.

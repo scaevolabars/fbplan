@@ -1,11 +1,14 @@
 """Option model of "follow pi_{z_w} until w is hit", read off a frozen FB model.
 
-With the option latent z_w (B(w), or a region mean of B around w) and per F head h
-(docs/design.md §3):
+With the option latent z_w of a target w and per F head h (docs/design.md §3):
 
-    rho_h(s, w) = F_h(s, z_w)^T B(w) / F_h(w, z_w)^T B(w)              ~ E[gamma^H]
+    rho_h(s, w) = F_h(s, z_w)^T z_w / F_h(w, z_w)^T z_w                ~ E[gamma^H]
     R_h(s, w)   = F_h(s, z_w)^T z_r - rho_h(s, w) * F_h(w, z_w)^T z_r  reward before the hit
     direct_h(s) = F_h(s, z_r)^T z_r                                    value of pi_{z_r}
+
+z_w is B(w) by default. With a region mean of B around w (fbplan.landmarks), F(s, z_w)^T z_w
+measures the visits to that region, so rho is the discount to reach the region, relative to the
+same measure from the landmark state w.
 
 Each quantity is computed per head and then aggregated over heads (min or mean). rho is
 clipped after aggregation to [0, gamma] for distinct states (H >= 1, so E[gamma^H] <= gamma;
@@ -13,7 +16,7 @@ this makes graph value iteration a gamma-contraction, design.md §3) and to [0, 
 and itself (same observation, H = 0). The clips are counted because they measure how far FB is
 from a valid hitting-time discount, and the raw aggregate is kept: trust rules use it, because
 an estimate above 1 is an FB error that clipping would hide. rho and R do not depend on the
-scale of B(w): the FB model normalizes z_w before F, and the ratio cancels the scale in the
+scale of z_w: the FB model normalizes z_w before F, and the ratio cancels the scale in the
 dot products.
 """
 
@@ -59,15 +62,16 @@ class Targets:
     """Per-target quantities that every (source, target) pair reuses."""
 
     obs: np.ndarray  # [M, obs_dim]
-    z: np.ndarray  # [M, d] raw B(w)
+    z: np.ndarray  # [M, d] option latents z_w, unnormalized
     self_forward: np.ndarray  # [H, M, d] F_h(w, z_w)
 
     @property
     def self_measure(self) -> np.ndarray:
-        """F_h(w, z_w)^T B(w), the denominator of rho. [H, M]"""
+        """F_h(w, z_w)^T z_w, the denominator of rho. [H, M]"""
         return np.einsum("hmd,md->hm", self.self_forward, self.z)
 
     def take(self, idx: np.ndarray) -> Targets:
+        """The targets idx, in that order."""
         return Targets(self.obs[idx], self.z[idx], self.self_forward[:, idx])
 
 
@@ -77,7 +81,7 @@ class OptionTable:
 
     rho: np.ndarray  # [N, M] clipped: [0, gamma] for distinct states, [0, 1] for a state and itself
     rho_raw: np.ndarray  # [N, M] aggregated over heads, before clipping
-    reward: np.ndarray | None  # [N, M], None when no task latent was given
+    reward: np.ndarray | None  # [N, M]; None without a task latent or with edge_reward "zero"
     n_clipped_low: int  # pairs with rho_raw < 0
     n_clipped_high: int  # pairs with rho_raw above their upper bound (gamma or 1)
 
@@ -89,32 +93,34 @@ class OptionModel:
         self.fb = fb
         self.config = config
 
-    def targets(self, obs: np.ndarray, z: np.ndarray | None = None) -> Targets:
-        """Targets at observations obs, with option latents z (default: B(obs)).
+    @property
+    def has_reward(self) -> bool:
+        """Whether R can be nonzero (edge_reward is not "zero")."""
+        return self.config.edge_reward != "zero"
 
-        Region-mean latents (fbplan.landmarks) make the option "reach the region around w";
-        rho is then measured against the value of that option at the landmark state w.
-        """
+    def targets(self, obs: np.ndarray, z: np.ndarray | None = None) -> Targets:
+        """Targets at observations obs, with option latents z (default: B(obs))."""
         if z is None:
-            z = np.concatenate([self._backward(obs[c]) for c in self._chunks(len(obs))])
+            z = batched_backward(self.fb, obs, self.config.batch_size).astype(np.float64)
         return Targets(obs, z, self._forward(obs, z))
 
     def pair_table(
         self, sources: np.ndarray, targets: Targets, z_r: np.ndarray | None = None
     ) -> OptionTable:
-        """rho(s_i, w_j), and R(s_i, w_j) when z_r is given, for all i, j.
+        """rho(s_i, w_j) for all i, j, and R(s_i, w_j) when z_r is given and R can be nonzero.
 
         Pairs go through F one batch at a time, so memory does not grow with N * M * d.
         """
         n, m = len(sources), len(targets.obs)
         src, tgt = np.divmod(np.arange(n * m), m)
         self_measure = targets.self_measure
-        value_after = None if z_r is None else targets.self_forward @ z_r  # [H, M]
+        with_reward = z_r is not None and self.has_reward
+        value_after = targets.self_forward @ z_r if with_reward else None  # [H, M]
         raw, upper = np.empty(n * m), np.empty(n * m)
-        reward = None if z_r is None else np.empty(n * m)
-        for c in self._chunks(n * m):
+        reward = np.empty(n * m) if with_reward else None
+        for c in _chunks(n * m, self.config.batch_size):
             s, z_w = sources[src[c]], targets.z[tgt[c]]
-            f = self._call_padded(self.fb.forward, s, z_w)  # [H, P, d]
+            f = _call_padded(self.fb.forward, self.config.batch_size, s, z_w)  # [H, P, d]
             rho_h = _safe_ratio(np.einsum("hpd,pd->hp", f, z_w), self_measure[:, tgt[c]])
             raw[c] = self._aggregate(rho_h)
             same = np.all(s == targets.obs[tgt[c]], axis=-1)
@@ -138,8 +144,6 @@ class OptionModel:
         self, value_before: np.ndarray, rho_h: np.ndarray, value_after: np.ndarray
     ) -> np.ndarray:
         """R per pair from F(s, z_w)^T z_r, rho_h and F(w, z_w)^T z_r, all [H, P]."""
-        if self.config.edge_reward == "zero":
-            return np.zeros(value_before.shape[1])
         if self.config.edge_reward == "paper":
             return self._aggregate(value_before)
         return self._aggregate(value_before - rho_h * value_after)
@@ -149,26 +153,36 @@ class OptionModel:
 
     def _forward(self, obs: np.ndarray, z: np.ndarray) -> np.ndarray:
         """F(obs, z) in batches -> [H, N, d] float64."""
-        parts = [self._call_padded(self.fb.forward, obs[c], z[c]) for c in self._chunks(len(obs))]
+        size = self.config.batch_size
+        parts = [_call_padded(self.fb.forward, size, obs[c], z[c]) for c in _chunks(len(obs), size)]
         return np.concatenate(parts, axis=1)
 
-    def _backward(self, obs: np.ndarray) -> np.ndarray:
-        return self._call_padded(self.fb.backward, obs)
 
-    def _chunks(self, n: int) -> Iterator[slice]:
-        size = self.config.batch_size
-        return (slice(i, min(i + size, n)) for i in range(0, n, size))
+def batched_backward(fb: FBModel, obs: np.ndarray, batch_size: int = 4096) -> np.ndarray:
+    """Raw B(s) of many observations [N, obs_dim] -> [N, d] in the model's dtype.
 
-    def _call_padded(self, fn, *arrays: np.ndarray) -> np.ndarray:
-        """Call fn on a batch padded to a power of two (at most batch_size).
+    One batch at a time, padded to a power of two (at most batch_size), so that a jitted model
+    compiles for few input shapes. Padding does not change B (checked on the medium model).
+    """
+    chunks = _chunks(len(obs), batch_size)
+    return np.concatenate([_padded(fb.backward, batch_size, obs[c]) for c in chunks])
 
-        A jitted FB model compiles once per input shape; buckets keep that number small.
-        """
-        n = len(arrays[0])
-        size = min(self.config.batch_size, 1 << max(n - 1, 0).bit_length())
-        padded = [np.concatenate([a, np.repeat(a[-1:], size - n, axis=0)]) for a in arrays]
-        out = np.asarray(fn(*padded), dtype=np.float64)
-        return out[..., :n, :]
+
+def _chunks(n: int, size: int) -> Iterator[slice]:
+    return (slice(i, min(i + size, n)) for i in range(0, n, size))
+
+
+def _padded(fn, batch_size: int, *arrays: np.ndarray) -> np.ndarray:
+    """fn on a batch padded to a power of two (at most batch_size), cut back to the batch."""
+    n = len(arrays[0])
+    size = min(batch_size, 1 << max(n - 1, 0).bit_length())
+    padded = [np.concatenate([a, np.repeat(a[-1:], size - n, axis=0)]) for a in arrays]
+    return np.asarray(fn(*padded))[..., :n, :]
+
+
+def _call_padded(fn, batch_size: int, *arrays: np.ndarray) -> np.ndarray:
+    """_padded as float64, so that every dot product with F runs in float64."""
+    return _padded(fn, batch_size, *arrays).astype(np.float64)
 
 
 def _safe_ratio(num: np.ndarray, den: np.ndarray) -> np.ndarray:
