@@ -180,14 +180,14 @@ def _estimated_distance(config: FakeFBConfig) -> tuple[np.ndarray, np.ndarray, f
     return dist[off], est[off], model.discount
 
 
-def plot_calibration(holes: pd.DataFrame, out: Path) -> None:
+def plot_calibration(out: Path) -> None:
     cases = [
         ("exact", FakeFBConfig()),
         ("rho noise 0.03", FakeFBConfig(rho_noise=0.03)),
         ("rank 32, euclidean", FakeFBConfig(rank=32, basis="euclidean")),
     ]
-    fig, axes = plt.subplots(1, 4, figsize=(13, 3.4))
-    for ax, (title, config) in zip(axes[:3], cases, strict=True):
+    fig, axes = plt.subplots(1, 3, figsize=(10.5, 3.4), sharey=True)
+    for ax, (title, config) in zip(axes, cases, strict=True):
         dist, est, gamma = _estimated_distance(config)
         hole = est < dist - np.log(2) / -np.log(gamma)
         jitter = np.random.default_rng(0).uniform(-0.25, 0.25, dist.shape)
@@ -198,17 +198,9 @@ def plot_calibration(holes: pd.DataFrame, out: Path) -> None:
         ax.plot([0, 23], [0, 23], color=MUTED, lw=1, ls="--", label="rho = gamma^dist")
         ax.set_title(f"{title}: {hole.mean():.1%} wormholes")
         ax.set_xlabel("walking distance (steps)")
-        ax.set_ylim(0, 45)
+        ax.set_ylim(0, 30)
     axes[0].set_ylabel("-log rho_hat / -log gamma")
-    axes[1].legend(loc="upper left")
-    noisy = holes[holes["rank"].isna()]
-    for i, aggregate in enumerate(["mean", "min"]):
-        s = noisy[noisy["aggregate"] == aggregate].groupby("rho_noise").wormhole_rate.mean()
-        axes[3].plot(s.index, 100 * s.values, label=f"head {aggregate}", **_style(i))
-    axes[3].set_title("wormholes vs. noise")
-    axes[3].set_xlabel("rho noise")
-    axes[3].set_ylabel("% of ordered state pairs")
-    axes[3].legend()
+    axes[2].legend(loc="upper left")
     fig.savefig(out / "calibration.png")
     plt.close(fig)
 
@@ -239,6 +231,7 @@ def plot_dropped_term(reward: pd.DataFrame, out: Path) -> None:
         ax.set_xlabel(label)
         ax.set_yticks(y, names)
     axes[1].set_xscale("symlog", linthresh=1.0)
+    axes[1].set_xlim(-0.5, 500)
     axes[1].set_yticklabels([])
     axes[0].legend(loc="lower right")
     exact = df[np.isclose(df.rho_noise, 0.0) & df.planner.str.startswith("chained")]
@@ -265,7 +258,7 @@ def main() -> None:
     plot_far_success_vs_noise(read["noise"], args.dir)
     plot_guards(read["guards"], args.dir)
     plot_low_rank(read["rank"], read["wormholes"], args.dir)
-    plot_calibration(read["wormholes"], args.dir)
+    plot_calibration(args.dir)
     plot_dropped_term(read["reward"], args.dir)
     print(f"figures written to {args.dir}")
 
