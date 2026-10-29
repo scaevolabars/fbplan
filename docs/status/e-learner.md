@@ -127,6 +127,25 @@ Temporary, until d-eval switches (request 1): `train_high.load_baseline_model`,
 called `download_trained(key, folder)`; the test now runs the real downloader with a fake
 `urlopen`. After adopting a-frozen's helpers, short runs are again bit-identical to the reference.
 
+## Review findings, second pass (A10 and the open e-learner items)
+
+Done on 2026-10-29 (commits 36c18d8, 7b8f04f, 87210a2). Correction: E14 was not done before
+36c18d8 (the mode change was not in 3de3cfb), and E4 was only partly done before 1e671da/7b8f04f;
+the first-pass table above claimed both too early.
+
+| Item | What I did |
+|---|---|
+| A10 | coordinator: a-frozen owns the helpers. My copies are gone; callers use `frozen.trained_dir`, `save_trained_checkpoint`, `load_trained_model`, `save_numpy_pickle`, `example_batch`, `forward`, `maze_name`. `checkpoint.trained_dir` stays only as a delegate for `tests/test_evaluate.py` (request 1). The temporary names in `train_high`/`train_b` are gone: `fbplan.evaluate` imports from `fbplan.learned.checkpoint` now |
+| E15 | `diagnostics --value` takes any folder; the latent kind comes from its `flags.json`; the table adds the per-goal correlation and the share of goals where V_H orders better (were a scratch script before) |
+| E14 | `run_seeds.sh` is 100755 in git (36c18d8) |
+| E10, E11 | help on every argument; the listed docstrings |
+| X3 | plan: `rho_cap` everywhere; why `goal_zero` differs from A's `zero` (R = 0 only for goal latents in a mixed batch) and why `single` stays (it is part of the release keys) |
+| X11 | `train_b --out-dir`; help shows the real default path; diagnostics output `runs/diagnostics/` |
+| X14 | tests use `tiny_agent`, `medium_model`, `medium_val` of `tests/conftest.py` |
+| N | `run_flags` (one top-level `commit`); a clear error for a pre-rename `flags.json`; `--edge-reward` default from `OptionConfig`; `Agent` from `checkpoint`; full `vast.sh` usage; tests of `value_grid`, per-goal correlation and the `switch_targets` assembly |
+
+Short runs of `train_high` and both B stages stay bit-identical to the reference after each step.
+
 ## GPU time and cost
 
 vast.ai, a shared team account, label `fbplan-gpu`. Times in MSK, 2026-10-29.
@@ -197,11 +216,10 @@ The allocator setting changes memory handling only. It did not lower the 2.5 GB,
 
 For d-eval:
 
-1. Load trained models with `fbplan.frozen.load_trained_model(env, key)`, key from
-   `fbplan.learned.checkpoint.trained_key` (or `load_baseline_model` / `load_b_model` there),
-   in `fbplan/evaluate.py`, and `fbplan.learned.checkpoint.trained_dir(...) / "high_actor.pkl"`
-   in `tests/test_evaluate.py`. Then I remove `train_high.load_baseline_model`,
-   `train_high.baseline_dir` and `train_b.load_b_model`.
+1. Done for `fbplan/evaluate.py`. Left: `tests/test_evaluate.py:376` calls
+   `checkpoint.trained_dir("baselines", MEDIUM, 0)`; please use
+   `frozen.trained_dir(checkpoint.trained_key("baselines", MEDIUM, 0))`, then I delete the
+   delegate (review A10).
 
 For a-frozen:
 
@@ -217,8 +235,14 @@ For c-planner:
 
 For g-release:
 
-5. Optional (X14): a fixture for a small upstream agent in `tests/conftest.py`; three of my test
-   files build one each. The real-model fixtures are in use.
+5. Done (X14), thanks; my tests use it. The `tiny_agent` docstring names
+   `fbplan.learned.checkpoint.example_batch`, which is now `fbplan.frozen.example_batch(params)`.
+
+For f-report:
+
+6. Review E16: `REPORT.md` names `OptionConfig.rho_max = 0.9`, `gain_network` and
+   `softplus(gain)`. The names are now `OptionConfig.rho_cap` (CLI `--rho-cap`),
+   `delta_network`, and `gain = softplus(delta)`.
 
 For the coordinator: on the GPU (full float32 precision) c-planner's
 `test_planner_with_region_latents_solves_every_task_of_the_exact_tabular_maze` solved 13 of 15
