@@ -112,6 +112,24 @@ vast.ai log (team account, label `fbplan-gpu-eval`):
 Selection rule now (coordinator): CPU model AMD EPYC Zen 2/3/4 or Xeon Gold/Platinum, ≥ 64
 effective cores, ≥ 128 GB RAM, reliability ≥ 0.99, ≤ $1/h; destroy after 15 min without SSH.
 
+## Teleport (Linux, `results/teleport/`, 5 eval seeds × 5 tasks × 50 episodes)
+
+Moved ahead of large by the coordinator (best lead for a gain). Planner rows pool landmark sets
+0–2 (bootstrap over config_hash and episodes). Trap = failed episode whose final distance to the
+goal is within 2 xy units of the trap centre's (cell (1, 7); b-theory's rule, theory.md §11.3).
+
+| method | success [95 % CI] | vs baseline (pp) | vs baseline_raw (pp) | trapped | other failures |
+|---|---|---|---|---|---|
+| baseline | 27.7 [25.3, 30.2] | – | +3.5 [+1.0, +6.2] | 54.7 % | 17.6 % |
+| baseline_raw | 24.2 [21.8, 26.6] | −3.5 [−6.2, −1.0] | – | 57.4 % | 18.4 % |
+| planner | 18.6 [16.5, 21.0] | −9.1 [−12.2, −6.0] | −5.6 [−8.6, −2.5] | 64.2 % | 17.3 % |
+| planner_high | 24.1 [21.5, 26.4] | −3.6 [−6.7, −0.5] | −0.1 [−3.3, +3.1] | 53.9 % | 22.1 % |
+
+- No gain on teleport: the planner ends in the trap more often than the baseline (64 % against
+  55 %), although its xy cap removes the jump edges; planner_high equals baseline_raw.
+- Per landmark set: planner 17.3 / 17.4 / 21.0 %, planner_high 24.7 / 21.5 / 26.0 %.
+- Teleport nonhier and the teleport-aware oracle (both follow modes) run later in the queue (d).
+
 ## Mac results on large (`results/macos/large/`, reproducibility check only)
 
 baseline 38.0 %, oracle 41.4 %, baseline_raw 38.1 %, planner set 0 32.4 %, set 1 24.1 % (5 eval
