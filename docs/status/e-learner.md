@@ -14,37 +14,42 @@
 - Tests: `tests/test_learned_sampling.py`, `tests/test_learned_train_high.py` (frozen modules stay
   bit-identical, `π_h` init depends only on the seed, checkpoint round trip, CSV log).
 - Speed: full-size step on Apple M2 Pro CPU = 34 ms, so 500k steps = 4.8 h per seed. Needs a GPU.
-- GPU: the user chose vast.ai. `scripts/gpu/vast.sh` (run locally:
-  offers, create, push, train, status, pull, ssh, destroy), `remote_setup.sh` (uv, CUDA JAX,
-  OGBench data, tests), `train_baselines.sh` (5 seeds in parallel on one GPU, in tmux).
+- GPU: vast.ai, a shared team account (shared credit, other members' instances on it).
+  `scripts/gpu/vast.sh` (run locally: offers, create, list, push, train, status, pull, ssh,
+  destroy), `remote_setup.sh` (uv, CUDA JAX, OGBench data, tests), `train_baselines.sh`
+  (5 seeds in parallel on one GPU, in tmux). Guards for the shared account:
+  - our instances carry the label `fbplan-gpu` (`VAST_LABEL`); push, train, status, pull,
+    ssh and destroy refuse any instance with another label (tested with a fake `vastai`);
+  - `create` attaches `~/.ssh/id_rsa.pub` to the new instance only (`vastai attach ssh`), never
+    to the account; `list` shows only our label; `destroy` keeps vastai's confirmation prompt.
   The instance gets the committed tree at HEAD plus a `REVISION` file; each checkpoint records it.
-  OGBench data for medium + large = 534 MB, downloaded on the instance.
-
+- Merged main (a-frozen, b-theory). With the real medium checkpoint: the checkpoint config is the
+  upstream `π_h` recipe (batch 1024, `γ` 0.99, `high_alpha` 0.1, lr 3e-4, uniform in-trajectory
+  goals), a retrained `π_h` reloads through `load_baseline_model(env, seed)` (for d-eval), and
+  a file with changed `F`/`B`/`π_l` is refused. 117 tests pass. CLI smoke run on CPU (10 steps,
+  medium train split): loads, trains, logs, saves.
 - `docs/plans/approach-b.md`: draft plan for approach B, waiting for the user's approval
   (7 decisions listed in its §10).
 
 ## Next
 
 - After approval: implement B1 (option targets in JAX, `V_H`, AWR `π_h`, CLI, tests).
-- First GPU job (medium, seeds 0-4) when a-frozen is on main. Ask the user before it starts.
+- First GPU job: medium, seeds 0-4. Ready; waits for the user's go (cost question in the brief).
+- Revise `docs/plans/approach-b.md` with the facts from the merge (A's approved `R̂ = 0`,
+  `ρ ≤ γ`, region-mean latents, small headroom on medium).
 
 ## Blockers
 
-- a-frozen is not on main yet. `train_high.main()` needs `load_model(env).agent` and
-  `load_dataset` (both exist in a-frozen's uncommitted work).
-- No checkpoints and no OGBench data on this machine yet.
-- vast.ai: the `vastai` CLI is installed, but no API key is set and the SSH key is not checked.
-  The user runs `vastai set api-key <key>` and adds `~/.ssh/id_rsa.pub` in the vast.ai console.
+- None for Phase 1. Approach B waits for the user's approval of the plan.
 
 ## Requests to the coordinator
 
 For a-frozen (`fbplan/frozen.py`). Updated after reading a-frozen's work in progress:
 
-1. Dropped: `load_agent`. `train_high` now uses `load_model(env).agent`.
-2. To evaluate retrained `π_h`, I will add `load_baseline_model(env, seed)` in `train_high.py`:
-   `FrozenFBModel(env, from_state_dict(load_model(env).agent, <my params.pkl>))`. This needs
-   `FrozenFBModel` and `load_numpy_pickle` to stay public. No change in a-frozen needed.
-3. Make `_upstream(module)` public (for example `upstream`), so my tests do not add
+1. Done without a change in a-frozen: `train_high` uses `load_model(env).agent`, and
+   `fbplan.train_high.load_baseline_model(env, seed)` gives d-eval an `FBModel` with a retrained
+   `π_h`. This needs `FrozenFBModel` and `load_numpy_pickle` to stay public.
+2. Make `_upstream(module)` public (for example `upstream`), so my tests do not add
    `third_party/ssm` to `sys.path` themselves (marked TODO in two test files).
-4. `load_dataset(...)["terminals"]` = 1 at the last state of each trajectory (non-compact OGBench
-   layout), as upstream `GCDataset` expects.
+3. `load_dataset(...)["terminals"]` = 1 at the last state of each trajectory (non-compact OGBench
+   layout), as upstream `GCDataset` expects. (Checked: the real medium split meets it.)

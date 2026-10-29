@@ -141,6 +141,23 @@ def save_checkpoint(agent: Agent, flags: dict[str, Any], out_dir: Path) -> None:
     (out_dir / "flags.json").write_text(json.dumps(flags, indent=2))
 
 
+def load_baseline_model(env_name: str, seed: int) -> frozen.FrozenFBModel:
+    """The frozen model with the pi_h that `seed` retrained: a baseline row for d-eval.
+
+    Raises if the saved F, B or pi_l differ from the provided checkpoint, because then the file
+    belongs to another env or to modified modules.
+    """
+    provided = frozen.load_model(env_name).agent
+    state = frozen.load_numpy_pickle(baseline_dir(env_name, seed) / "params.pkl")["agent"]
+    agent = flax.serialization.from_state_dict(provided, state)
+    for name in FROZEN_MODULES:
+        saved = jax.tree_util.tree_leaves(agent.network.params[name])
+        expected = jax.tree_util.tree_leaves(provided.network.params[name])
+        if not all(np.array_equal(a, b) for a, b in zip(saved, expected, strict=True)):
+            raise ValueError(f"{name} in {baseline_dir(env_name, seed)} is not the provided one")
+    return frozen.FrozenFBModel(env_name, jax.device_put(agent))
+
+
 def git_commit() -> str:
     """Commit of this code, recorded with each checkpoint for reproducibility.
 
