@@ -37,7 +37,6 @@ import zlib
 from dataclasses import dataclass
 from typing import Literal
 
-import jax
 import numpy as np
 
 from fbplan.contracts import Array, TaskSpec, normalize_z
@@ -112,22 +111,16 @@ class TabularFB:
         """B(s): [N, d], raw."""
         return self.basis[self.maze.state_index(np.asarray(obs))]
 
-    def low_action(
-        self, obs: Array, z: Array, temperature: float = 0.0, seed: jax.Array | None = None
-    ) -> np.ndarray:
+    def low_action(self, obs: Array, z: Array) -> np.ndarray:
         """Greedy low-level action as a unit move vector: [N, 2]."""
-        _require_greedy(temperature)
         states = self.maze.state_index(np.asarray(obs))
         actions = np.empty(len(states), dtype=np.int64)
         for z_hat, rows in self._unique_latents(z):
             actions[rows] = self._intention(z_hat).policy[states[rows]]
         return ACTION_VECTORS[actions]
 
-    def high_latent(
-        self, obs: Array, z_task: Array, temperature: float = 0.0, seed: jax.Array | None = None
-    ) -> np.ndarray:
+    def high_latent(self, obs: Array, z_task: Array) -> np.ndarray:
         """Idealised baseline pi_h: normalised B(w*) of the best single switch. [N, d]."""
-        _require_greedy(temperature)
         states = self.maze.state_index(np.asarray(obs))
         best = np.empty(len(states), dtype=np.int64)
         for z_hat, rows in self._unique_latents(z_task):
@@ -237,11 +230,6 @@ class TabularFB:
             v_sw = f_w @ z_hat  # F(s, z_w)^T z
             adv[:, w] = v_sw + rho * v_task[w] - v_task
         return adv
-
-
-def _require_greedy(temperature: float) -> None:
-    if temperature != 0.0:
-        raise ValueError("the tabular fake supports only temperature 0 (greedy)")
 
 
 def _orthonormal_basis(maze: GridMaze, kind: str, d: int) -> np.ndarray:

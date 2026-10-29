@@ -309,3 +309,155 @@ exact controller; value from the task start (V* ≈ 11).
 5. In continuous states the chain value is approximate (§7): keep hops few and the reach radius
    small compared with the scale on which option values change.
 
+## 11. Bonus mazes: teleport and giant
+
+Runs: the protocol of design.md §5 (5 eval seeds × 5 tasks × 50 episodes, paired start states),
+method defaults. The final runs are on the Linux evaluation instance (d-eval, CSVs in
+`results/teleport/` and `results/giant/`, commands in `docs/status/b-theory.md`). The numbers in
+§11.3 are preliminary runs on the Mac (MuJoCo 3.1.6, same code); the Linux runs replace them.
+
+### 11.1 Teleport: the value is risk-neutral, the success metric is not
+
+**The env** (OGBench source and the train split):
+
+- An agent within 1.5 xy units of an entry centre, (4,6) or (5,1), jumps to one of the exits
+  (1,7), (6,1), (6,10), chosen uniformly. Exit (1,7) has walls on all four sides: a trap.
+- Every task goal can be reached on foot, without a teleporter. The shortest such walks are
+  23, 15, 14, 25 and 27 cells long (tasks 1–5). The plain BFS path goes through an entry on
+  tasks 1, 3, 4 and 5, so the BFS oracle of `fbplan/controllers/oracle.py` is not valid here.
+- The data route through the entries: trajectories that leave the start cell (5,6) of tasks 3
+  and 5 go up into the entry 91 times and down 2 times; from (6,1), up into the entry 323 times
+  and down 54 times. OGBench's `get_oracle_subgoal` runs BFS on the map without the teleporters.
+  18 % of the train states lie in the trap, and 27 % of the 1,000 train trajectories end there.
+
+**Proposition 4.** Each jump ends in the trap with probability 1/3, and the trap is absorbing.
+So a policy that jumps at least once succeeds with probability ≤ 2/3. A policy that jumps again
+after each bad exit succeeds with probability `Σ_k (1/3)^{k+1} = 1/2` at most. A walk that fits
+in the time limit succeeds with probability 1. ✓ (`tests/test_tabular_time_limit.py`)
+
+**Why a discounted value prefers the jump.** FB values estimate `E[γ^H]`, and π_l, π_h and the
+graph planner all maximise it. Let one cell move take c ant steps, so `g = γ^c` per move. From
+(5,6) to the goal (7,10) (task 3), the jump is worth `g²/(3 − g)` (exit (6,10) is next to the
+goal, and exit (6,1) is next to the other entry, so a new jump costs one move), and the walk is
+worth `g^14`. At γ = 0.99 and c = 40: 0.19 against 0.0036. The trap removes a third of the
+value per jump; the walk loses a factor `γ^560`.
+
+Exact cell-level computation (`fbplan/tabular/time_limit.py`; resolution 1, T = 1000 ant
+steps, c = 40, the median pace of successful medium episodes):
+
+| task | walk (cells) | P(success): walk | risk-neutral (max `E[γ^H]`, γ = 0.99) | best for the metric | γ at which the risk-neutral policy walks |
+|---|---|---|---|---|---|
+| 1 | 23 | 1.00 | 0.48 | 1.00 | 0.99856 |
+| 2 | 15 | 1.00 | 0.50 | 1.00 | 0.99770 |
+| 3 | 14 | 1.00 | 0.50 | 1.00 | 0.99850 |
+| 4 | 25 | 1.00 | 0.50 | 1.00 | 0.99919 |
+| 5 | 27 | 0.00 | 0.48 | 0.67 | 0.99933 |
+
+![time limit](figures/theory/time_limit.png)
+
+- The risk-neutral policy takes the teleporter on all 5 tasks at every pace from 20 to 60 ant
+  steps per cell, and its success stays at 0.44–0.50. An exact FB agent with this γ would score
+  below 50 % on teleport.
+- It walks only for γ ≥ 0.9977–0.9993: an effective horizon `1/(1 − γ)` of 435–1,500 steps,
+  4–15 times the checkpoint's 100 steps.
+- The best policy for the metric walks whenever the walk fits. On task 5 the walk does not fit
+  at 40 steps per cell; the best policy then jumps once and walks from the far exit (2/3).
+
+**Consequences.** `E[γ^H]` at one γ is one point of the Laplace transform of H. It cannot tell
+"slow" from "sometimes never", so no planner on FB values alone can be optimal for `P(H ≤ T)`
+here. The graph planner with `R̂ = 0` maximises `Π ρ̂ = E[γ^H]` of the chain: risk-neutral too. Its
+xy cap (6 units) removes every jump edge, because the exits are far from the entries in xy, so it
+plans walks; this guard works against risk by accident. Remedies within the frozen setting: a
+larger γ (it costs accuracy, see giant), FB at several γ to bound `P(H ≤ T)`, or an explicit
+penalty on edges whose successor measure has mass on an absorbing region (the trap).
+
+### 11.2 Giant: the time limit and ρ at long range
+
+**The time budget.** The giant walks are 30, 26, 30, 26 and 17 cells (medium: 6–10). They fit in
+1,000 steps only at ≤ 33, 38, 33, 38 and 59 ant steps per cell. Successful medium episodes take a
+median of 41 (baseline) and 43 (oracle) steps per cell, and only 29–45 % of them are fast enough
+for tasks 1–4 (70 % for task 5). So with this π_l even a perfect high level fails most episodes
+of tasks 1–4.
+
+The privileged oracle (true shortest path, waypoints 2 cells ahead) measures the pace on giant
+itself. On eval seed 0 it fails 249 of 250 episodes: 19 % of the failures are flips, the rest
+are still moving at the time limit. In 1,000 steps it covers a median of 14, 15.5, 6, 15 and 5
+cells of the 30-, 26-, 30-, 26- and 17-cell walks (d-eval's replay, `cells_left`), so 65–200
+steps per cell against about 40 on medium. On giant, π_l follows even perfect waypoints too
+slowly for the time limit; the route is not the bottleneck.
+
+**ρ at long range.** The checkpoint uses γ = 0.995 (horizon 200 steps). A 1,000-step route has
+`ρ = 0.995^1000 = 0.0067`. FB calibration on 400 val states (d-eval's
+`uv run python analysis/calibration.py --env antmaze-giant-navigate-v0 --out-dir docs/figures/theory
+--table-dir docs/figures/theory`):
+
+![giant calibration](figures/theory/calibration_antmaze-giant-navigate-v0_min.png)
+
+- The median FB distance `−log ρ̂ / −log γ` grows with the geodesic only up to about 45 xy units
+  (11 cells); beyond that it sits at the cap. The task walks are 17–30 cells (68–120 xy units
+  between cell centres). The quartiles are 200–400 steps apart already at 15–20 units (medium:
+  a narrow band up to 25).
+- Caveat: the calibration's point geodesic passes between two walls that touch only at a
+  corner (4 such places in giant, 2 in medium and in teleport), which the ant cannot do. It
+  makes some pairs look closer than they are; the giant task 5 measures 21 xy units, but its
+  walk is 17 cells.
+- `ρ̂ ≤ 0` (clipped to 0) for 23.9 % of the pairs (medium 10.2 %). At ρ_min 0.3, 10.6 % of the
+  trusted pairs are wormholes in d-eval's sense (FB distance shorter than the walk at the ant's
+  top speed; medium 5.5 %), some across the whole maze (longest geodesic 69 xy units). The
+  planner's 6-unit xy cap removes all but 801 of the 4,586 (table:
+  `docs/figures/theory/wormholes_antmaze-giant-navigate-v0_min.csv`):
+
+![giant wormholes](figures/theory/wormholes_antmaze-giant-navigate-v0_min.png)
+
+So at the start of a task, `F(s,z_r)ᵀz_r` and the subgoal values `F(w,z_r)ᵀz_r` that drive π_h
+carry no reliable direction. This is the regime of §9.1: the controller fails at long range, and
+a graph of short trusted edges can supply the direction (the planner's edges are ≤ 6 xy units,
+well inside the calibrated range). Chaining cannot fix the time budget or the flips.
+
+### 11.3 Measured results (preliminary, Mac)
+
+Success (%), 95 % stratified bootstrap CI (`analysis/tables.py`), paired difference against the
+baseline on the same 1,250 episodes. Planner: landmark set 0 only.
+
+| teleport | task 1 | task 2 | task 3 | task 4 | task 5 | all | vs. baseline (pp) |
+|---|---|---|---|---|---|---|---|
+| baseline | 24.4 | 48.0 | 32.0 | 23.2 | 16.4 | 28.8 [26.4, 31.2] | |
+| nonhier | 20.8 | 25.2 | 15.2 | 16.4 | 17.6 | 19.0 [16.9, 21.2] | −9.8 (p 8e-13) |
+| planner | 20.8 | 25.6 | 17.6 | 12.0 | 15.2 | 18.2 [16.2, 20.4] | −10.6 (p 4e-16) |
+
+| giant | task 1 | task 2 | task 3 | task 4 | task 5 | all | vs. baseline (pp) |
+|---|---|---|---|---|---|---|---|
+| baseline | 0.0 | 0.0 | 0.0 | 1.6 | 1.2 | 0.6 [0.2, 1.0] | |
+| nonhier | 0.0 | 2.0 | 0.0 | 1.2 | 0.4 | 0.7 [0.3, 1.2] | +0.2 (p 0.8) |
+| oracle (privileged) | 0.0 | 3.6 | 0.0 | 0.8 | 6.8 | 2.2 [1.5, 3.0] | +1.7 (p 3e-4) |
+
+**Teleport: most failures end in the trap.** A trapped ant ends its episode inside cell (1,7), so
+its final distance to the goal is within 2 xy units of the trap centre's (26.8 for goal (7,10),
+33.9 for goal (7,1)). On eval seed 0 of the baseline this rule finds all 129 trapped episodes of
+an exact replay (d-eval's `replay_failures`, trap = `cells_left = −1`) and adds 3 of the 48 other
+failures. Over all 1,250 episodes:
+
+| teleport | success | trap | other failures |
+|---|---|---|---|
+| baseline | 28.8 % | 54.7 % | 16.5 % |
+| nonhier | 19.0 % | 64.5 % | 16.5 % |
+| planner | 18.2 % | 66.3 % | 15.4 % |
+
+- A policy that jumps until it lands on a good exit ends in the trap half the time (Proposition
+  4). All three agents end there more often: they also jump when the walk is short, and they
+  jump again after a good exit when π_l does not finish.
+- The planner plans walks (its xy cap removes the jump edges), yet 66 % of its episodes end in
+  the trap. π_l walks into the entries by itself: on dev episodes (eval seed 100, not used for
+  any reported number) the teleport-aware oracle with waypoints *below* (5,6) still saw π_l walk
+  up into entry (4,6) and jump to the trap. The data explain this: trajectories that leave (5,6)
+  go up 91 times and down 2 times (§11.1). π_l learned the expert's route through the entries.
+- On the same 30 dev episodes, the teleport-aware oracle succeeded 2/30 with π_l and 6/30 when
+  π_h follows the waypoints, against 8/30 for the baseline. Even with the true risk-free route,
+  waypoint following with this π_l fails on teleport (it also stalls at corners). So on
+  teleport the frozen π_l, not the plan, sets the ceiling; Proposition 4 adds a second ceiling
+  for any agent that maximises a discounted value.
+
+**Giant: the executor is the bottleneck.** The baseline and nonhier are equal (0.6 % and 0.7 %).
+The privileged oracle reaches only 2.2 %; its failures are mostly slow progress (§11.2:
+5–15.5 cells covered in 1,000 steps, 19 % flips). A planner can at most supply the route, and
+the oracle shows that the route alone is worth about +1.7 points here.
