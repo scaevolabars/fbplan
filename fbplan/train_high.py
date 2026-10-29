@@ -174,7 +174,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     train_set = frozen.load_dataset(args.env, "train")
     val_set = frozen.load_dataset(args.env, "val")
     example_batch = {k: train_set[k][:1] for k in ("observations", "actions")}
-    agent = with_fresh_high_actor(frozen.load_agent(args.env), args.seed, example_batch)
+    agent = with_fresh_high_actor(frozen.load_model(args.env).agent, args.seed, example_batch)
     print(json.dumps({"env": args.env, "seed": args.seed, "agent": agent.config}, default=str))
 
     agent = train(

@@ -30,21 +30,21 @@
 
 ## Blockers
 
-- `fbplan.frozen` is still a stub. `train_high.main()` needs `load_agent` and `load_dataset`.
+- a-frozen is not on main yet. `train_high.main()` needs `load_model(env).agent` and
+  `load_dataset` (both exist in a-frozen's uncommitted work).
 - No checkpoints and no OGBench data on this machine yet.
 - vast.ai: the `vastai` CLI is installed, but no API key is set and the SSH key is not checked.
   The user runs `vastai set api-key <key>` and adds `~/.ssh/id_rsa.pub` in the vast.ai console.
 
 ## Requests to the coordinator
 
-For a-frozen (`fbplan/frozen.py`):
+For a-frozen (`fbplan/frozen.py`). Updated after reading a-frozen's work in progress:
 
-1. `load_agent(env_name, ckpt_dir: Path | None = None)`: the restored upstream `FBpiSwitchAgent`
-   (`get_config()` updated by `flags.json['agent']`, params from `params.pkl`). `train_high` needs
-   the agent object to call upstream `create` and `update`.
-2. `load_model(env_name, ckpt_dir: Path | None = None)`: so that d-eval can evaluate a retrained
-   `π_h` from `~/.cache/fbplan/baselines/<env>/seed<k>/` (same layout as a provided checkpoint).
-3. A public helper to import upstream modules (for example `upstream_module("agents.fbpiswitch")`).
-   Until then, my two test files add `third_party/ssm` to `sys.path` themselves (marked TODO).
+1. Dropped: `load_agent`. `train_high` now uses `load_model(env).agent`.
+2. To evaluate retrained `π_h`, I will add `load_baseline_model(env, seed)` in `train_high.py`:
+   `FrozenFBModel(env, from_state_dict(load_model(env).agent, <my params.pkl>))`. This needs
+   `FrozenFBModel` and `load_numpy_pickle` to stay public. No change in a-frozen needed.
+3. Make `_upstream(module)` public (for example `upstream`), so my tests do not add
+   `third_party/ssm` to `sys.path` themselves (marked TODO in two test files).
 4. `load_dataset(...)["terminals"]` = 1 at the last state of each trajectory (non-compact OGBench
    layout), as upstream `GCDataset` expects.
