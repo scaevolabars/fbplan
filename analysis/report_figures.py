@@ -1,7 +1,6 @@
 """Report figures that the other analysis scripts do not make.
 
-    uv run python analysis/report_figures.py [--results results/medium] \
-        [--out-dir docs/figures/report]
+    uv run python analysis/report_figures.py [results/medium] [--out-dir docs/figures/report]
 
 time_to_goal_<env>.png: success within a step budget for each planner variant, minus the
 baseline's, over budgets 0..1000 (landmark sets pooled). The env ends an episode at the goal, so
@@ -11,12 +10,14 @@ that the method reaches the goal later, not that it never reaches it.
 The printed tables give the numbers that REPORT.md quotes: median steps of the successes,
 success within 400, 600, 800 and 1000 steps, how far from the goal the failures end, and the
 largest gap of each planner variant to the baseline. All numbers come from the evaluation
-CSVs in --results.
+CSVs in the results folder. A method without CSVs is left out with a note; the baseline must be
+there.
 """
 
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -41,14 +42,28 @@ TABLE_BUDGETS = (400, 600, 800, 1000)
 NEAR_GOAL_XY = 3.0  # a failure that ends this close circled the goal rather than got lost
 
 
+def method_paths(results: Path, method: str) -> list[Path]:
+    """One CSV per method, or a folder of CSVs per method (landmark sets)."""
+    single = results / f"{method}.csv"
+    return [single] if single.exists() else sorted((results / method).glob("*.csv"))
+
+
 def load_methods(results: Path) -> pd.DataFrame:
-    """Episodes of METHODS, one CSV per method or a folder of CSVs per method (landmark sets)."""
-    paths = []
-    for method in METHODS:
-        single = results / f"{method}.csv"
-        paths += [single] if single.exists() else sorted((results / method).glob("*.csv"))
-    df = load_results(paths, label_root=results)
+    """Episodes of the METHODS that have CSVs in `results`. Absent methods are named on stderr;
+    an absent reference is an error."""
+    found = {method: method_paths(results, method) for method in METHODS}
+    if not found[REFERENCE]:
+        raise SystemExit(f"no {REFERENCE} CSV in {results}: need {results / REFERENCE}.csv")
+    absent = [method for method, paths in found.items() if not paths]
+    if absent:
+        print(f"note: no CSVs in {results} for {', '.join(absent)}; left out", file=sys.stderr)
+    df = load_results([path for paths in found.values() for path in paths], label_root=results)
     return df.assign(method=df["method"].map(pool_label))
+
+
+def gap_methods(curves: pd.DataFrame) -> list[str]:
+    """The planner variants of GAP_COLORS that have results."""
+    return [method for method in GAP_COLORS if method in curves.index]
 
 
 def success_within(df: pd.DataFrame, budgets: np.ndarray) -> pd.DataFrame:
@@ -69,12 +84,18 @@ def summary(df: pd.DataFrame, curves: pd.DataFrame) -> pd.DataFrame:
         successes, failures = episodes[episodes["success"]], episodes[~episodes["success"]]
         row = {
             "method": method,
-            "median steps of successes": int(successes["steps"].median()),
+            # "–" for a method without successes (or, below, without failures)
+            "median steps of successes": (
+                int(successes["steps"].median()) if len(successes) else "–"
+            ),
             **{f"success within {b} (%)": round(curves.loc[method, b], 1) for b in TABLE_BUDGETS},
             "failures": len(failures),
-            "median final xy distance of failures": round(failures["final_goal_dist"].median(), 1),
-            f"failures within {NEAR_GOAL_XY:g} xy (%)": round(
-                100 * (failures["final_goal_dist"] < NEAR_GOAL_XY).mean(), 1
+            "median final xy distance of failures": (
+                round(failures["final_goal_dist"].median(), 1) if len(failures) else "–"
+            ),
+            f"failures within {NEAR_GOAL_XY:g} xy (%)": (
+                round(100 * (failures["final_goal_dist"] < NEAR_GOAL_XY).mean(), 1)
+                if len(failures) else "–"
             ),
         }
         rows.append(row)
@@ -83,7 +104,7 @@ def summary(df: pd.DataFrame, curves: pd.DataFrame) -> pd.DataFrame:
 
 def gap_summary(curves: pd.DataFrame) -> pd.DataFrame:
     """Per planner variant: the largest gap to the baseline, its budget, and the gap at the end."""
-    gaps = curves.loc[list(GAP_COLORS)] - curves.loc[REFERENCE]
+    gaps = curves.loc[gap_methods(curves)] - curves.loc[REFERENCE]
     return pd.DataFrame({
         "method": gaps.index,
         "largest gap (pp)": gaps.min(axis=1).round(1).to_numpy(),
@@ -101,11 +122,12 @@ def markdown(df: pd.DataFrame) -> str:
 
 def plot_gaps(curves: pd.DataFrame, env_name: str, path: Path) -> None:
     """Success within the budget minus the baseline's, one line per planner variant."""
-    gaps = curves.loc[list(GAP_COLORS)] - curves.loc[REFERENCE]
+    gaps = curves.loc[gap_methods(curves)] - curves.loc[REFERENCE]
     fig, ax = plt.subplots(figsize=(7.0, 3.8), dpi=150)
     ax.axhline(0.0, color=INK, lw=1.0)
     ax.text(BUDGETS[-1] + 15, 0.0, REFERENCE, color=INK, fontsize=8, va="center")
-    for method, color in GAP_COLORS.items():
+    for method in gaps.index:
+        color = GAP_COLORS[method]
         ax.plot(BUDGETS, gaps.loc[method], color=color, lw=2.0, solid_capstyle="round",
                 label=method)
         end = gaps.loc[method].iloc[-1]
@@ -132,12 +154,20 @@ def plot_gaps(curves: pd.DataFrame, env_name: str, path: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--results", type=Path, default=Path("results/medium"))
-    parser.add_argument("--out-dir", type=Path, default=Path("docs/figures/report"))
+    parser = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("results", nargs="?", type=Path, default=Path("results/medium"),
+                        help="evaluation CSVs of one env: <method>.csv or <method>/*.csv")
+    # Old flag, kept until scripts/reproduce.sh uses the positional folder.
+    parser.add_argument("--results", dest="results_flag", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--out-dir", type=Path, default=Path("docs/figures/report"),
+                        help="folder for time_to_goal_<env>.png")
     args = parser.parse_args()
+    results = args.results_flag or args.results
 
-    df = load_methods(args.results)
+    df = load_methods(results)
     (env_name,) = df["env_name"].unique()
     curves = success_within(df, BUDGETS)
     plot_gaps(curves, env_name, args.out_dir / f"time_to_goal_{env_name}.png")
