@@ -5,6 +5,7 @@
 #   bash scripts/gpu/run_seeds.sh <run-root> "<seeds>" <module> [args ...]
 #   bash scripts/gpu/run_seeds.sh runs/train_b/medium/value-single "0 1 2 3 4" \
 #     fbplan.learned.train_b value --env antmaze-medium-navigate-v0 --latents single
+# FIRST_CORE (default 0): the first CPU core of this group, so that two groups can run at once.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PATH="$HOME/.local/bin:$PATH"
@@ -19,12 +20,13 @@ shift 3
 # XLA sizes its thread pools to the CPUs a process may use. On a host with 80 cores each run
 # started about 500 threads, and a 5th run hit the container's limit (pids.max = 2304).
 # Two cores per run are enough: the training loop runs on the GPU inside lax.scan.
+first_core=${FIRST_CORE:-0}
 pids=()
 for i in "${!seeds[@]}"; do
   seed=${seeds[$i]}
   run_dir=$run_root/seed$seed
   mkdir -p "$run_dir"
-  taskset -c "$((2 * i)),$((2 * i + 1))" \
+  taskset -c "$((first_core + 2 * i)),$((first_core + 2 * i + 1))" \
     uv run python -m "$module" "$@" --seed "$seed" --run-dir "$run_dir" >"$run_dir/stdout.log" 2>&1 &
   pids+=($!)
 done

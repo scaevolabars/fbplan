@@ -9,6 +9,9 @@ the objective:
 - no wandb and no evaluation during training (fbplan.evaluate evaluates the saved pi_h);
 - logged training metrics are means over each log interval, not values of one step.
 
+Variants of the recipe go to their own folder (--name): --high-alpha changes the AWR temperature;
+--advantage logratio uses the log-ratio advantage of fbplan.learned.logratio for goal latents.
+
 The result is saved as high_actor.pkl (fbplan.frozen.save_trained_checkpoint); load it with
 `fbplan.learned.checkpoint.load_baseline_model(env, seed)`.
 
@@ -34,6 +37,7 @@ from fbplan.learned.checkpoint import (
     trained_key,
     with_fresh_high_actor,
 )
+from fbplan.learned.logratio import GOAL_ALPHA, logratio_loss, logratio_update
 from fbplan.learned.loop import run_logged, scan_updates
 from fbplan.learned.sampling import (
     HighBatchSpec,
@@ -43,23 +47,41 @@ from fbplan.learned.sampling import (
 )
 
 
-@partial(jax.jit, static_argnames=("n_steps", "spec"))
+@partial(jax.jit, static_argnames=("n_steps", "spec", "goal_alpha"))
 def train_chunk(
-    agent: Agent, data: TrajectoryData, key: jax.Array, n_steps: int, spec: HighBatchSpec
+    agent: Agent,
+    data: TrajectoryData,
+    key: jax.Array,
+    n_steps: int,
+    spec: HighBatchSpec,
+    goal_alpha: float | None = None,
 ) -> tuple[Agent, dict[str, jax.Array]]:
-    """Run `n_steps` upstream updates, each on a new batch. Returns the agent and mean metrics."""
-    return scan_updates(
-        lambda a, k: a.update(sample_high_batch(data, k, spec)), agent, key, n_steps
-    )
+    """Run `n_steps` updates, each on a new batch. Returns the agent and mean metrics.
+
+    goal_alpha None: upstream `update`; else the log-ratio advantage at that temperature."""
+
+    def step(a: Agent, k: jax.Array) -> tuple[Agent, dict[str, jax.Array]]:
+        batch = sample_high_batch(data, k, spec)
+        return a.update(batch) if goal_alpha is None else logratio_update(a, batch, goal_alpha)
+
+    return scan_updates(step, agent, key, n_steps)
 
 
-@partial(jax.jit, static_argnames=("spec",))
+@partial(jax.jit, static_argnames=("spec", "goal_alpha"))
 def validation_metrics(
-    agent: Agent, data: TrajectoryData, key: jax.Array, spec: HighBatchSpec
+    agent: Agent,
+    data: TrajectoryData,
+    key: jax.Array,
+    spec: HighBatchSpec,
+    goal_alpha: float | None = None,
 ) -> dict[str, jax.Array]:
-    """Upstream loss metrics on one batch of held-out data, without an update."""
-    _, info = agent.total_loss(sample_high_batch(data, key, spec), grad_params=None)
-    return info
+    """Loss metrics on one batch of held-out data, without an update."""
+    batch = sample_high_batch(data, key, spec)
+    if goal_alpha is None:
+        _, info = agent.total_loss(batch, grad_params=None)
+        return info
+    _, info = logratio_loss(agent, batch, None, goal_alpha)
+    return {f"high_actor/{k}": v for k, v in info.items()}
 
 
 def train(
@@ -70,13 +92,14 @@ def train(
     log_every: int,
     key: jax.Array,
     log_path: Path,
+    goal_alpha: float | None = None,
 ) -> Agent:
     """Train for `steps` updates. After every `log_every` updates, rewrite the CSV at log_path."""
     spec = HighBatchSpec.from_agent_config(agent.config)
     return run_logged(
         agent,
-        chunk=lambda agent, key, n: train_chunk(agent, train_data, key, n, spec),
-        validate=lambda agent, key: validation_metrics(agent, val_data, key, spec),
+        chunk=lambda agent, key, n: train_chunk(agent, train_data, key, n, spec, goal_alpha),
+        validate=lambda agent, key: validation_metrics(agent, val_data, key, spec, goal_alpha),
         steps=steps,
         log_every=log_every,
         key=key,
@@ -106,6 +129,18 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--high-alpha", type=float, help="AWR temperature of pi_h; default: the checkpoint's (0.1)"
     )
+    parser.add_argument(
+        "--advantage",
+        choices=("upstream", "logratio"),
+        default="upstream",
+        help="logratio: the log-ratio advantage for goal latents (fbplan.learned.logratio)",
+    )
+    parser.add_argument(
+        "--goal-alpha",
+        type=float,
+        default=GOAL_ALPHA,
+        help=f"AWR temperature of the log-ratio advantage; default {GOAL_ALPHA}",
+    )
     return parser.parse_args(argv)
 
 
@@ -125,7 +160,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         config = dict(frozen_agent.config) | {"high_alpha": args.high_alpha}
         frozen_agent = frozen_agent.replace(config=config)
     agent = with_fresh_high_actor(frozen_agent, args.seed)
-    print(json.dumps({"env": args.env, "seed": args.seed, "agent": agent.config}, default=str))
+    goal_alpha = args.goal_alpha if args.advantage == "logratio" else None
+    print(
+        json.dumps(
+            {"env": args.env, "seed": args.seed, "goal_alpha": goal_alpha, "agent": agent.config},
+            default=str,
+        )
+    )
 
     agent = train(
         agent,
@@ -135,11 +176,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         log_every=args.log_every,
         key=jax.random.fold_in(jax.random.PRNGKey(args.seed), SAMPLER_STREAM),
         log_path=run_dir / "train.csv",
+        goal_alpha=goal_alpha,
     )
 
+    retrained = {"from": f"checkpoints/{maze}"}
+    if goal_alpha is not None:
+        retrained |= {"advantage": "logratio", "goal_alpha": goal_alpha}
     flags = run_flags(args.env, args.seed, args.steps) | {
         "agent": dict(agent.config),
-        "retrained_high_actor": {"from": f"checkpoints/{maze}"},
+        "retrained_high_actor": retrained,
     }
     frozen.save_trained_checkpoint(agent, flags, out_dir)
     print(f"saved {out_dir}")
