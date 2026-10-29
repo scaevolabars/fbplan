@@ -1,6 +1,7 @@
 # Plan: approach B, a learned multi-switch value
 
-Status: draft for approval (e-learner, 2026-10-29). Notation: docs/design.md §3.
+Status: draft for approval (e-learner, 2026-10-29; revised after the a-frozen and b-theory
+merges). Notation: docs/design.md §3.
 
 ## 1. Idea in one paragraph
 
@@ -53,14 +54,22 @@ y(s,w,z) = R(s,w;z) + ρ(s,w)·[V_1(w,z) + softplus(min_j Δ̄_j(w,z))] − c
 L_V      = Σ_j E[ |τ − 1(u_j < 0)| · u_j² ],   u_j = y − V_1(s,z) − softplus(Δ_θ,j(s,z))
 ```
 
-**Exact R, not the paper's proxy.** The paper drops `−ρ·F(w,z_w)ᵀz` from the one-switch
-advantage (Sec. 6: the local term is hard to learn). For a chain this is a problem. The dropped
-term is the reward that `π_{z_w}` would collect after `w`. The agent does not collect it, because
-it switches at `w`, and `ρ·V_H(w)` already values the time after `w`. So the proxy values that time
-twice. For non-negative rewards this is a positive bias at every hop, and the max over `w` then
-prefers chains with more hops. For goal tasks the dropped term is large only when `w` is near the
-goal, so the bias sits on the last hop. Default: exact `R`. Ablation: the proxy. b-theory measures
-both on the exact maze.
+**Which R.** c-planner offers three: exact, the paper's proxy, and zero.
+
+- The proxy is wrong for a chain. It drops `−ρ·F(w,z_w)ᵀz`, the reward that `π_{z_w}` would
+  collect after `w`. The agent does not collect it, because it switches at `w`, and `ρ·V_H(w)`
+  already values the time after `w`. So the proxy values that time twice. For non-negative
+  rewards this is a positive bias at every hop, and the max over `w` then prefers more hops.
+- Approach A uses `R̂ = 0` for goal-reaching (approved, design §4): exact `R̂` is a difference of
+  two noisy FB values, and a max over `w` collects the noise. The expectile in B is a softer max,
+  but the same noise enters every target. For a goal latent the true `R` is close to 0, unless
+  the path to `w` passes the goal.
+- For a Gaussian latent (a general reward), the reward before `w` is not small, so `R = 0` would
+  make `V_H` wrong there.
+
+Default: `R = 0` for goal latents, exact `R` for Gaussian latents. The eval tasks have goal
+latents, so for them B uses the same estimator as A. Ablations: exact `R` for all latents; the
+proxy. b-theory's exact maze measures all three.
 
 ## 3. Sampling
 
@@ -71,12 +80,21 @@ All from offline data; same sampler as `train_high` (`fbplan/learned/sampling.py
 | `s` | uniform over dataset states | as upstream |
 | `w` | same trajectory as `s`, offset `k ~ Geometric(1−γ)`, clipped at the trajectory end (mean 100 steps) | as upstream `π_h` subgoals. Every edge `(s,w)` is shown by the data, so the targets contain no wormhole edges |
 | `g` | 70 %: uniform future state of the same trajectory (upstream); 30 %: uniform dataset state | random goals need chaining across trajectories; the value has to cover them |
-| `z` | 50 %: `B(g)`; 50 %: Gaussian (as upstream `critic_latent_mix_prob = 0.5`) | goals for the eval tasks; Gaussian `z` keeps the zero-shot property for any reward |
+| `z` | 50 %: region latent of `g`; 50 %: Gaussian (as upstream `critic_latent_mix_prob = 0.5`) | goals for the eval tasks; Gaussian `z` keeps the zero-shot property for any reward |
 
-All `z` are normalized to norm `√d` before the dot products, because the test-time `z_r` is
-normalized. (Upstream uses raw `B(g)` in the dot products, so its advantage scale varies with
-`‖B(g)‖`.) Option, off by default: a "goal region" `z` = normalized mean of `B` over 5 neighbours
-of `g` in its trajectory. This is closer to the test-time `z_r = mean(r·B(s))` over the goal ball.
+**Region latents.** `B` is frozen, so we compute it once for all dataset states (`[N, 128]`,
+512 MB for medium) and look latents up; no `B` call per step. The region latent of a state is the
+mean of `B` over the states within ±5 steps of it on its trajectory (cumulative sums make this
+cheap). It replaces the single-state `B(·)` for the subgoal latent `z_w` and for the goal latent.
+Reasons: d-eval's oracle scored about 4 points above the baseline with region-mean waypoint
+latents and below it with single-state ones, with this `π_l` (design §5, one eval seed); and the
+test-time `z_r = mean(r·B(s))` is itself a mean over the goal ball. With region latents, `z̃_w`
+replaces `z_w` everywhere in §2, so `ρ` becomes the discount to reach the region around `w`.
+Ablation: single-state latents.
+
+All `z` are normalized to norm `√d` before the dot products, because `high_latent` normalizes the
+test-time `z_r` (design §2). Upstream uses raw `B(g)` in the dot products, so its advantage scale
+varies with `‖B(g)‖`.
 
 Stitching across trajectories comes from generalization of `V_H(w,z)` at `w`, as in IQL/HIQL.
 Cross-trajectory `w` comes in only through the distillation of A (§6).
@@ -84,11 +102,11 @@ Cross-trajectory `w` comes in only through the distillation of A (§6).
 ## 4. The new π_h (stage 2)
 
 Same network as upstream (`GCActor`, constant std, input `(s, z)`, output a latent in `R^d`).
-AWR toward the normalized `B(w)`, with `V_H` frozen:
+AWR toward the normalized region latent `z̃_w` (§3), with `V_H` frozen:
 
 ```
 A(s,w,z) = y(s,w,z) − V_H(s,z)
-L_π      = −E[ exp(min(α·A, 5)) · log π_h(normalize(B(w)) | s, z) ]
+L_π      = −E[ exp(min(α·A, 5)) · log π_h(normalize(z̃_w) | s, z) ]
 ```
 
 Start with `α = 0.1` (upstream `high_alpha`). `A` has the same units, but the scale can differ,
@@ -98,14 +116,18 @@ Two variants of the `g` distribution for `π_h`:
 **B-wide** adds the 30 % random goals. We report both.
 
 The checkpoint has the layout of a provided one (`params.pkl` with a new `modules_high_actor`),
-so d-eval evaluates it with the baseline controller and `load_model(ckpt_dir=...)`.
+so d-eval evaluates it with the baseline controller, loaded as `train_high.load_baseline_model`
+loads a retrained baseline.
 
 ## 5. Guards against error growth over hops
 
 1. **Contraction.** `ρ ≤ ρ_max = 0.9`. Then the hop-level Bellman operator is a contraction
-   with factor 0.9, so a per-target error ε grows at most to ε/(1 − 0.9) = 10ε. One-step TD on
-   the same value would allow ε/(1 − γ) = 100ε. The cap lowers the value of very short hops only;
-   the "never switch" option and the per-step re-selection make short hops unnecessary.
+   with factor 0.9, so a per-target error ε grows at most to ε/(1 − 0.9) = 10ε. Design §3 clips
+   `ρ̂` to `[0, γ]` for A, which gives γ-contraction and allows ε/(1 − γ) = 100ε, the same as
+   one-step TD. FB `ρ̂` near a waypoint peaks at about 0.9 on medium (design §4), so the tighter
+   cap changes few targets; it makes the bound explicit. Samples with raw `ρ̂ ≥ 1` are dropped
+   from the loss, as A treats such edges as untrusted. The cap lowers the value of very short
+   hops only; the "never switch" option and the per-step re-selection make them unnecessary.
 2. **Data-supported edges.** `w` is always on the trajectory of `s`, so `ρ(s,w)` is never
    queried across a wall that the data does not cross.
 3. **Pessimistic option model.** min over the 2 `F` heads for `ρ` and `R`; clip rates logged.
@@ -170,25 +192,28 @@ d-eval's loop (request after approval).
   `fbplan/learned/value.py` (V_H, expectile loss), `fbplan/learned/high_policy.py` (AWR),
   `fbplan/learned/train_b.py` (CLI, both stages), `fbplan/learned/controller.py` (B-argmax),
   tests in `tests/test_learned_*.py`.
-- Needs: a-frozen `load_agent` / `load_model(ckpt_dir)` (already requested); b-theory fake FB
-  and exact maze (merged on its branch); c-planner landmarks and `V_A` / `w*` tables (B2 only).
+- Needs: a-frozen `load_model(env).agent` and `load_dataset` (on main); b-theory fake FB and
+  exact maze (on main); c-planner landmarks and `V_A` / `w*` tables (B2 only).
 
 ## 9. Risks
 
-- **Little headroom on medium.** Baseline 87 %, HIQL 93 %. The paper says FB + `π_h` gains are
-  small because `π_l` limits them. The oracle-waypoint ceiling (d-eval) tells us the headroom.
-  Large (66 %) has more, so B runs on large too.
+- **Little headroom on medium.** The provided checkpoint scores 78–80 % on medium in our
+  re-evaluation, and 70–80 % of its failures are the ant flipping over, a `π_l` failure that no
+  high-level method fixes (design §2, §5). Large (31–45 %) has more headroom, so the main
+  evidence for B will likely come from large; medium is required and is reported.
 - **Actor averaging.** `π_h` regresses onto `B(w)`; if good subgoals lie in two directions, the
   mean lies between them. B-argmax shows whether the critic or the actor is the limit.
 - **Test-time `z_r` differs from training `z`.** `z_r` is an average of `B` over the goal ball.
-  The "goal region" option in §3 addresses this.
+  Region latents (§3) reduce the gap.
 
 ## 10. Decisions to approve
 
-1. Exact `R` by default; the paper's proxy only as an ablation (§2).
+1. `R = 0` for goal latents (as A), exact `R` for Gaussian latents; the proxy only as an
+   ablation (§2).
 2. Residual `V_H = V_1 + softplus(Δ)` (§2).
 3. `w` only from the trajectory of `s` in B1; other `w` only through A in B2 (§3, §6).
-4. Two stages; same `π_h` network and controller as the baseline (§4).
-5. Report B-clean (only the critic changes) and B-wide (§4).
-6. Cap `ρ ≤ 0.9` (§5.1). This deviates from A, which clips to [0, 1].
-7. Hyperparameters chosen on held-out goals, not on the eval tasks (§7).
+4. Region latents (±5 trajectory steps) for subgoals and goals; single-state as ablation (§3).
+5. Two stages; same `π_h` network and controller as the baseline (§4).
+6. Report B-clean (only the critic changes) and B-wide (§4).
+7. Cap `ρ ≤ 0.9`, tighter than A's `γ`, and drop samples with raw `ρ̂ ≥ 1` (§5.1).
+8. Hyperparameters chosen on held-out goals, not on the eval tasks (§7).

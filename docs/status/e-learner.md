@@ -29,14 +29,13 @@
   a file with changed `F`/`B`/`π_l` is refused. 117 tests pass. CLI smoke run on CPU (10 steps,
   medium train split): loads, trains, logs, saves.
 - `docs/plans/approach-b.md`: draft plan for approach B, waiting for the user's approval
-  (7 decisions listed in its §10).
+  (8 decisions in its §10). Revised after the merge: `R = 0` for goal latents as A, region
+  latents (d-eval's oracle result), `ρ` cap vs. design's `[0, γ]`, small headroom on medium.
 
 ## Next
 
 - After approval: implement B1 (option targets in JAX, `V_H`, AWR `π_h`, CLI, tests).
 - First GPU job: medium, seeds 0-4. Ready; waits for the user's go (cost question in the brief).
-- Revise `docs/plans/approach-b.md` with the facts from the merge (A's approved `R̂ = 0`,
-  `ρ ≤ γ`, region-mean latents, small headroom on medium).
 
 ## Blockers
 
@@ -52,4 +51,4 @@ For a-frozen (`fbplan/frozen.py`). Updated after reading a-frozen's work in prog
 2. Make `_upstream(module)` public (for example `upstream`), so my tests do not add
    `third_party/ssm` to `sys.path` themselves (marked TODO in two test files).
 3. `load_dataset(...)["terminals"]` = 1 at the last state of each trajectory (non-compact OGBench
-   layout), as upstream `GCDataset` expects. (Checked: the real medium split meets it.)
+   layout), as upstream `GCDataset` expects. (Checked on medium: 1000 trajectories of 1000 steps, every end marked.)
