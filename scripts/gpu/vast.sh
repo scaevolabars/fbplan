@@ -47,12 +47,13 @@ require_ours() {
 }
 
 # remote <instance-id> [command ...]: run a command on the instance over SSH.
+# Goes through vast.ai's SSH proxy (ssh_host:ssh_port), not the direct port that `vastai ssh-url`
+# gives: on the direct port, uploads of 20 MB or more broke, on the proxy 60 MB passed both ways.
 remote() {
-  local url
-  url=$(vastai ssh-url "$1") # ssh://root@HOST:PORT
-  url=${url#ssh://}
+  local info
+  info=$(vastai show instance "$1" --raw)
   shift
-  ssh "${SSH_OPTS[@]}" -p "${url##*:}" "${url%:*}" "$@"
+  ssh "${SSH_OPTS[@]}" -p "$(jq -r .ssh_port <<<"$info")" "root@$(jq -r .ssh_host <<<"$info")" "$@"
 }
 
 wait_for_ssh() {
