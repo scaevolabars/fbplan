@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-30, 02:20. Branch merged with `main` at 3e36461.
+Last update: 2026-10-30, 02:35. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -431,8 +431,14 @@ episodes); ensembles are single runs (T1, code 0be1249). Paired on the same 2,50
 | T1 ensemble, B clean | 80.0 [78.4, 81.6] | +1.6 [−0.6, +3.7], p 0.17 | −0.5 [−2.6, +1.7], p 0.69 |
 | T1 ensemble, B region | 81.0 [79.4, 82.5] | +2.5 [+0.4, +4.6], p 0.024 | +0.5 [−1.7, +2.6], p 0.69 |
 | oracle (privileged, region r 0.5, lookahead 2) | 81.5 [80.0, 83.0] | +3.1 [+0.9, +5.3], p 0.0069 | +1.0 [−1.2, +3.2], p 0.37 |
+| baseline 2× (5 seeds, high_alpha 0.2) | 80.6 [79.1, 81.9] | +2.2 [−0.1, +4.4] | +0.1 [−2.0, +2.3] |
+| B clean 2× (5 seeds) | 80.1 [77.2, 82.0] | +1.6 [−1.6, +4.3] | −0.4 [−3.6, +2.3] |
 
 - With 10 eval seeds, baseline_raw − baseline = +2.0 pp (p 0.07); with 5 seeds it was +3.8.
+- 2× families on 10 eval seeds (seeds 5–9 from the code tree 6c603a3, the code of their seeds
+  0–4): baseline 2× seeds 81.0, 77.9, 81.6, 82.0, 80.5; B clean 2× 80.8, 74.7, 82.5, 81.0,
+  81.2 %. Baseline 2× − retrained = +2.2 [+0.0, +4.4]; B clean 2× − baseline 2× = −0.6
+  [−3.8, +2.3]. The 5-seed reading holds: a π_h tuning effect, no gain of chaining.
 - Headroom bound (f-report): the privileged oracle on eval seeds 0–9 is +3.1 pp over the
   baseline and +1.0 pp (not significant) over baseline_raw; seeds 5–9 ran in the main tree
   (84a8127), the code of its seeds 0–4.
