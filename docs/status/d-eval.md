@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-30, 00:10. Branch merged with `main` at 3e36461.
+Last update: 2026-10-30, 00:20. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -401,8 +401,13 @@ each other, the original retrained baselines and baseline_raw, and the held-out 
 for both families. `--checkpoint retrained:<variant>:<seed>` (new) loads a variant folder of the
 retrained baselines (`baselines/medium/<variant>/seed<k>`); B uses `b:<variant>:<seed>`. These
 jobs need my branch's code on the instance (a separate tree, checked against a committed run).
-The instance stays up; it is destroyed after 30 idle minutes and rented again when the
-checkpoints arrive.
+Instance rule (coordinator, 2026-10-30 00:15; budget raised to $50): instance 58279543 stays up
+while the 2× families and the H1 control are expected; it is destroyed when the coordinator says
+so or when nothing is queued or expected for 2 hours. No automatic destroy watcher runs.
+The 2× jobs run from a third code tree on the instance, `~/fbplan_deval` (d-eval 7b7770f, with
+`retrained:<variant>:<seed>`). Check: from that tree, eval seed 0 of the baseline repeats
+`results/medium/baseline.csv` exactly (250 of 250 records), so its runs pair with all
+committed medium rows.
 
 ## Next
 
