@@ -9,7 +9,7 @@ Status: work in progress. Design and notation: `docs/design.md`.
 ## Setup
 
 ```bash
-git clone --recurse-submodules <this-repo> && cd fbplan
+git clone --recurse-submodules https://github.com/scaevolabars/fbplan.git && cd fbplan
 uv sync                         # or: devbox run setup
 uv run python -m fbplan.frozen  # downloads the 4 frozen checkpoints (73 MB), hash-checked
 uv run pytest                   # or: devbox run test
