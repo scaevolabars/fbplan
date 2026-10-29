@@ -1,4 +1,4 @@
-env,head_agg,n_states,top_speed,rho_min,trusted_pairs,raw_rho_ge_1,wormholes,wormhole_share,max_edge_xy,wormholes_within_xy_cap,longest_geodesic
-antmaze-medium-navigate-v0,min,400,0.2677639126777649,0.3,62200,1118,3385,0.05442122186495177,6.0,1965,28.0669067604448
-antmaze-medium-navigate-v0,min,400,0.2677639126777649,0.5,28962,1118,3353,0.11577239140943305,6.0,1965,26.76556562590318
-antmaze-medium-navigate-v0,min,400,0.2677639126777649,0.7,12146,1118,2997,0.24674790054338877,6.0,1965,26.76556562590318
+rho_min,pairs_above_rho_min,raw_rho_ge_rho_max,trusted_pairs,wormholes,wormhole_share,wormholes_within_xy_cap,longest_geodesic,env,head_agg,n_states,top_speed,max_edge_xy
+0.3,62200,1118,61082,3385,0.05541730788120887,1965,28.0669067604448,antmaze-medium-navigate-v0,min,400,0.2677639126777649,6.0
+0.5,28962,1118,27844,3353,0.1204209165349806,1965,26.76556562590318,antmaze-medium-navigate-v0,min,400,0.2677639126777649,6.0
+0.7,12146,1118,11028,2997,0.2717627856365615,1965,26.76556562590318,antmaze-medium-navigate-v0,min,400,0.2677639126777649,6.0

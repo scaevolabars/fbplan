@@ -8,7 +8,9 @@ from fbplan.contracts import EpisodeRecord
 from fbplan.evaluate import Checkpoint, write_csv
 from fbplan.stats import (
     CHECKPOINT_DEFAULTS,
+    labelled_results,
     load_results,
+    markdown_table,
     mcnemar_p_value,
     paired_comparison,
     paired_table,
@@ -70,7 +72,8 @@ def test_cluster_bootstrap_rejects_missing_task_in_a_cluster():
 
 def test_mcnemar_p_value_matches_exact_binomial_tail():
     assert mcnemar_p_value(10, 0) == pytest.approx(2 * 0.5**10)
-    assert mcnemar_p_value(3, 5) == pytest.approx(2 * sum(math.comb(8, i) for i in range(4)) / 2**8)
+    # 2 * P(Binomial(8, 1/2) <= 3) = 2 * (1 + 8 + 28 + 56) / 256
+    assert mcnemar_p_value(3, 5) == pytest.approx(93 / 128)
     assert mcnemar_p_value(0, 0) == 1.0
     assert mcnemar_p_value(4, 4) == 1.0
 
@@ -169,6 +172,27 @@ def test_row_labels_name_checkpoints_and_several_configs():
         "baseline", "baseline[retrained]/seed0", "baseline[retrained]/seed1",
         "baseline[b-clean]/seed2", "graph_planner@p1", "graph_planner@p2",
     ]
+
+
+def test_labelled_results_keep_the_controller_name_beside_the_row_label(tmp_path):
+    (tmp_path / "sweep").mkdir()
+    write_csv([dataclasses.replace(_record(1, 0, True), method="oracle", config_hash="a1")],
+              tmp_path / "oracle.csv")
+    write_csv([dataclasses.replace(_record(1, 0, True), method="oracle", config_hash="b2")],
+              tmp_path / "sweep" / "r1.csv")
+    paths = [tmp_path / "oracle.csv", tmp_path / "sweep" / "r1.csv"]
+    by_config = labelled_results(paths)
+    assert by_config[["method", "controller"]].values.tolist() == [
+        ["oracle@a1", "oracle"], ["oracle@b2", "oracle"]
+    ]
+    by_path = labelled_results(paths, label_root=tmp_path)
+    assert by_path["method"].tolist() == ["oracle", "sweep/r1"]
+    assert by_path["controller"].tolist() == ["oracle", "oracle"]
+
+
+def test_markdown_table_writes_a_header_a_rule_and_one_line_per_row():
+    df = pd.DataFrame({"method": ["a", "b"], "n": [1, 2]})
+    assert markdown_table(df) == "| method | n |\n|---|---|\n| a | 1 |\n| b | 2 |"
 
 
 def test_summary_table_rejects_results_from_two_envs():

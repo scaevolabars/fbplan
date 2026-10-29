@@ -14,6 +14,10 @@ from fbplan.contracts import Controller
 
 ControllerFactory = Callable[..., Controller]
 
+# Controller names (EpisodeRecord.method) that read privileged information, such as the true
+# maze map. Tables and figures mark them; they are references, not methods.
+PRIVILEGED = frozenset({"oracle"})
+
 ALIASES = {
     "baseline": "fbplan.controllers.baseline:BaselineController",
     "baseline_raw": "fbplan.controllers.baseline:RawBaselineController",

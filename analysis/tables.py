@@ -23,28 +23,25 @@ from pathlib import Path
 
 import pandas as pd
 
+from fbplan.controllers import PRIVILEGED
 from fbplan.stats import (
-    load_results,
+    EPISODE_KEY,
+    labelled_results,
+    markdown_table,
     paired_table,
     pool_label,
-    row_labels,
     summary_table,
     unpaired_comparison,
 )
 
-PRIVILEGED = {"oracle"}  # methods that read privileged information
-UNPAIRED = {"upstream"}  # runs without seeded resets (analysis/parity.py): no episode pairs
+UNPAIRED = {"upstream"}  # controller of analysis/parity.py: resets not seeded, no episode pairs
 
 
-def markdown(df: pd.DataFrame) -> str:
-    """A GitHub Markdown table."""
-    lines = ["| " + " | ".join(map(str, df.columns)) + " |", "|" + "---|" * len(df.columns)]
-    lines += ["| " + " | ".join(map(str, row)) + " |" for row in df.itertuples(index=False)]
-    return "\n".join(lines)
+def success_markdown(table: pd.DataFrame, privileged: set[str]) -> str:
+    """Methods as rows, tasks as columns, cells "mean [low, high]" in percent.
 
-
-def success_markdown(table: pd.DataFrame) -> str:
-    """Methods as rows, tasks as columns, cells "mean [low, high]" in percent."""
+    Rows whose label is in `privileged` get the mark "(privileged)".
+    """
     cells = table.assign(
         cell=[
             f"{100 * r.success:.1f} [{100 * r.ci_low:.1f}, {100 * r.ci_high:.1f}]"
@@ -53,8 +50,8 @@ def success_markdown(table: pd.DataFrame) -> str:
     )
     wide = cells.pivot(index="method", columns="task", values="cell")
     wide = wide.reindex(index=table["method"].unique()).reset_index()
-    wide["method"] = [f"{m} (privileged)" if m in PRIVILEGED else m for m in wide["method"]]
-    return markdown(wide.rename(columns={t: f"task {t}" for t in wide.columns[1:-1]}))
+    wide["method"] = [f"{m} (privileged)" if m in privileged else m for m in wide["method"]]
+    return markdown_table(wide.rename(columns={t: f"task {t}" for t in wide.columns[1:-1]}))
 
 
 def paired_markdown(table: pd.DataFrame) -> str:
@@ -69,7 +66,7 @@ def paired_markdown(table: pd.DataFrame) -> str:
         }
     )
     columns = ["method", "diff (pp)", "only_method", "only_reference", "p (McNemar)", "n_pairs"]
-    return markdown(table[columns])
+    return markdown_table(table[columns])
 
 
 def pooled_paired_markdown(table: pd.DataFrame) -> str:
@@ -87,7 +84,7 @@ def pooled_paired_markdown(table: pd.DataFrame) -> str:
             for lo, hi in zip(diffs["min"], diffs["max"], strict=True)
         ],
     })
-    return markdown(rows)
+    return markdown_table(rows)
 
 
 def unpaired_markdown(df: pd.DataFrame, methods: list[str], reference: str) -> str:
@@ -97,7 +94,13 @@ def unpaired_markdown(df: pd.DataFrame, methods: list[str], reference: str) -> s
         est = unpaired_comparison(df, method, reference)
         diff = f"{100 * est.mean:+.1f} [{100 * est.low:+.1f}, {100 * est.high:+.1f}]"
         rows.append((method, diff, est.n))
-    return markdown(pd.DataFrame(rows, columns=["method", "diff (pp)", "episodes"]))
+    return markdown_table(pd.DataFrame(rows, columns=["method", "diff (pp)", "episodes"]))
+
+
+def same_episodes(df: pd.DataFrame, reference: str) -> set[str]:
+    """Labels whose episodes (EPISODE_KEY) are exactly the reference's, the reference included."""
+    keys = df.groupby("method")[EPISODE_KEY].apply(lambda g: frozenset(map(tuple, g.values)))
+    return set(keys.index[keys == keys[reference]])
 
 
 def main() -> None:
@@ -111,29 +114,42 @@ def main() -> None:
     parser.add_argument("--label-root", type=Path, help="name rows by CSV path below this folder")
     args = parser.parse_args()
 
-    df = load_results(args.csv, label_root=args.label_root)
-    if args.label_root is None:
-        df = df.assign(method=row_labels(df))
-    pooled = args.cluster is not None
+    df = labelled_results(args.csv, label_root=args.label_root)
     for env_name, env_df in df.groupby("env_name"):
-        shown = env_df.assign(method=env_df["method"].map(pool_label)) if pooled else env_df
-        kind = f"cluster bootstrap over {args.cluster}" if args.cluster else "stratified bootstrap"
-        print(f"## {env_name}\n\nSuccess (%), 95 % {kind} CI\n")
-        print(success_markdown(summary_table(shown, cluster=args.cluster)))
-        unpaired = env_df["method"].map(pool_label).isin(UNPAIRED)
-        paired_df = env_df[~unpaired]
-        for reference in [r for r in args.reference if r in set(paired_df["method"])]:
-            if paired_df["method"].nunique() > 1:
-                print(f"\nPaired difference against {reference} (pp = percentage points)\n")
-                paired = paired_table(paired_df, reference)
-                print(paired_markdown(paired))
-                if pooled and shown["method"].nunique() < env_df["method"].nunique():
-                    print("\nPooled methods: mean and range of the paired differences\n")
-                    print(pooled_paired_markdown(paired))
-            if unpaired.any():
-                print(f"\nUnpaired difference against {reference} (resets not seeded)\n")
-                print(unpaired_markdown(env_df, sorted(set(env_df["method"][unpaired])), reference))
-        print()
+        print_env_tables(env_name, env_df, args.reference, args.cluster)
+
+
+def print_env_tables(
+    env_name: str, df: pd.DataFrame, references: list[str], cluster: str | None
+) -> None:
+    """Success table, then paired (and unpaired) comparisons against each reference."""
+    shown = df.assign(method=df["method"].map(pool_label)) if cluster else df
+    kind = f"cluster bootstrap over {cluster}" if cluster else "stratified bootstrap"
+    print(f"## {env_name}\n\nSuccess (%), 95 % {kind} CI\n")
+    privileged = set(shown["method"][shown["controller"].isin(PRIVILEGED)])
+    print(success_markdown(summary_table(shown, cluster=cluster), privileged))
+    unpaired = df["controller"].isin(UNPAIRED)
+    paired_df = df[~unpaired]
+    for reference in references:
+        if reference not in set(paired_df["method"]):
+            print(f"\nNo comparison against {reference}: no seeded run has that label.")
+            continue
+        pairs_with_reference = same_episodes(paired_df, reference)
+        others = sorted(set(paired_df["method"]) - pairs_with_reference)
+        if others:
+            print(f"\nNot paired with {reference} (other episodes): {', '.join(others)}")
+        if len(pairs_with_reference) > 1:
+            print(f"\nPaired difference against {reference} (pp = percentage points)\n")
+            paired = paired_table(paired_df[paired_df["method"].isin(pairs_with_reference)],
+                                  reference)
+            print(paired_markdown(paired))
+            if cluster and shown["method"].nunique() < df["method"].nunique():
+                print("\nPooled methods: mean and range of the paired differences\n")
+                print(pooled_paired_markdown(paired))
+        if unpaired.any():
+            print(f"\nUnpaired difference against {reference} (resets not seeded)\n")
+            print(unpaired_markdown(df, sorted(set(df["method"][unpaired])), reference))
+    print()
 
 
 if __name__ == "__main__":

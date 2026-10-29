@@ -4,13 +4,15 @@
         [--label-root results/medium] [--cluster config_hash] [--out-dir results/figures]
 
 One PNG per env: success (%) per task and overall, one dot per method with its 95 %
-stratified bootstrap CI as a whisker. Each method keeps the same color in every figure.
-Rows are named and pooled as in analysis/tables.py (--label-root, --cluster).
+stratified bootstrap CI as a whisker. The methods in METHOD_COLORS keep their color in every
+figure; other methods take the colors of OTHER_COLORS in name order, cycling when there are
+more. Rows are named and pooled as in analysis/tables.py (--label-root, --cluster).
 """
 
 from __future__ import annotations
 
 import argparse
+from itertools import cycle
 from pathlib import Path
 
 import matplotlib
@@ -19,7 +21,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
 
-from fbplan.stats import load_results, pool_label, row_labels, summary_table  # noqa: E402
+from fbplan.controllers import PRIVILEGED  # noqa: E402
+from fbplan.stats import labelled_results, pool_label, summary_table  # noqa: E402
 
 # Fixed color per method (reference categorical order). The privileged oracle is neutral gray.
 METHOD_COLORS = {
@@ -31,12 +34,13 @@ INK, MUTED, GRID = "#0b0b0b", "#52514e", "#e4e3df"
 
 
 def method_colors(methods: list[str]) -> dict[str, str]:
-    """Known methods get their fixed color; others take the remaining colors in name order."""
+    """Known methods get their fixed color; others take OTHER_COLORS in name order, cycling."""
     others = sorted(m for m in methods if m not in METHOD_COLORS)
-    return {**METHOD_COLORS, **dict(zip(others, OTHER_COLORS, strict=False))}
+    return {**METHOD_COLORS, **dict(zip(others, cycle(OTHER_COLORS)))}
 
 
-def plot_env(table: pd.DataFrame, env_name: str, path: Path) -> None:
+def plot_env(table: pd.DataFrame, env_name: str, path: Path, privileged: set[str]) -> None:
+    """Rows whose label is in `privileged` get the mark "(privileged)" in the legend."""
     methods = list(table["method"].unique())
     colors = method_colors(methods)
     tasks = list(table["task"].unique())
@@ -47,7 +51,7 @@ def plot_env(table: pd.DataFrame, env_name: str, path: Path) -> None:
         x = [i - 0.35 + width * (k + 0.5) for i in range(len(tasks))]
         y = 100 * rows["success"]
         err = [y - 100 * rows["ci_low"], 100 * rows["ci_high"] - y]
-        label = f"{method} (privileged)" if method == "oracle" else method
+        label = f"{method} (privileged)" if method in privileged else method
         ax.errorbar(x, y, yerr=err, fmt="o", ms=6, lw=2, capsize=0, color=colors[method],
                     label=label)
     ax.set_xticks(range(len(tasks)), [f"task {t}" if t != "all" else "overall" for t in tasks])
@@ -75,14 +79,13 @@ def main() -> None:
     parser.add_argument("--cluster", help="column of a shared random factor, e.g. config_hash")
     parser.add_argument("--out-dir", type=Path, default=Path("results/figures"))
     args = parser.parse_args()
-    df = load_results(args.csv, label_root=args.label_root)
-    if args.label_root is None:
-        df = df.assign(method=row_labels(df))
+    df = labelled_results(args.csv, label_root=args.label_root)
     if args.cluster is not None:
         df = df.assign(method=df["method"].map(pool_label))
     for env_name, env_df in df.groupby("env_name"):
         path = args.out_dir / f"success_{env_name}.png"
-        plot_env(summary_table(env_df, cluster=args.cluster), env_name, path)
+        privileged = set(env_df["method"][env_df["controller"].isin(PRIVILEGED)])
+        plot_env(summary_table(env_df, cluster=args.cluster), env_name, path, privileged)
         print(path)
 
 
