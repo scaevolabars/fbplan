@@ -6,6 +6,8 @@ Tests that need a checkpoint or an OGBench file skip when the file is absent.
 
 from __future__ import annotations
 
+import hashlib
+import io
 import pickle
 import urllib.request
 from pathlib import Path
@@ -113,6 +115,138 @@ def test_download_checkpoint_does_not_use_the_network_when_files_are_present(mon
 def test_checkpoint_names_outside_the_four_navigate_envs_are_refused():
     with pytest.raises(ValueError, match="antmaze-medium-stitch-v0"):
         frozen.checkpoint_dir("antmaze-medium-stitch-v0")
+
+
+TRAINED_KEY = "baselines/medium/seed0"
+RELEASE = "https://github.com/scaevolabars/fbplan/releases/download/trained-test"
+TRAINED_ASSETS = {
+    f"{RELEASE}/baselines-medium-seed0-flags.json": b'{"seed": 0}',
+    f"{RELEASE}/baselines-medium-seed0-params.pkl": pickle.dumps({"w": np.ones(3)}),
+}
+
+
+class FakeServer:
+    """Stands in for urllib.request.urlopen: serves fixed bytes per URL, records requests."""
+
+    def __init__(self, assets: dict[str, bytes]):
+        self.assets = assets
+        self.requested: list[str] = []
+
+    def urlopen(self, url: str) -> io.BytesIO:
+        self.requested.append(url)
+        return io.BytesIO(self.assets[url])
+
+
+def _pin(assets: dict[str, bytes], tag: str) -> dict[str, tuple[str, str]]:
+    """Table entry for one trained checkpoint: file name -> (release tag, sha256)."""
+    return {
+        url.rsplit("-", 1)[-1]: (tag, hashlib.sha256(content).hexdigest())
+        for url, content in assets.items()
+    }
+
+
+@pytest.fixture
+def release(monkeypatch, tmp_path) -> FakeServer:
+    """One published trained checkpoint, a fake GitHub release and an empty HOME."""
+    server = FakeServer(dict(TRAINED_ASSETS))
+    monkeypatch.setattr(
+        frozen, "_TRAINED_FILES", {TRAINED_KEY: _pin(TRAINED_ASSETS, "trained-test")}
+    )
+    monkeypatch.setattr(urllib.request, "urlopen", server.urlopen)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    return server
+
+
+def test_download_trained_fetches_the_pinned_release_assets(release, tmp_path):
+    target = frozen.download_trained(TRAINED_KEY, tmp_path / "ckpt")
+
+    assert target == tmp_path / "ckpt"
+    assert release.requested == list(TRAINED_ASSETS)
+    for url, content in TRAINED_ASSETS.items():
+        assert (target / url.rsplit("-", 1)[-1]).read_bytes() == content
+
+
+def test_download_trained_defaults_to_the_cache_layout_of_the_trainers(release, tmp_path):
+    target = frozen.download_trained(TRAINED_KEY)
+
+    assert target == tmp_path / "home" / ".cache" / "fbplan" / "baselines" / "medium" / "seed0"
+    assert (target / "params.pkl").exists()
+
+
+def test_download_trained_refuses_an_asset_with_a_wrong_hash(release, tmp_path):
+    release.assets[f"{RELEASE}/baselines-medium-seed0-params.pkl"] = b"changed"
+
+    with pytest.raises(ValueError, match="sha256"):
+        frozen.download_trained(TRAINED_KEY, tmp_path / "ckpt")
+    assert sorted(p.name for p in (tmp_path / "ckpt").iterdir()) == ["flags.json"]
+
+
+def test_download_trained_checks_present_files_without_the_network(release, tmp_path):
+    target = frozen.download_trained(TRAINED_KEY, tmp_path / "ckpt")
+    release.requested.clear()
+
+    frozen.download_trained(TRAINED_KEY, target)
+    assert release.requested == []
+
+    (target / "flags.json").write_text('{"seed": 1}')
+    with pytest.raises(ValueError, match="sha256"):
+        frozen.download_trained(TRAINED_KEY, target)
+
+
+def test_download_trained_refuses_an_unpublished_checkpoint(release):
+    with pytest.raises(ValueError, match="baselines/medium/seed9 is not published"):
+        frozen.download_trained("baselines/medium/seed9")
+
+
+def test_concurrent_downloads_of_one_file_give_the_complete_file(monkeypatch, tmp_path):
+    """Parallel eval workers can download the same missing file at the same time."""
+    content = b"x" * 100
+    path = tmp_path / "params.pkl"
+    sha256 = hashlib.sha256(content).hexdigest()
+
+    class SecondDownloadDuringFirst(io.BytesIO):
+        started_second = False
+
+        def read(self, *args):
+            # The second download starts and finishes after the first has opened its file.
+            if not self.started_second:
+                self.started_second = True
+                monkeypatch.setattr(urllib.request, "urlopen", lambda url: io.BytesIO(content))
+                frozen._download("https://example.org/params.pkl", path, sha256)
+            return super().read(*args)
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url: SecondDownloadDuringFirst(content))
+    frozen._download("https://example.org/params.pkl", path, sha256)
+
+    assert path.read_bytes() == content
+    assert [p.name for p in tmp_path.iterdir()] == ["params.pkl"]
+
+
+def test_cli_with_trained_downloads_the_frozen_and_the_trained_checkpoints(
+    release, monkeypatch, tmp_path
+):
+    frozen_assets = {
+        frozen._DRIVE_URL.format("flags-id"): b"{}",
+        frozen._DRIVE_URL.format("params-id"): b"params",
+    }
+    release.assets |= frozen_assets
+    monkeypatch.setattr(
+        frozen,
+        "_CHECKPOINT_FILES",
+        {
+            "medium": {
+                "flags.json": ("flags-id", hashlib.sha256(b"{}").hexdigest()),
+                "params.pkl": ("params-id", hashlib.sha256(b"params").hexdigest()),
+            }
+        },
+    )
+    monkeypatch.setenv("FBPLAN_CKPT_DIR", str(tmp_path / "frozen"))
+
+    frozen.main(["--trained", MEDIUM])
+
+    assert (tmp_path / "frozen" / "medium" / "params.pkl").read_bytes() == b"params"
+    trained = tmp_path / "home" / ".cache" / "fbplan" / TRAINED_KEY
+    assert sorted(p.name for p in trained.iterdir()) == ["flags.json", "params.pkl"]
 
 
 def test_restored_parameters_equal_the_checkpoint_arrays(model):
