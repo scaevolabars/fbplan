@@ -142,3 +142,26 @@ def test_resolve_controller_accepts_aliases_and_module_paths():
 def test_resolve_controller_rejects_unknown_names():
     with pytest.raises(ValueError, match="unknown controller"):
         resolve_controller("planner-that-does-not-exist")
+
+
+def test_geodesic_distance_is_euclidean_inside_an_open_area():
+    a, b = MEDIUM.centre((1, 1)), MEDIUM.centre((2, 2))  # the 2x2 open block at the top left
+    np.testing.assert_allclose(MEDIUM.geodesic_distances(a[None], b[None]), [[np.hypot(4, 4)]])
+
+
+def test_geodesic_distance_bends_at_wall_corners():
+    # From (4, 0) around wall cell (2, 3) [x 6..10, y 2..6] to (12, 4): via corners (6, 6), (10, 6).
+    a, b = MEDIUM.centre((1, 2)), MEDIUM.centre((2, 4))
+    expected = np.hypot(2, 6) + 4 + np.hypot(2, 2)
+    np.testing.assert_allclose(MEDIUM.geodesic_distances(a[None], b[None]), [[expected]])
+
+
+def test_geodesic_distances_are_symmetric_and_bounded_by_cell_paths():
+    centres = np.stack([MEDIUM.centre(c) for c in MEDIUM.free_cells()])
+    dist = MEDIUM.geodesic_distances(centres, centres)
+    np.testing.assert_allclose(dist, dist.T, atol=1e-9)
+    euclid = np.linalg.norm(centres[:, None] - centres[None], axis=-1)
+    cell_steps = np.stack([MEDIUM.bfs_steps(c)[tuple(zip(*MEDIUM.free_cells(), strict=True))]
+                           for c in MEDIUM.free_cells()])
+    assert np.all(dist >= euclid - 1e-9)
+    assert np.all(dist <= MEDIUM.unit * cell_steps + 1e-9)

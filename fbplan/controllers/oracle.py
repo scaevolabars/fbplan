@@ -9,6 +9,7 @@ It is a diagnostic, not a method: label it privileged in every table.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 
 import gymnasium as gym
 import numpy as np
@@ -18,6 +19,25 @@ from fbplan.frozen import load_dataset, make_env
 
 Cell = tuple[int, int]
 _NEIGHBOURS = ((-1, 0), (0, -1), (1, 0), (0, 1))  # OGBench get_oracle_subgoal order
+_WALL_SHRINK = 1e-6  # lets a path touch a wall edge or corner without entering the wall
+_CHUNK_ELEMENTS = 2_000_000  # memory bound for the broadcasted pair computations
+
+
+def _pairwise(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    return np.linalg.norm(a[:, None] - b[None], axis=-1)
+
+
+def _row_chunks(n_rows: int, row_size: int):
+    step = max(1, _CHUNK_ELEMENTS // max(row_size, 1))
+    return (slice(i, i + step) for i in range(0, n_rows, step))
+
+
+def _min_plus(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """(x ⊗ y)[i, j] = min_k x[i, k] + y[k, j]: path lengths through one intermediate node."""
+    out = np.empty((x.shape[0], y.shape[1]))
+    for rows in _row_chunks(x.shape[0], y.size):
+        out[rows] = np.min(x[rows, :, None] + y[None], axis=1)
+    return out
 
 
 @dataclass(frozen=True)
@@ -78,6 +98,60 @@ class MazeGeometry:
         if steps[cell] == 0:
             return cell
         return next(nb for nb in self._free_neighbours(cell) if steps[nb] == steps[cell] - 1)
+
+    @cached_property
+    def _wall_boxes(self) -> np.ndarray:
+        """[W, 4] (x_min, y_min, x_max, y_max) of each wall cell, shrunk by _WALL_SHRINK."""
+        centres = np.stack([self.centre((i, j)) for i, j in np.argwhere(self.maze_map == 1)])
+        half = 0.5 * self.unit - _WALL_SHRINK
+        return np.concatenate([centres - half, centres + half], axis=1)
+
+    def _visible(self, p: np.ndarray, q: np.ndarray) -> np.ndarray:
+        """[N, M]: True where the segment from p_i to q_j enters no wall (slab test)."""
+        lo, hi = self._wall_boxes[:, :2], self._wall_boxes[:, 2:]
+        out = np.empty((len(p), len(q)), dtype=bool)
+        for rows in _row_chunks(len(p), len(q) * len(lo) * 2):
+            start = p[rows, None, None, :]  # [n, 1, 1, 2]
+            delta = (q[None] - p[rows, None])[:, :, None, :]  # [n, M, 1, 2]
+            parallel = delta == 0
+            inside = (start > lo) & (start < hi)  # [n, 1, W, 2]
+            with np.errstate(divide="ignore", invalid="ignore"):
+                t_lo, t_hi = (lo - start) / delta, (hi - start) / delta
+            t_in = np.where(parallel, np.where(inside, -np.inf, np.inf), np.minimum(t_lo, t_hi))
+            t_out = np.where(parallel, np.where(inside, np.inf, -np.inf), np.maximum(t_lo, t_hi))
+            enter, leave = t_in.max(-1), t_out.min(-1)  # [n, M, W]
+            out[rows] = ~((enter < leave) & (leave > 0) & (enter < 1)).any(-1)
+        return out
+
+    @cached_property
+    def _corner_graph(self) -> tuple[np.ndarray, np.ndarray]:
+        """Bend corners and the shortest distances between them (Floyd-Warshall).
+
+        A shortest path among square walls bends only at grid vertices where exactly one of
+        the four cells around the vertex is a wall (a convex wall corner).
+        """
+        walls = np.pad(self.maze_map == 1, 1, constant_values=True).astype(int)
+        n_walls = walls[:-1, :-1] + walls[:-1, 1:] + walls[1:, :-1] + walls[1:, 1:]
+        vi, vj = np.nonzero(n_walls == 1)  # vertex = (min x, min y) corner of cell (vi, vj)
+        corners = np.stack([(vj - 0.5) * self.unit - self.offset_xy[0],
+                            (vi - 0.5) * self.unit - self.offset_xy[1]], axis=1)
+        dist = np.where(self._visible(corners, corners), _pairwise(corners, corners), np.inf)
+        for k in range(len(corners)):
+            dist = np.minimum(dist, dist[:, k : k + 1] + dist[k : k + 1, :])
+        return corners, dist
+
+    def geodesic_distances(self, a_xy: np.ndarray, b_xy: np.ndarray) -> np.ndarray:
+        """[N, M] length of the shortest path in free space (walls solid, agent a point).
+
+        Exact for square walls: the path is straight or bends at convex wall corners.
+        Unreachable pairs get inf.
+        """
+        corners, between = self._corner_graph
+        a_to_c = np.where(self._visible(a_xy, corners), _pairwise(a_xy, corners), np.inf)
+        b_to_c = np.where(self._visible(b_xy, corners), _pairwise(b_xy, corners), np.inf)
+        via_corners = _min_plus(_min_plus(a_to_c, between), b_to_c.T)
+        direct = np.where(self._visible(a_xy, b_xy), _pairwise(a_xy, b_xy), np.inf)
+        return np.minimum(direct, via_corners)
 
     def path(self, start: Cell, goal: Cell) -> list[Cell]:
         """Shortest cell path from start to goal, both included."""
