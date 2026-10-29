@@ -9,11 +9,16 @@ import pytest
 from gymnasium.spaces import Box
 from gymnasium.wrappers import TimeLimit
 
-from fbplan import frozen
+from fbplan import evaluate, frozen, train_high
 from fbplan.contracts import TaskSpec
 from fbplan.controllers import resolve_controller
+from fbplan.controllers.oracle import MazeGeometry
 from fbplan.evaluate import (
+    HELDOUT_OFFSET,
+    Checkpoint,
     config_hash,
+    goal_latent,
+    load_heldout_goals,
     main,
     make_tasks,
     parse_options,
@@ -21,8 +26,12 @@ from fbplan.evaluate import (
     run_episode,
     run_episodes,
     run_parallel,
+    select_heldout_goals,
+    task_latent,
     write_csv,
 )
+from fbplan.learned import train_b
+from fbplan.stats import CHECKPOINT_DEFAULTS, load_results
 
 ENV_NAME = "point-test-v0"
 TIME_LIMIT = 50
@@ -188,8 +197,45 @@ def test_csv_round_trip_keeps_records(tmp_path):
     records = run_episodes(_GreedyController(), [_task(1)], [0], 2, env_factory=_make_point_env)
     path = tmp_path / "out" / "result.csv"
     write_csv(records, path)
-    expected = pd.DataFrame([dataclasses.asdict(r) for r in records])
-    pd.testing.assert_frame_equal(pd.read_csv(path), expected)
+    expected = pd.DataFrame([dataclasses.asdict(r) for r in records]).assign(**CHECKPOINT_DEFAULTS)
+    pd.testing.assert_frame_equal(pd.read_csv(path, keep_default_na=False), expected)
+
+
+def test_write_csv_adds_the_checkpoint_to_every_row(tmp_path):
+    records = run_episodes(_GreedyController(), [_task(1)], [0], 2, env_factory=_make_point_env)
+    write_csv(records, tmp_path / "provided.csv")
+    write_csv(records, tmp_path / "b.csv", Checkpoint("b", "clean", 2))
+    df = load_results([tmp_path / "provided.csv", tmp_path / "b.csv"])
+    assert df[list(CHECKPOINT_DEFAULTS)].values.tolist() == (
+        [["provided", "", -1]] * 2 + [["b", "clean", 2]] * 2
+    )
+
+
+def test_checkpoint_parse_reads_provided_retrained_and_b_specs():
+    assert Checkpoint.parse("provided") == Checkpoint()
+    assert Checkpoint.parse("retrained:3") == Checkpoint("retrained", "", 3)
+    assert Checkpoint.parse("b:clean:2") == Checkpoint("b", "clean", 2)
+    assert Checkpoint().columns() == CHECKPOINT_DEFAULTS
+
+
+@pytest.mark.parametrize("spec", ["retrained", "retrained:x", "b:clean", "provided:1", "other:1"])
+def test_checkpoint_parse_rejects_malformed_specs(spec):
+    with pytest.raises(ValueError, match="checkpoint"):
+        Checkpoint.parse(spec)
+
+
+def test_checkpoint_load_calls_the_loader_of_its_kind(monkeypatch):
+    calls = []
+    monkeypatch.setattr(evaluate, "load_model", lambda env: calls.append(("provided", env)))
+    monkeypatch.setattr(
+        train_high, "load_baseline_model", lambda env, seed: calls.append(("retrained", env, seed))
+    )
+    monkeypatch.setattr(
+        train_b, "load_b_model", lambda env, variant, seed: calls.append(("b", env, variant, seed))
+    )
+    for spec in ("provided", "retrained:3", "b:wide:1"):
+        Checkpoint.parse(spec).load("env")
+    assert calls == [("provided", "env"), ("retrained", "env", 3), ("b", "env", "wide", 1)]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -250,6 +296,40 @@ def test_parse_options_rejects_items_without_equals_sign():
 MEDIUM = "antmaze-medium-navigate-v0"
 
 
+def test_heldout_goals_are_far_from_eval_goals_and_start_at_eval_task_distances():
+    env = frozen.make_env(MEDIUM)
+    maze, infos = MazeGeometry.from_env(env), env.unwrapped.task_infos
+    to_eval_goal = [maze.bfs_steps(tuple(t["goal_ij"])) for t in infos]
+    lengths = [steps[tuple(t["init_ij"])] for steps, t in zip(to_eval_goal, infos, strict=True)]
+    goals = select_heldout_goals(env)
+    assert [g.task_id for g in goals] == [HELDOUT_OFFSET + k for k in range(1, 11)]
+    assert len({g.goal_ij for g in goals}) == len(goals)
+    for g in goals:
+        assert min(steps[g.goal_ij] for steps in to_eval_goal) >= 2
+        assert min(lengths) <= maze.bfs_steps(g.goal_ij)[g.init_ij] <= max(lengths)
+        np.testing.assert_array_equal(g.goal_xy, env.unwrapped.ij_to_xy(g.goal_ij))
+    assert select_heldout_goals(frozen.make_env(MEDIUM)) == goals
+
+
+@pytest.mark.parametrize(
+    "env_name", [MEDIUM, "antmaze-large-navigate-v0", "antmaze-giant-navigate-v0"]
+)
+def test_saved_heldout_goals_equal_the_selection(env_name):
+    assert load_heldout_goals(env_name) == select_heldout_goals(frozen.make_env(env_name))
+
+
+def test_real_env_runs_heldout_goals_from_their_start_cells():
+    goals = load_heldout_goals(MEDIUM)[:2]
+    tasks = make_tasks(MEDIUM, [g.task_id for g in goals], lambda _: np.zeros(128))
+    controller = _StillController(act_dim=8)
+    records = run_episodes(controller, tasks, [0], 1)
+    assert [(r.task_id, r.steps) for r in records] == [(g.task_id, 1000) for g in goals]
+    env = frozen.make_env(MEDIUM).unwrapped
+    for goal, task, obs in zip(goals, tasks, controller.first_obs, strict=True):
+        np.testing.assert_array_equal(task.goal_xy, goal.goal_xy)
+        assert np.linalg.norm(obs[:2] - env.ij_to_xy(goal.init_ij)) < 2.0
+
+
 @pytest.fixture(scope="module")
 def medium_model() -> frozen.FrozenFBModel:
     if not (frozen.checkpoint_dir(MEDIUM) / "params.pkl").exists():
@@ -277,6 +357,28 @@ def test_raw_baseline_equals_baseline_for_a_task_latent_of_norm_sqrt_d(medium_mo
         controller.reset(task, seed=0)
     for o in obs:
         np.testing.assert_allclose(raw.act(o), baseline.act(o), atol=1e-5)
+
+
+def test_task_latent_infers_eval_tasks_upstream_and_heldout_goals_the_same_way(medium_model):
+    info = frozen.make_env(MEDIUM).unwrapped.task_infos[1]
+    z_task = medium_model.infer_task_latent(2)
+    np.testing.assert_array_equal(goal_latent(medium_model, tuple(info["goal_ij"])), z_task)
+    np.testing.assert_array_equal(task_latent(medium_model, 2), z_task)
+    goal = load_heldout_goals(MEDIUM)[0]
+    np.testing.assert_array_equal(
+        task_latent(medium_model, goal.task_id), goal_latent(medium_model, goal.goal_ij)
+    )
+
+
+def test_cli_runs_a_heldout_goal_with_a_retrained_checkpoint(medium_model, tmp_path):
+    if not (train_high.baseline_dir(MEDIUM, 0) / "params.pkl").exists():
+        pytest.skip("retrained medium baseline seed 0 absent")
+    out = tmp_path / "retrained.csv"
+    task_id = HELDOUT_OFFSET + 1
+    argv = ["--method", "baseline", "--checkpoint", "retrained:0", "--tasks", str(task_id)]
+    main([*argv, "--episodes", "1", "--out", str(out)])
+    df = load_results([out])
+    assert df[["task_id", *CHECKPOINT_DEFAULTS]].values.tolist() == [[task_id, "retrained", "", 0]]
 
 
 def test_cli_writes_one_record_per_episode(medium_model, tmp_path):

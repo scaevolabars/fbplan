@@ -51,6 +51,15 @@ class PairedResult:
     p_value: float  # exact two-sided McNemar test
 
 
+# Columns that fbplan.evaluate.write_csv adds to every row: which pi_h the frozen model carried.
+# Older CSVs have none; they all used the provided checkpoint.
+CHECKPOINT_DEFAULTS: dict[str, object] = {
+    "checkpoint_kind": "provided",
+    "checkpoint_variant": "",
+    "checkpoint_seed": -1,
+}
+
+
 def load_results(paths: Iterable[Path], label_root: Path | None = None) -> pd.DataFrame:
     """Concatenate result CSVs written by `fbplan.evaluate.write_csv`.
 
@@ -59,7 +68,9 @@ def load_results(paths: Iterable[Path], label_root: Path | None = None) -> pd.Da
     get readable names; the config hash stays in its own column.
     """
     paths = list(paths)
-    frames = [pd.read_csv(path) for path in paths]
+    # Text columns stay text: a hash such as "58e23249" would otherwise parse as a float.
+    text = {"method": str, "config_hash": str, "env_name": str, "checkpoint_variant": str}
+    frames = [pd.read_csv(path, dtype=text, keep_default_na=False) for path in paths]
     if label_root is not None:
         frames = [
             frame.assign(method=Path(path).relative_to(label_root).with_suffix("").as_posix())
@@ -69,13 +80,35 @@ def load_results(paths: Iterable[Path], label_root: Path | None = None) -> pd.Da
     missing = {f.name for f in dataclasses.fields(EpisodeRecord)} - set(df.columns)
     if missing:
         raise ValueError(f"result CSVs miss columns {sorted(missing)}")
-    return df.astype({"success": bool})
+    checkpoint = {
+        column: df[column].fillna(default) if column in df else default
+        for column, default in CHECKPOINT_DEFAULTS.items()
+    }
+    return df.assign(**checkpoint).astype(
+        {"success": bool, "checkpoint_kind": str, "checkpoint_variant": str, "checkpoint_seed": int}
+    )
+
+
+def row_labels(df: pd.DataFrame) -> pd.Series:
+    """A readable label per row of load_results output.
+
+    The method name, then "[kind]" or "[b-variant]" for a trained pi_h, then "@config_hash" when
+    that name has several configs, then "/seed<k>" for the training seed of a trained pi_h.
+    """
+    kind, variant = df["checkpoint_kind"], df["checkpoint_variant"]
+    trained = kind != "provided"
+    tag = kind.where(variant == "", kind + "-" + variant)
+    base = df["method"].where(~trained, df["method"] + "[" + tag + "]")
+    n_configs = df.groupby(base)["config_hash"].transform("nunique")
+    label = base.where(n_configs == 1, base + "@" + df["config_hash"])
+    return label.where(~trained, label + "/seed" + df["checkpoint_seed"].astype(str))
 
 
 def pool_label(label: str) -> str:
-    """The method that a row label belongs to: "planner/l0" (label_root) -> "planner",
-    "name@hash" (one config of several) -> "name"."""
-    return label.split("/")[0].split("@")[0]
+    """The label that pools a row with its cluster: the part before "/" ("planner/l0" ->
+    "planner", "baseline[retrained]/seed3" -> "baseline[retrained]"), else the part before "@"
+    (configs of one method: "name@hash" -> "name")."""
+    return label.split("/")[0] if "/" in label else label.split("@")[0]
 
 
 def _quantiles(draws: np.ndarray, level: float) -> tuple[float, float]:
