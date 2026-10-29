@@ -1,6 +1,6 @@
 # Status: f-report
 
-Last update: 2026-10-30, 02:03. Branch merged with `main` at 4c2ee44.
+Last update: 2026-10-30, 02:20. Branch merged with `main` at 0433cf3.
 
 ## Done
 
@@ -163,6 +163,29 @@ Last update: 2026-10-30, 02:03. Branch merged with `main` at 4c2ee44.
     step), §11, appendix.
   - Not done: a 10-seed figure. `analysis/plots.py` cycles red and green over 9 series, so the
     figure could not tell the methods apart; the tables carry the numbers.
+- After the merge of 0433cf3 (2× experiment, medium oracle on 10 eval seeds, T3, T4, held-out
+  ensembles; coordinator: close B as negative, H1 cancelled):
+  - §8.5 is now "why it gives no gain", with finding 4: at matched 2× sharpness B-clean 80.2 %
+    against the baseline at 2× 80.9 % (−0.8 pp [−4.3, +2.5]), both at `baseline_raw` (+0.1, −0.6);
+    reading: `π_h` tuning effect, no gain of chaining. The selected seed's pass does not carry
+    over: at 0.210 the family is −0.6 pp against raw; selected B-2× seed 3 +0.2 pp; selected
+    B-clean seed 2 level with the selected baseline 2× (+1.2 pp, p 0.43). Conclusion written.
+  - New in finding 4 (not in the coordinator's message): with one temperature, B-clean seed 3
+    recovers (75.8 → 81.0 %), but seed 1 stays low in both families (B 75.0 %, baseline 77.2 %;
+    5.4–7.8 and 4.1–5.4 pp below each other seed) and fails task 4 (36.4 %, 48.4 %). So finding 2
+    now says "partly by the temperature". At 2× both families gain on tasks 1, 2, 5 and lose on
+    task 4.
+  - Multiplicity: T4 adds 2 B ensembles, so 10 B tests on the final protocol; Holm-adjusted p of
+    the selected seed 10 × 0.0466 = 0.47 (0.37 over the 8 before T4, kept in a bracket).
+  - §8.6: T3 (fails, −9.7 pp; selection on teleport held-out goals), T4 (no gain; B-region margin
+    over the retrained ensemble +0.9 pp, p 0.44, on the raw path), held-out ensembles (B-region
+    ahead, +2.2 and +4.3 pp, the second p 0.034), 2× and H1 rows filled. B-region is ahead of the
+    retrained ensemble in all four comparisons, significant in two; stated as an open point that
+    does not isolate the critic.
+  - Oracle on 10 eval seeds: +1.0 pp [−1.2, +3.2] against `baseline_raw` (+3.1 against
+    `baseline`); §1, §7.1, §8.2, §8.4, §8.5, §9 use it.
+  - Teleport baselines on 10 eval seeds in §6 (normalized +2.5 pp, p 0.011); T3 bullet in §7.3.
+  - §1, status line, §5 gate, §9, §10, §11, appendix (2× families, T4, T3 rows).
 - Private defense sheet for the reviewer call (coordinator request): written outside the
   repository, not committed; updated for B, the seed selection, the ablations, giant, and the
   10-seed protocol and T1.
@@ -174,10 +197,10 @@ Last update: 2026-10-30, 02:03. Branch merged with `main` at 4c2ee44.
 
 | # | Result | Report section | Owner | Expected place |
 |---|---|---|---|---|
-| 1 | AWR sharpness at 2× (design.md §8): baseline and B-clean, 5 seeds each, and the control H1 (`V_H = V_1`); decides B's conclusion | §1, §5, §8.5, §8.6, §9, §10 | e-learner (training), d-eval (evaluation) | `results/medium/` |
-| 2 | T2 (log-ratio baseline `π_h`), T4 (ensembles through the raw input path), T1 and T4 on the medium held-out goals; T3 (trap-aware controller on teleport, 10 eval seeds, with teleport baseline rows on seeds 5–9) | §8.6, §1, §9 | e-learner, d-eval, b-theory | `results/medium_10seeds/`, `results/teleport/` |
+| 1 | 10-seed rows of the 2× experiment (baseline 2× and B-clean 2× on eval seeds 5–9) | §8.5 finding 4 | d-eval | `results/medium_10seeds/` |
+| 2 | T2 (log-ratio baseline `π_h`, 5 seeds, 10 eval seeds and held-out selection) | §8.6, §1, §9 | e-learner, d-eval | `results/medium_10seeds/` |
 | 3 | route plots of A on medium and large, committed | §8.4 point 8 | c-planner | `docs/figures/report/` or c-planner's results |
-| 4 | optional: medium oracle (and non-hier) on eval seeds 5–9, so the headroom bound uses the final protocol | §8.2, §1 | d-eval | `results/medium_10seeds/` |
+| 4 | non-hier and approach A on eval seeds 5–9 (optional) | §7.1 | d-eval | `results/medium_10seeds/` |
 | 5 | giant: optional `baseline_raw` | §7.3 | d-eval | `results/giant/` |
 | 6 | large: retrained baselines; failure classes of the A variants | §7.2 | d-eval | `results/large/` |
 | 7 | whether the wormholes that the xy cap leaves cross a wall (a column of the calibration CSV) | §8.3, §4 | d-eval | `results/calibration/` |
@@ -188,8 +211,8 @@ with the giant wording adjusted to the Linux giant runs (oracle +2.0 pp, signifi
 
 ## Next
 
-- Fill each row of §8.6 as its result lands (T2, T3, T4, 2×, H1), by the readings of design.md §8.
-  When 2× and H1 land: B's conclusion in §8.5, then §1, §5, §9, §10.
+- When T2 lands: its row in §8.6 by the reading of design.md §8, then §1 and §9. When the 10-seed
+  rows of 2× land: finding 4 of §8.5.
 - Then the other items above.
 - Merge `main` when new results are merged.
 
