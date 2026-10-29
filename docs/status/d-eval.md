@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-30, 01:25. Branch merged with `main` at 3e36461.
+Last update: 2026-10-30, 01:45. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -448,6 +448,28 @@ episodes); ensembles are single runs (T1, code 0be1249). Paired on the same 2,50
   seeds 5–9 are queued in the main tree (84a8127, the code of their seeds 0–4).
 - Code tree for these: `~/fbplan_deval` at 6c603a3 (main merged; it repeats the committed
   baseline seed 0 exactly).
+
+T4 result (medium, eval seeds 0–9, 2,500 episodes per run; `results/medium_10seeds/
+ensemble_raw_<family>.csv`; T1 rows for comparison):
+
+| ensemble | input path | success [95 % CI] | vs baseline (pp) | vs baseline_raw (pp) | vs retrained ensemble, same path (pp) |
+|---|---|---|---|---|---|
+| retrained | raw (T4) | 79.8 [78.2, 81.3] | +1.4, p 0.24 | −0.7, p 0.56 | – |
+| B clean | raw (T4) | 78.6 [77.0, 80.2] | +0.2, p 0.89 | −1.8, p 0.11 | −1.2 [−3.4, +1.1], p 0.33 |
+| B region | raw (T4) | 80.7 [79.1, 82.2] | +2.2 [+0.0, +4.4], p 0.051 | +0.2 [−2.0, +2.4], p 0.89 | +0.9 [−1.2, +3.0], p 0.44 |
+| retrained | normalized (T1) | 77.9 [76.3, 79.5] | −0.5, p 0.68 | −2.6, p 0.023 | – |
+| B clean | normalized (T1) | 80.0 [78.4, 81.6] | +1.6, p 0.17 | −0.5, p 0.69 | +2.1, p 0.071 |
+| B region | normalized (T1) | 81.0 [79.4, 82.5] | +2.5 [+0.4, +4.6], p 0.024 | +0.5, p 0.69 | +3.0 [+0.9, +5.3], p 0.0068 |
+
+- T4 reading (design.md §8): no B ensemble through the raw path beats both baseline rows, and
+  none beats the raw retrained ensemble. The T1 chaining margin (+3.0) comes mostly from the weak
+  normalized retrained ensemble: through the raw path the retrained ensemble scores 79.8, and
+  the B region margin falls to +0.9 (p 0.44).
+- Held-out robustness (`results/medium/heldout_ensemble/`, 10 medium held-out goals, eval seeds
+  0 1 2, 600 episodes per run, no selection): T1 retrained 85.2, B clean 86.7, B region 87.3;
+  T4 retrained 84.2, B clean 85.3, B region 88.5 %. B region − retrained ensemble: T1 +2.2
+  [−1.5, +6.0] (p 0.31), T4 +4.3 [+0.7, +8.2] (p 0.034). The order on the held-out goals agrees
+  with the eval tasks; no baseline rows were run on these goals.
 
 ## Wave 1 of the hypothesis tests (coordinator 2026-10-30, readings in design.md §8)
 
