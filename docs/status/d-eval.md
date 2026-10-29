@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-29, 21:50. Branch merged with `main` at 3e36461.
+Last update: 2026-10-29, 22:20. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -118,6 +118,24 @@ vast.ai log (team account, label `fbplan-gpu-eval`):
 
 Selection rule now (coordinator): CPU model AMD EPYC Zen 2/3/4 or Xeon Gold/Platinum, ≥ 64
 effective cores, ≥ 128 GB RAM, reliability ≥ 0.99, ≤ $1/h; destroy after 15 min without SSH.
+
+## Approach B clean (Linux, `results/medium/b_clean/seed<k>.csv`, B decision gate)
+
+`--method baseline --checkpoint b:clean:<k>` (k 0–4; e-learner's export, commit e6b99d1), 5 eval
+seeds × 5 tasks × 50 episodes each, same 1,250 episodes as every medium run. Pooled rows: cluster
+bootstrap over training seeds (both sides) and episodes.
+
+| method | success [95 % CI] | vs baseline_retrained (pp) | vs baseline (pp) | vs baseline_raw (pp) |
+|---|---|---|---|---|
+| B clean (5 seeds) | 79.3 [76.4, 82.2] | +1.1 [−2.4, +4.5] | +2.3 [−1.5, +6.1] | −1.5 [−5.1, +2.1] |
+| baseline_retrained (5 seeds) | 78.3 [76.9, 79.7] | – | +1.2 [−1.5, +4.1] | −2.5 [−5.2, +0.2] |
+| baseline | 77.0 [74.7, 79.3] | −1.2 [−4.1, +1.5] | – | −3.8 [−6.8, −0.7] |
+| baseline_raw | 80.8 [78.6, 82.9] | +2.5 [−0.2, +5.2] | +3.8 [+0.7, +6.8] | – |
+
+- B clean seeds 0–4: 81.9, 75.5, 83.0, 75.8, 80.5 % (paired against the baseline: +4.9, −1.5,
+  +5.9, −1.2, +3.4 pp; seeds 0, 2, 4 significant). The retrained baselines spread less (76.6–79.7 %).
+- No significant gain over the retrained baselines (+1.1 pp, CI contains 0), and none against
+  baseline_raw (−1.5 pp). The spread between B training seeds is the largest effect.
 
 ## Medium (Linux, `results/medium/`, 5 eval seeds × 5 tasks × 50 episodes)
 
@@ -286,6 +304,8 @@ CSVs come from the same commands on the instance (one process per eval seed, the
   `planner_region/l<s>.csv`: `--method planner --opt landmarks.latent=region
   landmarks.seed=<s>` (s 0–2; all with `--seeds 0 1 2 3 4 --episodes 50`). These ran before
   c-planner added `switch_steps`; the default keeps the behavior but changes the config hash.
+- `results/medium/b_clean/seed<k>.csv`: `... --method baseline --checkpoint b:clean:<k>
+  --seeds 0 1 2 3 4 --episodes 50` (k 0–4).
 - `results/medium/baseline_retrained/seed<k>.csv`: `... --method baseline --checkpoint
   retrained:<k> --seeds 0 1 2 3 4 --episodes 50` (k 0–4).
 - `results/medium/failures/<run>.csv`: `uv run python analysis/failures.py
