@@ -8,8 +8,10 @@ Last update: 2026-10-29.
   `dataset_path`, `load_numpy_pickle`, `upstream_module`, class `FrozenFBModel` (implements
   `FBModel`); since the first review also `maze_name`, `cache_dir`, `trained_dir`,
   `download_trained`, `save_trained_checkpoint`, `load_trained_model`, `save_numpy_pickle`,
-  `example_batch`, `forward`. `tests/test_frozen.py`: 51 tests. A test that needs a checkpoint
-  or an OGBench file skips when the file is absent.
+  `example_batch`, `forward`; since the second review also `trained_key`, `save_flags`,
+  `load_trained_file`, `FrozenFBModel.infer_goal_latent`. `tests/test_frozen.py`: 53 tests,
+  `tests/test_contracts.py`: 5. A test that needs a checkpoint or an OGBench file skips when the
+  file is absent (`require_files` and `medium_model` of `tests/conftest.py`).
 - Checkpoints: all 4 are in `~/.cache/fbplan/checkpoints/<maze>/` and load.
   Drive file ids and sha256 are pinned in `frozen.py`.
   `uv run python -m fbplan.frozen [env_name ...]` downloads them (idempotent, hash-checked).
@@ -63,6 +65,26 @@ Last update: 2026-10-29.
   checked (see "Trained checkpoints").
 - Merged `main` (`3f169ae`: e-learner's download fix `275dfe1`, the rule "questions go to the
   coordinator"). 386 tests pass.
+
+## Review findings, second pass
+
+From `docs/status/g-release.md` (second pass) and the coordinator's decision on A10.
+
+| Id | What changed |
+|---|---|
+| A10 M | Coordinator decision: `fbplan.frozen` owns the trained-checkpoint helpers. New public helpers, so that e-learner can delete its copies: `trained_key(kind, env, seed, name)`, `save_flags(flags, out_dir)`, `load_trained_file(key, name)`, type `TrainedKind`. `save_trained_checkpoint` and `load_trained_model` use them. e-learner's adoption: see the requests. |
+| A11 S | `FrozenFBModel.infer_goal_latent(goal_ij)`: the latent of a goal at the centre of a maze cell, through the same pipeline as `infer_task_latent` (one private `_goal_reward_latent` for both; it also refuses a goal that no validation state reaches). For the goal cell of task 1 it equals `infer_task_latent(1)` (test); for 3 held-out goals it equals d-eval's `goal_latent`, bit for bit. |
+| A12 S | Rejected: `_TRAINED_FILES` holds the 10 baselines of `baselines-v1` since `9b1c8c1`, so `--trained` always prints their folders; a message for an empty table would be dead code. |
+| N | Done: the 2 close comparisons (`forward` against the jitted method, the batch-order test) run at full float32 precision; the `forward` docstring gives the right reason for no jit; the kinds are `TrainedKind` plus `"checkpoints"` (`get_args` for the checks); `_known_env` calls `maze_name`; the CLI text names `cache_dir('checkpoints')`; the test count is right (53 + 5). Rejected: "`load_trained_model` hash-checks only on download" is the intended behaviour (a model trained on this machine must load before it is published); the docstring of `load_trained_file` says so. Not mine: `contracts.py:4` (coordinator). |
+| X14 | `test_frozen.py` uses `require_files` and the session `medium_model` of `tests/conftest.py`; its own skip helpers are gone. The model loads once per session (`test_frozen.py` runs in about 12 s). |
+
+Refactor check, on this Mac: model outputs on 256 medium validation states and `z_r` are
+bit-equal to the code before. `JAX_PLATFORMS=cpu uv run python -m fbplan.evaluate --method
+baseline --env antmaze-medium-navigate-v0 --seeds 0 --episodes 50 --workers 4 --checkpoint
+retrained:0 --out runs/refactor-check/retrained0_seed0.csv`: the 250 records equal the
+eval-seed-0 rows of `results/macos/medium/baseline_retrained/seed0.csv` in every column except
+`wall_time_s` (success 78.0 % in both; this run loads the published `pi_h` through
+`load_trained_model`).
 
 ## Review findings, first pass
 
@@ -302,19 +324,25 @@ fails if the physics drift again.
 
 ## Requests to the coordinator
 
-- For e-learner (request 2 is done; X8, X9): the local copies in `fbplan/learned/checkpoint.py`
-  and `value.py` can use the public names of `frozen.py`:
-  - `maze_name` -> `frozen.maze_name` (also refuses an unknown env);
-    `CACHE`, `_ROOT_VARS`, `trained_dir(kind, env, seed, name)` ->
-    `frozen.trained_dir(trained_key(kind, env, seed, name))` (`frozen.cache_dir` for a root);
-  - `save_numpy_pickle` -> `frozen.save_numpy_pickle` (also refuses object arrays);
-  - `save_high_actor` -> `frozen.save_trained_checkpoint` (byte-equal output, checked);
-    `with_high_actor` and `load_high_actor_model` -> `frozen.load_trained_model(env, key)`;
-  - `example_batch(agent, obs_dim)` -> `frozen.example_batch(agent.network.params)` (reads
-    `obs_dim` from the B weights);
+- For e-learner (A10, coordinator decision: `fbplan.frozen` owns the trained-checkpoint
+  helpers). Import these from `fbplan.frozen` and delete the copies in
+  `fbplan/learned/checkpoint.py` and `value.py`:
+  - `trained_key(kind, env, seed, name)` -> `frozen.trained_key` (same signature, same keys;
+    also refuses an unknown kind);
+  - `trained_dir(kind, env, seed, name)` -> `frozen.trained_dir(frozen.trained_key(...))`;
+  - `save_flags(flags, out_dir)` -> `frozen.save_flags` (same bytes: `json.dumps(indent=2)`);
+  - `load_trained_file(key, name)` -> `frozen.load_trained_file` (same behaviour);
+  - `Kind` -> `frozen.TrainedKind`;
   - `value.py:99` `forward` (TODO) -> `frozen.forward`;
-  - `jax.device_put` before `frozen.FrozenFBModel(...)` (`checkpoint.py:110`): no longer needed,
-    the constructor does it.
+  - `jax.device_put` before `frozen.FrozenFBModel(...)` (`checkpoint.py:110`): not needed, the
+    constructor does it.
+  `load_baseline_model`, `load_b_model`, `with_fresh_high_actor`, `git_commit` and the export
+  stay e-learner's: they are not copies. After the switch, rerun eval seed 0 of
+  `--checkpoint retrained:0` and compare the records (a-frozen did this for its side).
+- For d-eval (A11): `fbplan/evaluate.py:215-237` (`_val_dataset`, `goal_latent`) ->
+  `model.infer_goal_latent(goal_ij)` of `FrozenFBModel`. Checked: equal, bit for bit, to
+  `goal_latent` for the first 3 held-out goals of medium; it raises for a cell with no validation
+  state within the goal radius, as `goal_latent` did.
 - For g-release: gap 2 has its tool now. `uv run python -m fbplan.frozen --datasets
   antmaze-medium-navigate-v0` downloads the 4 provided checkpoints and the medium train and val
   splits (270 MB); after it, `uv run pytest` skips no test of medium. Put it before `pytest` in
@@ -322,13 +350,15 @@ fails if the physics drift again.
   README and `reproduce.sh` call `--trained`. Gaps 1 and 4 are fixed on `main` (4 workers; uv
   pinned in `devbox.json`). Optional (`pyproject.toml` is
   yours now): a `filterwarnings` entry for the tfp-nightly DeprecationWarning.
-- For c-planner: `analysis/planner_routes.py:193` -> `frozen.maze_name(args.env)` (X8).
+- For c-planner: `analysis/planner_routes.py:198` -> `frozen.maze_name(args.env)` (X8).
 - For b-theory (K2): the protocol has no `temperature` or `seed` any more;
   `fbplan/tabular/fake_fb.py` may drop them (optional; extra optional parameters still satisfy
   the protocol).
 - For the coordinator: K1-K4 are done in `fbplan/contracts.py` and `tests/test_contracts.py`.
   design.md §2 points to "per task values in `docs/status/a-frozen.md`", which will be removed
   before submission: move the `|z_r|` list of fact 1 into §2, or drop the pointer. design.md §7
-  can name `fbplan.frozen.cache_dir` next to `FBPLAN_CKPT_DIR`.
+  can name `fbplan.frozen.cache_dir` next to `FBPLAN_CKPT_DIR`. `contracts.py:4` still says
+  "tell the user" (second review, N); since the new rule it is "tell the coordinator". The file
+  is yours (my permission covered K1-K4 only).
 - Applied by the coordinator (2026-10-29): README setup line, design.md §2 (`z_r` norm),
   §5 (reset recipe), §1/§5 (gap to the paper numbers), merge of `pyproject.toml` and `uv.lock`.
