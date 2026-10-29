@@ -54,10 +54,25 @@ Edge table for all 104 states: 0.3 s (medium), 5 s (giant).
 First observations (5 tasks × 4 seeds, 200 steps): exact → direct and `π_h` 100 %.
 `rho_noise=0.02` → direct 25 %, `π_h` 20 %. `rho_noise=0.05` → direct 20 %, `π_h` 0 %.
 
+- Study (`fbplan/tabular/{study,run_study,study_plots}.py`, outputs in `docs/figures/theory/`,
+  1 min on 12 cores). Medium, 104 states, all start/goal pairs, 5 seeds. Far = ≥ 11 steps:
+  - Greedy controller (π_l degrades with distance): chaining helps. ρ noise 0.02: direct 0.70,
+    chained 0.89, guarded chained 0.90; noise 0.04: direct 0.16, guarded chained 0.46.
+    The idealised π_h (subgoals within 10 steps) is a strong baseline at low noise.
+  - Exact controller: direct is perfect; chained with FB `R̂` collapses (0.28 at 0.04), because
+    `R̂` is a difference of two noisy values and the max exploits it (also cycles).
+    `R̂ = 0` (shortest path in −log ρ̂) gives 1.00. Recommendation for c-planner:
+    goal-reaching → `R̂ = 0`, plus ensemble min, `ρ_min` ≈ 0.4–0.6 and commitment.
+  - Wall-blind low-rank B creates wormholes (0.4 % of pairs at rank 16); the wall-aware basis
+    almost none. Low rank hurts all methods about equally (blurred targets).
+  - Dropped term: the proxy inflates predicted values about 10× more for chains than for one
+    switch (2-cycles inside rewarding regions: ρ·V/(1−ρ)); regret stays small on these tasks.
+
 ## Next
 
-- `docs/theory.md`: the derivation with the conditions above.
-- Study: single switch vs. chained planning under noise and low rank.
+- `docs/theory.md`: write the derivation (conditions above) and the study section with the
+  figures. Not started.
+- Check figures once more for layout (legend placement was just fixed).
 
 ## Blockers
 

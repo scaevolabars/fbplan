@@ -23,7 +23,7 @@ Construction (n states, latent dimension d, counting measure over states):
   noise rho_noise / (1 - gamma). `low_policy="optimal"` executes pi*_z instead, which isolates
   errors of the planning values from errors of the controller. `true_successor_measure` gives
   the exact M of the executed policy.
-- The baseline pi_h(z | s, z_r) is idealised: the exact argmax over states w of the switching
+- The baseline pi_h(z | s, z_r) is idealised: the exact argmax over states w != s of the switching
   advantage computed from this model's F and B, returning normalised B(w*). `high_radius` limits
   w to states within that walking distance of s, like the support of the training subgoals
   (a geometric offset along trajectories). Without it, the proxy advantage counts the goal twice
@@ -202,11 +202,14 @@ class TabularFB:
         """argmax_w of the switching advantage for every state s: [n] state ids."""
         key = np.round(z_hat, 9).tobytes()
         if key not in self._subgoals:
-            adv = self._switch_advantages(z_hat)
-            if self.config.high_radius is not None:
-                far = self.maze.geodesic_distances() > self.config.high_radius
-                adv = np.where(far, -np.inf, adv)
-            self._subgoals[key] = np.argmax(adv, axis=1)
+            # Training subgoals are at offset >= 1. With exact values, w = s ties with every
+            # subgoal on a shortest path, and choosing it would mean "stay".
+            dist = self.maze.geodesic_distances()
+            radius = np.inf if self.config.high_radius is None else self.config.high_radius
+            allowed = (dist > 0) & (dist <= radius)
+            self._subgoals[key] = np.argmax(
+                np.where(allowed, self._switch_advantages(z_hat), -np.inf), axis=1
+            )
         return self._subgoals[key]
 
     def _switch_advantages(self, z_hat: np.ndarray) -> np.ndarray:

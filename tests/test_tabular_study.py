@@ -50,6 +50,14 @@ def test_every_planner_reaches_every_goal_with_the_exact_model(exact, planner):
     assert success.all()
 
 
+def test_exact_pi_h_with_a_subgoal_radius_reaches_every_goal():
+    model = TabularFB(FakeFBConfig(discount=GAMMA, high_radius=6))
+    lm = LandmarkModel(model, np.arange(model.maze.n_states))
+    goals = np.array([0, 40, 103])
+    success, _ = evaluate_goal_reaching(lm, PlannerConfig("pi_h", kind="baseline"), goals, 100)
+    assert success.all()
+
+
 def test_exact_model_has_no_wormholes(exact):
     rho_hat, _, _ = exact.estimates(goal_latent(exact.model, 5), aggregate="mean")
     dist = exact.model.maze.geodesic_distances()
