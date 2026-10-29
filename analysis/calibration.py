@@ -2,6 +2,7 @@
 
     uv run python analysis/calibration.py [--env antmaze-medium-navigate-v0] [--n 400]
         [--head-agg min] [--rho-min 0.3 0.5 0.7] [--max-edge-xy 6] [--out-dir results/figures]
+        [--table-dir results/calibration]
 
 For n validation states s, w (uniform sample, fixed seed) it compares the FB distance
 -log rho(s, w) / -log gamma (steps, rho from c-planner's OptionModel, clipped to [0, gamma])
@@ -13,7 +14,8 @@ rho < 1 is a wormhole when the FB distance is shorter than the time the ant need
 geodesic at its top speed (99th percentile of the per-step xy displacement in the data); the
 planner's max operator exploits exactly these pairs. The table also counts the wormholes that
 the planner's xy cap (max_edge_xy) leaves. Outputs: a calibration figure, a map of the 200
-longest wormholes, a printed Markdown table.
+longest wormholes, and the table, printed as Markdown and written as CSV
+(<table-dir>/wormholes_<env>_<head-agg>.csv).
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
 from matplotlib.patches import Rectangle  # noqa: E402
 
 from fbplan.controllers.oracle import MazeGeometry  # noqa: E402
@@ -125,6 +128,7 @@ def main() -> None:
     parser.add_argument("--max-edge-xy", type=float, default=6.0, help="the planner's xy cap")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out-dir", type=Path, default=Path("results/figures"))
+    parser.add_argument("--table-dir", type=Path, default=Path("results/calibration"))
     args = parser.parse_args()
 
     model = load_model(args.env)
@@ -152,6 +156,7 @@ def main() -> None:
           f"| share of trusted | wormholes within xy {args.max_edge_xy:g} | longest (geodesic) |")
     print("|---|---|---|---|---|---|---|")
     xy_dist = np.linalg.norm(obs[:, None, :2] - obs[None, :, :2], axis=-1)
+    rows = []
     for rho_min in args.rho_min:
         trusted = (table.rho_raw >= rho_min) & off_diag
         mask = wormhole_mask(table.rho_raw, table.rho, geodesic, model.discount, top_speed,
@@ -161,6 +166,17 @@ def main() -> None:
         print(f"| {rho_min} | {trusted.sum()} | {(trusted & (table.rho_raw >= 1)).sum()} "
               f"| {mask.sum()} | {mask.sum() / max(trusted.sum(), 1):.1%} | {capped.sum()} "
               f"| {longest:.1f} |")
+        rows.append({
+            "env": args.env, "head_agg": args.head_agg, "n_states": args.n,
+            "top_speed": top_speed, "rho_min": rho_min, "trusted_pairs": int(trusted.sum()),
+            "raw_rho_ge_1": int((trusted & (table.rho_raw >= 1)).sum()),
+            "wormholes": int(mask.sum()), "wormhole_share": mask.sum() / max(trusted.sum(), 1),
+            "max_edge_xy": args.max_edge_xy, "wormholes_within_xy_cap": int(capped.sum()),
+            "longest_geodesic": longest,
+        })
+    args.table_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(args.table_dir / f"wormholes_{args.env}_{args.head_agg}.csv",
+                              index=False)
     rho_min = min(args.rho_min)
     mask = wormhole_mask(table.rho_raw, table.rho, geodesic, model.discount, top_speed,
                          rho_min) & off_diag

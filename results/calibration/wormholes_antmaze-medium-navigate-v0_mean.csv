@@ -1,0 +1,4 @@
+env,head_agg,n_states,top_speed,rho_min,trusted_pairs,raw_rho_ge_1,wormholes,wormhole_share,max_edge_xy,wormholes_within_xy_cap,longest_geodesic
+antmaze-medium-navigate-v0,mean,400,0.2677639126777649,0.3,67397,1569,4289,0.06363784738193094,6.0,2323,30.348204646625533
+antmaze-medium-navigate-v0,mean,400,0.2677639126777649,0.5,31857,1569,4202,0.13190193677998557,6.0,2323,26.528574774281637
+antmaze-medium-navigate-v0,mean,400,0.2677639126777649,0.7,13799,1569,3695,0.26777302703094424,6.0,2323,25.53013305760105

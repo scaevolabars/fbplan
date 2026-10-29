@@ -3,8 +3,9 @@
     uv run python analysis/heldout_goals.py [--envs antmaze-medium-navigate-v0 ...]
 
 For each env: results/heldout_goals/<env>.csv (fbplan.evaluate.select_heldout_goals with its
-defaults, so the file is reproducible) and results/figures/heldout_goals_<env>.png. It prints
-the number of validation states within the goal radius of each goal (the states that make z).
+defaults and the validation split, so the file is reproducible) and
+results/figures/heldout_goals_<env>.png. It prints the number of validation states within the
+goal radius of each goal (the states that make z).
 """
 
 from __future__ import annotations
@@ -74,13 +75,13 @@ def main() -> None:
     args = parser.parse_args()
     for env_name in args.envs:
         env = make_env(env_name)
-        goals = select_heldout_goals(env)
+        xy = load_dataset(env_name, "val")["qpos"][:, :2]
+        goals = select_heldout_goals(env, xy)
         write_heldout_goals(goals, heldout_goals_path(env_name))
         maze = MazeGeometry.from_env(env)
         eval_goals = np.array([info["goal_xy"] for info in env.unwrapped.task_infos])
         plot_goals(maze, eval_goals, goals, f"{env_name}: held-out goals (ids) and eval goals",
                    args.fig_dir / f"heldout_goals_{env_name}.png")
-        xy = load_dataset(env_name, "val")["qpos"][:, :2]
         radius = env.unwrapped._goal_tol
         print(f"{env_name}: {len(goals)} goals -> {heldout_goals_path(env_name)}")
         for goal in goals:

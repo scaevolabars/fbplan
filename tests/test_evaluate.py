@@ -296,26 +296,36 @@ def test_parse_options_rejects_items_without_equals_sign():
 MEDIUM = "antmaze-medium-navigate-v0"
 
 
-def test_heldout_goals_are_far_from_eval_goals_and_start_at_eval_task_distances():
-    env = frozen.make_env(MEDIUM)
+def _val_xy(env_name: str) -> np.ndarray:
+    if not frozen.dataset_path(env_name, "val").exists():
+        pytest.skip(f"{env_name} val split absent")
+    return frozen.load_dataset(env_name, "val")["qpos"][:, :2]
+
+
+@pytest.mark.parametrize("env_name", [MEDIUM, "antmaze-large-navigate-v0"])
+def test_heldout_goals_are_far_from_eval_goals_and_start_at_eval_task_distances(env_name):
+    env, val_xy = frozen.make_env(env_name), _val_xy(env_name)
     maze, infos = MazeGeometry.from_env(env), env.unwrapped.task_infos
     to_eval_goal = [maze.bfs_steps(tuple(t["goal_ij"])) for t in infos]
     lengths = [steps[tuple(t["init_ij"])] for steps, t in zip(to_eval_goal, infos, strict=True)]
-    goals = select_heldout_goals(env)
+    goals = select_heldout_goals(env, val_xy)
     assert [g.task_id for g in goals] == [HELDOUT_OFFSET + k for k in range(1, 11)]
     assert len({g.goal_ij for g in goals}) == len(goals)
     for g in goals:
         assert min(steps[g.goal_ij] for steps in to_eval_goal) >= 2
         assert min(lengths) <= maze.bfs_steps(g.goal_ij)[g.init_ij] <= max(lengths)
         np.testing.assert_array_equal(g.goal_xy, env.unwrapped.ij_to_xy(g.goal_ij))
-    assert select_heldout_goals(frozen.make_env(MEDIUM)) == goals
+        inside = np.linalg.norm(val_xy - g.goal_xy, axis=1) <= env.unwrapped._goal_tol
+        assert inside.sum() >= 50
+    assert select_heldout_goals(frozen.make_env(env_name), val_xy) == goals
 
 
 @pytest.mark.parametrize(
     "env_name", [MEDIUM, "antmaze-large-navigate-v0", "antmaze-giant-navigate-v0"]
 )
 def test_saved_heldout_goals_equal_the_selection(env_name):
-    assert load_heldout_goals(env_name) == select_heldout_goals(frozen.make_env(env_name))
+    selected = select_heldout_goals(frozen.make_env(env_name), _val_xy(env_name))
+    assert load_heldout_goals(env_name) == selected
 
 
 def test_real_env_runs_heldout_goals_from_their_start_cells():

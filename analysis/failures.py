@@ -1,7 +1,7 @@
 """Why episodes fail: replay the failed episodes of a result CSV and classify them.
 
-    uv run python analysis/failures.py runs/<csv> --method baseline [--opt key=value ...]
-        [--workers 10]
+    uv run python analysis/failures.py results/medium/baseline.csv --method baseline \
+        [--opt key=value ...] [--workers 10] [--out results/medium/failures/baseline.csv]
 
 Resets are seeded, so a replay with the same controller config and checkpoint repeats the
 episode exactly (the script checks the config hash and the outcome; it reads the checkpoint
@@ -11,6 +11,9 @@ from the CSV). Classes, from the ant's observations:
   the ant cannot turn back, so this is a pi_l failure that no high-level choice can repair;
 - stuck: not flipped, and the xy position stays within 1 unit over the last 300 steps;
 - other: still moving at the time limit (slow, lost or on a wrong route).
+
+It prints and writes (--out, default <csv folder>/failures/<csv name>) a table per task and
+overall: episodes, failures, the count of each class and its share of the failures.
 """
 
 from __future__ import annotations
@@ -39,6 +42,7 @@ from fbplan.frozen import make_env
 from fbplan.stats import CHECKPOINT_DEFAULTS, load_results
 
 FLIP_WINDOW, STUCK_WINDOW, STUCK_RADIUS = 50, 300, 1.0
+CLASSES = ["flipped", "stuck", "other"]
 
 
 class RecordingController:
@@ -106,12 +110,26 @@ def replay_failures(
     return out
 
 
+def failure_table(episodes: pd.DataFrame, failures: pd.DataFrame) -> pd.DataFrame:
+    """Per task and overall ("all"): episodes, failures, the count of each class and its share."""
+    counts = failures.pivot_table(index="task_id", columns="failure", values="episode",
+                                  aggfunc="count", fill_value=0)
+    table = counts.reindex(columns=CLASSES, fill_value=0)
+    table.insert(0, "failures", table.sum(axis=1))
+    table.insert(0, "episodes", episodes.groupby("task_id").size())
+    table.loc["all"] = table.sum()
+    for name in CLASSES:
+        table[f"{name}_share"] = (table[name] / table["failures"]).round(3)
+    return table
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("csv", type=Path)
     parser.add_argument("--method", required=True, help="the --method of the evaluation run")
     parser.add_argument("--opt", nargs="*", default=[], help="the --opt of the evaluation run")
     parser.add_argument("--workers", type=int, default=10)
+    parser.add_argument("--out", type=Path, help="default: <csv folder>/failures/<csv name>")
     args = parser.parse_args()
 
     df = load_results([args.csv])
@@ -132,11 +150,12 @@ def main() -> None:
         ]
         rows = pd.DataFrame([row for future in futures for row in future.result()])
 
-    counts = rows.pivot_table(index="task_id", columns="failure", values="episode",
-                              aggfunc="count", fill_value=0)
-    counts.loc["all"] = counts.sum()
-    print(f"{args.method} on {env_name}: {len(df)} episodes, {len(rows)} failures")
-    print(counts.to_string())
+    table = failure_table(df, rows)
+    out = args.out or args.csv.parent / "failures" / args.csv.name
+    out.parent.mkdir(parents=True, exist_ok=True)
+    table.to_csv(out)
+    print(f"{args.method} on {env_name}: {len(df)} episodes, {len(rows)} failures -> {out}")
+    print(table.to_string())
     shares = rows["failure"].value_counts(normalize=True).round(3).to_dict()
     print(f"share of failures: {shares}; median cells left to the goal: "
           f"{rows['cells_left'].median():.0f}")
