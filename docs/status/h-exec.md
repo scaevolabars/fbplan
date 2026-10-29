@@ -20,7 +20,13 @@
 
 ## Next
 
-- None. Waiting for the coordinator.
+- None. The coordinator closed this session (2026-10-30).
+
+## Decisions from the coordinator (2026-10-30)
+
+- An unfrozen `π_l` (H2, H5) is out of scope for now.
+- H1 (time-aware trap penalty on teleport) is in wave 1 as T3 (design.md §8), assigned to b-theory.
+- Every final test uses 10 eval seeds (from the note on the `baseline_raw` bar).
 
 ## Blockers
 
@@ -31,4 +37,4 @@
 - H1 needs teleport held-out goals (d-eval, `select_heldout_goals`).
 - A Linux run of `baseline_raw` on the medium held-out goals would show whether its +3.8 pp on the
   eval tasks is goal-specific: on the held-out goals (Mac) it is −3.2 pp [−8.0, +1.5].
-- Decision on scope for H2 and H5: is an unfrozen `π_l`, given to every row, in scope?
+- Decision on scope for H2 and H5: answered (out of scope for now).
