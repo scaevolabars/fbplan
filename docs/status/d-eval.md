@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-29, 23:10. Branch merged with `main` at 3e36461.
+Last update: 2026-10-30, 00:05. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -114,7 +114,13 @@ vast.ai log (team account, label `fbplan-gpu-eval`):
 | 58258733 | RTX A2000, Denmark | 0.154 | 16:57 | 17:07 | ~0 | host GPU error at start |
 | 58259579 | Xeon Phi 7210, Texas | 0.333 | 17:08 | 19:07 | ~0.66 | 56 steps/s per worker (Mac 476) |
 | 58272696 | EPYC 7V13, Texas | 0.802 | 19:08 | 19:36 | ~0.37 | image never loaded, no SSH |
-| 58279543 | EPYC 7662, Belgium | 0.80 | 19:53 | running | | evaluation queue |
+| 58279543 | EPYC 7662, Belgium | 0.80 | 19:53 | running | ~3.3 at 00:00 | evaluation queue |
+
+Mistake: the queue was empty from 22:56 to 00:00 (waiting for B region), and my destroy watcher
+did not fire, because its emptiness test used `ls` on two folders, which prints their names
+even when they are empty. About 50 idle minutes were billed (~$0.70). The watcher now calls
+`runs/queue/idle_check.sh` (tested on the instance: busy → 1, empty → 0). Total vast.ai so
+far: about $4.3 (failed hosts ~$1.0 + this instance ~$3.3).
 
 Selection rule now (coordinator): CPU model AMD EPYC Zen 2/3/4 or Xeon Gold/Platinum, ≥ 64
 effective cores, ≥ 128 GB RAM, reliability ≥ 0.99, ≤ $1/h; destroy after 15 min without SSH.
