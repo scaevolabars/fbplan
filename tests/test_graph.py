@@ -20,6 +20,15 @@ def test_trusted_edges_keeps_rho_at_or_above_threshold():
     np.testing.assert_array_equal(trusted_edges(rho, rho_min=0.5), [[False, True, True]])
 
 
+def test_trusted_edges_drop_rho_at_or_above_rho_max():
+    # For distinct states E[gamma^H] <= gamma < 1, so rho >= 1 is an FB error, not a free hop.
+    rho = np.array([[0.5, 0.99, 1.0]])
+    np.testing.assert_array_equal(trusted_edges(rho, rho_min=0.3), [[True, True, False]])
+    np.testing.assert_array_equal(
+        trusted_edges(rho, rho_min=0.3, rho_max=np.inf), [[True, True, True]]
+    )
+
+
 def test_trusted_edges_top_k_keeps_the_k_largest_per_row():
     rho = np.array([[0.6, 0.9, 0.7, 0.8], [0.95, 0.1, 0.2, 0.3]])
     mask = trusted_edges(rho, rho_min=0.5, top_k=2)

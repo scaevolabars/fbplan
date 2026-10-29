@@ -32,12 +32,14 @@ class OptionModelConfig:
 
     edge_reward: "exact" is R above; "paper" drops the term -rho * F(w, z_w)^T z_r, as the
     paper's pi_h advantage does; "zero" sets R = 0, which turns planning for goal-reaching
-    into a shortest path with edge cost -log rho.
+    into a shortest path with edge cost -log rho. "zero" is the default: on medium, exact R
+    is noise that the max over routes collects (per trusted edge median +2.1, p99 +68, while
+    the largest direct value is 96), and goal-reaching has R ~ 0 off the goal (design.md §3).
     batch_size: the most (source, target) pairs per F call.
     """
 
     head_agg: HeadAgg = "min"
-    edge_reward: EdgeReward = "exact"
+    edge_reward: EdgeReward = "zero"
     batch_size: int = 4096
 
     def __post_init__(self) -> None:

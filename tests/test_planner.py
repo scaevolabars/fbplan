@@ -183,3 +183,62 @@ def test_config_from_options_rejects_unknown_keys():
     for bad in ({"rho_mn": 0.5}, {"landmark.count": 3}, {"landmarks.cnt": 3}):
         with pytest.raises(TypeError):
             config_from_options(bad)
+
+
+def test_rho_at_one_is_not_a_trusted_edge():
+    fb = GridFB(wormholes={(h, START, GOAL): 1.5 for h in (0, 1)})  # clipped to rho = 1
+    i, j = fb.index[START], fb.index[GOAL]
+    assert not planner(fb, PlannerConfig(rho_min=0.3)).trusted[i, j]
+    assert planner(fb, PlannerConfig(rho_min=0.3, rho_max=np.inf)).trusted[i, j]
+
+
+def test_xy_cap_removes_long_landmark_edges():
+    fb = GridFB()
+    ctrl = planner(fb, PlannerConfig(rho_min=0.0, max_edge_xy=1.5))
+    xy = all_cells(fb)
+    lengths = np.linalg.norm(xy[:, None] - xy[None], axis=-1)
+    assert ctrl.trusted.any()
+    assert (lengths[ctrl.trusted] <= 1.5).all()
+
+
+def test_xy_cap_applies_to_the_first_hop():
+    fb = GridFB(horizon=4)
+    ctrl = planner(fb, replace(HORIZON_CFG, max_edge_xy=1.0))
+    ctrl.act(fb.obs(START))
+    waypoint = fb.obs(fb.cells[ctrl.step_info()["waypoint"]])
+    assert np.linalg.norm(waypoint - fb.obs(START)) <= 1.0
+
+
+# FB says the cell next to the goal is close to START (rho 0.85, below rho_reached = 0.9);
+# the way back is gamma^9 = 0.39. A wormhole to GOAL itself would also raise the direct
+# value, since z_r targets GOAL.
+NEAR_GOAL = (5, 3)
+ONE_WAY = {(h, START, NEAR_GOAL): 0.85 for h in (0, 1)}
+
+
+def test_two_way_consistency_removes_a_one_way_wormhole():
+    fb = GridFB(wormholes=ONE_WAY)
+    i, j = fb.index[START], fb.index[NEAR_GOAL]
+    cfg = PlannerConfig(rho_min=0.5, max_edge_xy=None)
+    assert planner(fb, cfg).trusted[i, j]
+    assert not planner(fb, replace(cfg, two_way=True)).trusted[i, j]
+
+
+def test_two_way_consistency_applies_to_the_first_hop():
+    fb = GridFB(wormholes=ONE_WAY)
+    cfg = PlannerConfig(rho_min=0.5, max_edge_xy=None)
+    one_way, two_way = planner(fb, cfg), planner(fb, replace(cfg, two_way=True))
+    one_way.act(fb.obs(START))
+    two_way.act(fb.obs(START))
+    assert one_way.step_info()["waypoint"] == fb.index[NEAR_GOAL]
+    assert two_way.step_info()["waypoint"] != fb.index[NEAR_GOAL]
+
+
+def test_reached_landmarks_do_not_use_top_k_slots():
+    # top_k = 2 keeps the two corridor neighbours of every cell. With rho_reached = 0.85 the
+    # neighbours of (2, 1) (rho 0.9) count as reached. If they took the two slots before their
+    # exclusion, no edge would be left; the next cells towards the goal must get the slots.
+    fb = GridFB(horizon=4)
+    ctrl = planner(fb, replace(HORIZON_CFG, top_k=2, rho_reached=0.85))
+    ctrl.act(fb.obs((2, 1)))
+    assert fb.cells[ctrl.step_info()["waypoint"]] == (4, 1)

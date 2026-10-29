@@ -38,7 +38,8 @@ def test_rho_is_gamma_to_the_hitting_time_on_the_exact_fake():
 def test_rho_and_reward_do_not_depend_on_the_scale_of_b():
     fb = GridFB(goals={1: (3, 1)})
     z_r = fb.infer_task_latent(1)
-    base, scaled = table(fb, z_r), table(ScaledBackward(fb, 37.0), z_r)
+    base = table(fb, z_r, edge_reward="exact")
+    scaled = table(ScaledBackward(fb, 37.0), z_r, edge_reward="exact")
     np.testing.assert_allclose(scaled.rho, base.rho, rtol=1e-6)
     np.testing.assert_allclose(scaled.reward, base.reward, rtol=1e-6, atol=1e-9)
 
@@ -106,7 +107,8 @@ def test_targets_with_nonpositive_self_measure_are_unreachable():
 def test_batch_size_does_not_change_the_tables():
     fb = GridFB(goals={1: (3, 1)})
     z_r = fb.infer_task_latent(1)
-    big, small = table(fb, z_r, batch_size=4096), table(fb, z_r, batch_size=3)
+    big = table(fb, z_r, edge_reward="exact", batch_size=4096)
+    small = table(fb, z_r, edge_reward="exact", batch_size=3)
     np.testing.assert_allclose(small.rho, big.rho)
     np.testing.assert_allclose(small.reward, big.reward)
 
@@ -114,3 +116,7 @@ def test_batch_size_does_not_change_the_tables():
 def test_unknown_config_values_are_rejected():
     with pytest.raises(ValueError):
         OptionModelConfig(head_agg="max")
+
+
+def test_default_edge_reward_is_zero_for_goal_reaching():
+    assert OptionModelConfig().edge_reward == "zero"

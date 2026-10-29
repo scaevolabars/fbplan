@@ -30,13 +30,20 @@ class GraphSolution:
 
 
 def trusted_edges(
-    rho: np.ndarray, rho_min: float, top_k: int | None = None, exclude_diagonal: bool = False
+    rho: np.ndarray,
+    rho_min: float,
+    top_k: int | None = None,
+    exclude_diagonal: bool = False,
+    rho_max: float = 1.0,
 ) -> np.ndarray:
-    """Boolean mask of edges with rho >= rho_min, then at most top_k per row (largest rho).
+    """Boolean mask of edges with rho_min <= rho < rho_max, then at most top_k per row.
 
-    exclude_diagonal removes self-loops first, so that rho(u, u) = 1 does not use a top-k slot.
+    rho >= 1 is an FB error, not a free hop: for distinct states E[gamma^H] <= gamma < 1.
+    Clipped to 1 and trusted, such edges join far parts of the maze at no cost (wormholes).
+    rho_max > 1 trusts them (an ablation). exclude_diagonal removes self-loops first, so that
+    rho(u, u) = 1 does not use a top-k slot. top_k keeps the largest rho per row.
     """
-    mask = rho >= rho_min
+    mask = (rho >= rho_min) & (rho < rho_max)
     if exclude_diagonal:
         mask &= ~np.eye(*rho.shape, dtype=bool)
     if top_k is not None and top_k < rho.shape[1]:

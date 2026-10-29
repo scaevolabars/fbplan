@@ -4,6 +4,7 @@ Once per env: the rho table between landmarks. Once per task: V_H by value itera
 (fbplan.graph). At a replan, every landmark w is scored from the current state s with
 Q(s, w) = R(s, w) + hop_discount * rho(s, w) * V_H(w) over trusted edges, and the best one
 becomes the waypoint w*, unless the task policy has a higher value F(s, z_r)^T z_r.
+Edges from landmarks and from s follow the same trust rules (see PlannerConfig).
 The controller keeps w* until FB says it is reached (rho(s, w*) >= rho_reached) or until
 a timeout, and acts with pi_l(a | s, B(w*)) (or pi_l(a | s, z_r) on the task policy).
 """
@@ -34,7 +35,14 @@ from fbplan.option_model import OptionModel, OptionModelConfig, OptionTable
 class PlannerConfig:
     """Every planner value in the report comes from this config.
 
-    rho_min: trust an edge when rho >= rho_min (rho = gamma^k is about k steps).
+    An edge (u, w) is trusted when rho_min <= rho(u, w) < rho_max and the xy distance from u
+    to w is at most max_edge_xy, then top_k keeps the largest rho per source.
+    rho_min: rho = gamma^k is about k steps.
+    rho_max: rho >= 1 is an FB error (see graph.trusted_edges); above 1 trusts it (ablation).
+    max_edge_xy: guard against wormholes with rho < 1. obs[:2] is the agent's xy position,
+        which the agent observes. 6 = 1.5 maze cells in OGBench AntMaze. None: no cap.
+    two_way: use min(rho(u, w), rho(w, u)) as the edge discount, an FB-only wormhole guard
+        (dynamics in the maze are nearly reversible; FB errors often are not).
     top_k: keep at most top_k trusted out-edges per source (None: no limit).
     hop_discount: factor on rho per hop; below 1 it is a cost per hop.
     rho_reached: the waypoint is reached when rho(s, w*) >= rho_reached.
@@ -44,6 +52,9 @@ class PlannerConfig:
     landmarks: LandmarkConfig = field(default_factory=LandmarkConfig)
     options: OptionModelConfig = field(default_factory=OptionModelConfig)
     rho_min: float = 0.3
+    rho_max: float = 1.0
+    max_edge_xy: float | None = 6.0
+    two_way: bool = False
     top_k: int | None = None
     hop_discount: float = 1.0
     rho_reached: float = 0.9
@@ -99,10 +110,15 @@ class GraphPlannerController:
         return self._edges
 
     @cached_property
+    def edge_rho(self) -> np.ndarray:
+        """Edge discounts between landmarks [N, N]: rho, or its two-way min."""
+        rho = self.edges.rho
+        return np.minimum(rho, rho.T) if self.config.two_way else rho
+
+    @cached_property
     def trusted(self) -> np.ndarray:
         """Trusted landmark-to-landmark edges [N, N], without self-loops."""
-        cfg = self.config
-        return trusted_edges(self.edges.rho, cfg.rho_min, cfg.top_k, exclude_diagonal=True)
+        return self._trusted(self.edge_rho, self.landmarks, exclude_diagonal=True)
 
     def reset(self, task: TaskSpec, seed: int) -> None:
         """Solve the graph for the task (cached per task). The policy is deterministic."""
@@ -141,7 +157,7 @@ class GraphPlannerController:
         direct = self.options.direct_value(self.landmarks, z_r)
         cfg = self.config
         solution = value_iteration(
-            self.edges.rho,
+            self.edge_rho,
             reward,
             direct,
             self.trusted,
@@ -178,13 +194,27 @@ class GraphPlannerController:
         """
         cfg, plan = self.config, self.plan
         row = self.options.pair_table(obs[None], self.targets, plan.z_r)
-        candidates = np.where(row.rho >= cfg.rho_reached, -np.inf, row.rho)
-        mask = trusted_edges(candidates, cfg.rho_min, cfg.top_k)
-        q = q_values(row.rho, row.reward, plan.solution.values, mask, cfg.hop_discount)[0]
+        rho = row.rho
+        if cfg.two_way:  # rho(w, s) for every landmark w, with s as the target
+            back = self.options.pair_table(self.landmarks, self.options.targets(obs[None]))
+            rho = np.minimum(rho, back.rho.T)
+        candidates = np.where(row.rho >= cfg.rho_reached, -np.inf, rho)
+        mask = self._trusted(candidates, obs[None])
+        q = q_values(rho, row.reward, plan.solution.values, mask, cfg.hop_discount)[0]
         if q.max() <= self.options.direct_value(obs[None], plan.z_r)[0]:
             return DIRECT, np.nan
         best = int(q.argmax())
         return best, float(row.rho[0, best])
+
+    def _trusted(
+        self, rho: np.ndarray, sources: np.ndarray, exclude_diagonal: bool = False
+    ) -> np.ndarray:
+        """Trust rules of PlannerConfig for edges from source observations to all landmarks."""
+        cfg = self.config
+        if cfg.max_edge_xy is not None:
+            dist = np.linalg.norm(sources[:, None, :2] - self.landmarks[None, :, :2], axis=-1)
+            rho = np.where(dist <= cfg.max_edge_xy, rho, -np.inf)
+        return trusted_edges(rho, cfg.rho_min, cfg.top_k, exclude_diagonal, cfg.rho_max)
 
 
 class GraphPlusHighController(GraphPlannerController):

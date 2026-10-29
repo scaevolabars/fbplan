@@ -15,7 +15,14 @@ Last update: 2026-10-29.
 - CLI factories for d-eval's `fbplan.evaluate`: `fbplan.controllers.planner:make_planner` and
   `:make_planner_high`. Options are `key=value`; a dotted key sets a nested field, for example
   `--opt rho_min=0.4 landmarks.count=500 options.head_agg=mean`. Unknown keys raise an error.
-- Tests: 52 pass (`uv run pytest`), ruff clean. They run on an exact tabular fake,
+- Wormhole guards, approved by the user on 2026-10-29: an edge with rho >= 1 is untrusted
+  (`rho_max = 1`, still clipped and counted); edges longer than `max_edge_xy = 6` xy units are
+  untrusted (default); `two_way = True` uses `min(rho(u,w), rho(w,u))` (FB-only option for the report);
+  `edge_reward = "zero"` is the default (exact and paper stay as ablations). The same rules apply
+  to the landmark graph and to the first hop from `s`.
+  Committed controller on medium (200 landmarks from the validation split, defaults):
+  5 routes with 6–11 hops, route end 1.1–3.3 xy units from the goal (mean 2.3), longest hop 5.7.
+- Tests: 61 pass (`uv run pytest`), ruff clean. They run on an exact tabular fake,
   `tests/planner_fakes.py` (`rho = gamma^distance`; knobs for one-head wormholes and a horizon
   beyond which FB and `pi_z` fail). Closed loop on the fake: the planner reaches a goal 10 steps
   away with 4-step edges via 2 waypoints, where the task policy alone stands still.
@@ -26,7 +33,8 @@ Last update: 2026-10-29.
 1. Batching of the N×N table lives in `OptionModel.pair_table` (it needs FB). `graph.py` stays pure numpy.
    Pairs go through F one batch at a time, padded to a power of two (few jit shapes, bounded memory).
 2. Heads: `rho_h`, `R_h`, `direct_h` per head, then min or mean. `rho` is clipped to [0, 1] after aggregation.
-   A target with `F_h(w,z_w)ᵀB(w) <= 0` gets `rho_h = 0` (unreachable).
+   A target with `F_h(w,z_w)ᵀB(w) <= 0` gets `rho_h = 0` (unreachable). The trust rule (not the
+   option model) treats rho = 1 as an FB error, so the reached check still reads rho = 1 as "reached".
 3. Cost per hop: a factor `hop_discount` on `rho` in the Bellman backup. It does not depend on the
    scale of `z_r`, and in shortest-path form it adds `-log(hop_discount)` to the edge cost `-log rho`.
 4. `edge_reward = "zero"` (R = 0) is a third mode next to exact and paper: the shortest-path case of §3.
@@ -59,20 +67,22 @@ validation split. Scripts are throw-away (not committed). Redo the numbers after
 
 ## Next
 
-1. After a-frozen merges: time the edge table and the per-step cost on medium (CPU).
-   Choose the landmark count and `rho_min` (trade-off: ask the user).
+1. Commitment: the probe planner replanned 12–41 times per episode and often hit the time limit.
+   Measure `rho(s, w*)` near a waypoint and tune `rho_reached` and `commit_timeout`.
 2. Route plots on the medium maze (xy) for the 5 tasks; edge count and clip statistics.
 3. Smoke run: 5 tasks × 10 episodes, planner vs. baseline, with a minimal loop.
-4. Switch the tests to `fbplan/tabular/fake_fb.py` when b-theory merges it.
+4. After a-frozen merges: redo the numbers with landmarks from the train split.
+5. Switch the tests to `fbplan/tabular/fake_fb.py` when b-theory merges it.
 
 ## Blockers
 
-- Waiting for the user: which wormhole guards to adopt (drop rho >= 1 instead of clipping it to 1;
-  xy cap or two-way consistency; R = 0 as the default for navigate tasks). This changes the clipping
-  rule in my brief and the guard list in design.md §3.
 - Final numbers wait for a-frozen to merge (`load_model`, `load_dataset`, `make_env`).
 
 ## Requests to the coordinator
+
+- design.md §3 lists the guards `rho >= rho_min`, min over heads, cost per hop. Please add the
+  approved ones: rho >= 1 untrusted, xy cap on edge length (default), two-way consistency (option),
+  and R = 0 as the default for navigate tasks.
 
 - `fbplan/controllers/__init__.py` belongs to d-eval. Until it exists, `fbplan.controllers.planner`
   imports as a namespace package. That works; no action needed unless d-eval's `__init__` re-exports.
