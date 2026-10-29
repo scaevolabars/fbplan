@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import pickle
 import re
 import urllib.request
@@ -25,21 +26,10 @@ MEDIUM = "antmaze-medium-navigate-v0"
 OBS_DIM, ACT_DIM, LATENT_DIM, N_HEADS = 29, 8, 128, 2
 
 
-def _skip_without_checkpoint(env_name: str) -> None:
-    if not (frozen.checkpoint_dir(env_name) / "params.pkl").exists():
-        pytest.skip(f"{env_name} checkpoint absent: run `uv run python -m fbplan.frozen`")
-
-
-def _skip_without_dataset(env_name: str, split: str) -> None:
-    path = frozen.dataset_path(env_name, split)
-    if not path.exists():
-        pytest.skip(f"{path} absent: call fbplan.frozen.load_dataset once to download it")
-
-
-@pytest.fixture(scope="module")
-def model() -> frozen.FrozenFBModel:
-    _skip_without_checkpoint(MEDIUM)
-    return frozen.load_model(MEDIUM)
+@pytest.fixture
+def model(medium_model: frozen.FrozenFBModel) -> frozen.FrozenFBModel:
+    """The provided medium model, loaded once per session (tests/conftest.py)."""
+    return medium_model
 
 
 @pytest.fixture(scope="module")
@@ -156,8 +146,10 @@ def test_download_checkpoint_refuses_files_with_a_wrong_hash(tmp_path, monkeypat
         frozen.download_checkpoint(MEDIUM)
 
 
-def test_download_checkpoint_does_not_use_the_network_when_files_are_present(monkeypatch):
-    _skip_without_checkpoint(MEDIUM)
+def test_download_checkpoint_does_not_use_the_network_when_files_are_present(
+    monkeypatch, require_files
+):
+    require_files.checkpoint(MEDIUM)
 
     def no_network(*args, **kwargs):
         raise AssertionError("download_checkpoint used the network")
@@ -219,6 +211,36 @@ def release(monkeypatch, tmp_path) -> FakeServer:
     monkeypatch.setattr(urllib.request, "urlopen", server.urlopen)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     return server
+
+
+def test_trained_key_names_the_folder_of_a_trained_checkpoint():
+    large = "antmaze-large-navigate-v0"
+
+    assert frozen.trained_key("baselines", MEDIUM, 3) == "baselines/medium/seed3"
+    assert frozen.trained_key("approach_b", large, 0, "clean") == "approach_b/large/clean/seed0"
+    with pytest.raises(ValueError, match="kind"):
+        frozen.trained_key("checkpoints", MEDIUM, 0)
+    with pytest.raises(ValueError, match="antmaze-medium-stitch-v0"):
+        frozen.trained_key("baselines", "antmaze-medium-stitch-v0", 0)
+
+
+def test_load_trained_file_downloads_a_missing_checkpoint_once(release):
+    loaded = frozen.load_trained_file(TRAINED_KEY, "high_actor.pkl")
+    release.requested.clear()
+    again = frozen.load_trained_file(TRAINED_KEY, "high_actor.pkl")
+
+    np.testing.assert_array_equal(loaded["w"], np.ones(3))
+    np.testing.assert_array_equal(again["w"], np.ones(3))
+    assert release.requested == []
+
+
+def test_save_flags_writes_flags_json_into_a_new_folder(tmp_path):
+    flags = {"env_name": f"ogbench-{MEDIUM}", "seed": 2, "agent": {"lr": 0.0003}}
+
+    frozen.save_flags(flags, tmp_path / "new" / "seed2")
+
+    written = (tmp_path / "new" / "seed2" / "flags.json").read_text()
+    assert written == json.dumps(flags, indent=2)
 
 
 def test_download_trained_fetches_the_pinned_release_assets(release):
@@ -440,12 +462,11 @@ def test_example_batch_has_the_sizes_of_the_saved_weights(model):
 
 def test_forward_of_the_agent_is_the_model_forward(model, observations, latents):
     """Equal up to float32 rounding: XLA fuses the jitted method differently (about 3e-6)."""
-    np.testing.assert_allclose(
-        np.asarray(frozen.forward(model.agent, observations, latents)),
-        np.asarray(model.forward(observations, latents)),
-        rtol=1e-5,
-        atol=1e-5,
-    )
+    with jax.default_matmul_precision("highest"):  # TF32 on an Ampere GPU gives about 1e-3
+        plain = np.asarray(frozen.forward(model.agent, observations, latents))
+        jitted = np.asarray(model.forward(observations, latents))
+
+    np.testing.assert_allclose(plain, jitted, rtol=1e-5, atol=1e-5)
 
 
 def test_model_puts_a_host_agent_on_the_device(model):
@@ -471,8 +492,8 @@ def test_restored_parameters_equal_the_checkpoint_arrays(model):
 
 
 @pytest.mark.parametrize("env_name", frozen.ENV_NAMES)
-def test_every_checkpoint_loads_with_its_training_discount(env_name):
-    _skip_without_checkpoint(env_name)
+def test_every_checkpoint_loads_with_its_training_discount(env_name, require_files):
+    require_files.checkpoint(env_name)
 
     loaded = frozen.load_model(env_name)
 
@@ -502,16 +523,16 @@ def test_policy_outputs_have_contract_shapes_and_ranges(model, observations, lat
 def test_forward_and_backward_of_a_row_do_not_depend_on_the_other_rows(model, observations):
     """The planner divides F(s, z_w)^T B(w) values from different batches (rho), so a row's
     output must not depend on the batch it is in."""
-    b = np.asarray(model.backward(observations))
     order = np.random.default_rng(0).permutation(len(observations))
 
-    np.testing.assert_allclose(np.asarray(model.backward(observations[order])), b[order], rtol=1e-6)
-    np.testing.assert_allclose(
-        np.asarray(model.forward(observations[order], b[order])),
-        np.asarray(model.forward(observations, b))[:, order],
-        rtol=1e-5,
-        atol=1e-6,
-    )
+    with jax.default_matmul_precision("highest"):  # TF32 on an Ampere GPU gives about 1e-3
+        b = np.asarray(model.backward(observations))
+        shuffled_b = np.asarray(model.backward(observations[order]))
+        shuffled_f = np.asarray(model.forward(observations[order], b[order]))
+        f = np.asarray(model.forward(observations, b))
+
+    np.testing.assert_allclose(shuffled_b, b[order], rtol=1e-6)
+    np.testing.assert_allclose(shuffled_f, f[:, order], rtol=1e-5, atol=1e-6)
 
 
 def test_self_successor_measure_is_positive(model, observations):
@@ -555,8 +576,6 @@ def test_baseline_policy_matches_upstream_sample_actions(model, observations):
 
 
 def test_infer_task_latent_is_stable_across_calls(model):
-    _skip_without_dataset(MEDIUM, "val")
-
     first, second = model.infer_task_latent(1), model.infer_task_latent(1)
 
     assert first.shape == (LATENT_DIM,) and first.dtype == np.float32
@@ -566,7 +585,6 @@ def test_infer_task_latent_is_stable_across_calls(model):
 def test_task_latent_points_along_the_sum_of_b_over_goal_states(model):
     """z_r = normalize_z(mean(r * B(s))) with r = 1 within the goal radius of the first 100k
     validation states. Its norm is below sqrt(d), see FrozenFBModel.infer_task_latent."""
-    _skip_without_dataset(MEDIUM, "val")
     env = frozen.make_env(MEDIUM)
     env.reset(options={"task_id": 1})
     val = frozen.load_dataset(MEDIUM, "val")
@@ -584,9 +602,19 @@ def test_task_latent_points_along_the_sum_of_b_over_goal_states(model):
     assert 0.75 < np.linalg.norm(z_r) / np.sqrt(LATENT_DIM) < 0.99
 
 
-def test_task_latents_differ_between_tasks(model):
-    _skip_without_dataset(MEDIUM, "val")
+def test_goal_latent_of_a_task_goal_cell_is_the_task_latent(model):
+    maze = frozen.make_env(MEDIUM).unwrapped
+    goal_ij = tuple(maze.task_infos[0]["goal_ij"])
 
+    np.testing.assert_array_equal(model.infer_goal_latent(goal_ij), model.infer_task_latent(1))
+
+
+def test_goal_latent_refuses_a_cell_that_no_validation_state_reaches(model):
+    with pytest.raises(ValueError, match=r"\(0, 0\)"):  # a wall cell
+        model.infer_goal_latent((0, 0))
+
+
+def test_task_latents_differ_between_tasks(model):
     assert not np.allclose(model.infer_task_latent(1), model.infer_task_latent(2))
 
 
@@ -604,13 +632,13 @@ def test_make_env_gives_the_upstream_eval_env():
     assert env.spec.max_episode_steps == 1000
 
 
-def test_eval_env_reproduces_the_dataset_dynamics():
+def test_eval_env_reproduces_the_dataset_dynamics(require_files):
     """One env step from a dataset state with the dataset action gives the dataset next state.
 
     pi_l was trained on these transitions, so the eval env must have the same physics.
     MuJoCo 3.1.6 reproduces them to float precision (about 4e-7). MuJoCo 3.17 does not (8e-3).
     """
-    _skip_without_dataset(MEDIUM, "val")
+    require_files.dataset(MEDIUM, "val")
     maze = frozen.make_env(MEDIUM).unwrapped
     data = frozen.load_dataset(MEDIUM, "val")
     within = np.flatnonzero(data["terminals"][:-1] == 0)
@@ -626,8 +654,8 @@ def test_eval_env_reproduces_the_dataset_dynamics():
 
 
 @pytest.mark.parametrize("split", ["train", "val"])
-def test_load_dataset_gives_aligned_transitions(split):
-    _skip_without_dataset(MEDIUM, split)
+def test_load_dataset_gives_aligned_transitions(split, require_files):
+    require_files.dataset(MEDIUM, split)
 
     data = frozen.load_dataset(MEDIUM, split)
     obs, next_obs, terminals = data["observations"], data["next_observations"], data["terminals"]
