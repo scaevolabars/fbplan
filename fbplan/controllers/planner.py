@@ -4,7 +4,7 @@ Once per env: the rho table between landmarks. Once per task: V_H by value itera
 (fbplan.graph). At a replan, every landmark w is scored from the current state s with
 Q(s, w) = R(s, w) + hop_discount * rho(s, w) * V_H(w) over trusted edges, and the best one
 becomes the waypoint w*, unless the task policy has a higher value F(s, z_r)^T z_r.
-Edges from landmarks and from s follow the same trust rules (see PlannerConfig).
+Edges from landmarks and from s follow the same trust rule (trusted_edges).
 The controller keeps w* until it is reached (see PlannerConfig.reached_xy) or until a
 timeout, and acts with pi_l(a | s, z_w*) (or pi_l(a | s, z_r) on the task policy), where
 z_w is the landmark's option latent: B(w) by default, or a region mean (fbplan.landmarks).
@@ -22,6 +22,7 @@ from typing import TypeVar
 
 import numpy as np
 
+from fbplan import graph
 from fbplan.contracts import FBModel, TaskSpec
 from fbplan.frozen import load_dataset
 from fbplan.graph import (
@@ -31,7 +32,6 @@ from fbplan.graph import (
     best_options,
     extract_route,
     q_values,
-    trusted_edges,
     value_iteration,
 )
 from fbplan.landmarks import LandmarkConfig, select_landmarks
@@ -42,16 +42,17 @@ from fbplan.option_model import OptionModel, OptionModelConfig, OptionTable
 class PlannerConfig:
     """Every planner value in the report comes from this config.
 
-    An edge (u, w) is trusted when rho_min <= rho(u, w) < rho_max and the xy distance from u
-    to w is at most max_edge_xy, then top_k keeps the largest rho per source. Trust uses the
-    raw FB estimate; values use rho clipped to [0, gamma] (see option_model).
+    landmarks, options: landmark selection (fbplan.landmarks) and the option model
+        (fbplan.option_model).
+    Trust (trusted_edges): an edge (u, w) is trusted when rho_min <= rho(u, w) < rho_max and
+    the xy distance from u to w is at most max_edge_xy. Trust uses the raw FB estimate; values
+    use rho clipped to [0, gamma] (see option_model).
     rho_min: rho = gamma^k is about k steps.
     rho_max: rho >= 1 is an FB error (see graph.trusted_edges); above 1 trusts it (ablation).
     max_edge_xy: guard against wormholes with rho < 1. obs[:2] is the agent's xy position,
         which the agent observes. 6 = 1.5 maze cells in OGBench AntMaze. None: no cap.
     two_way: use min(rho(u, w), rho(w, u)) as the edge discount, an FB-only wormhole guard
         (dynamics in the maze are nearly reversible; FB errors often are not).
-    top_k: keep at most top_k trusted out-edges per source (None: no limit).
     hop_discount: factor on rho per hop; below 1 it is a cost per hop.
     reached_xy: the waypoint is reached when the agent is within reached_xy xy units of it.
         None: use rho(s, w*) >= rho_reached instead. The xy rule is the default because on
@@ -79,6 +80,8 @@ class PlannerConfig:
     replan_every_step: rescore all landmarks at every step instead of committing to w*
         (design.md §4.A). With exact values this is never worse (option interruption);
         commitment guards against noisy values.
+    vi_max_iters, vi_tol: value iteration stops at relative change vi_tol; a task whose
+        value iteration has not converged after vi_max_iters sweeps raises an error.
     """
 
     landmarks: LandmarkConfig = field(default_factory=LandmarkConfig)
@@ -87,7 +90,6 @@ class PlannerConfig:
     rho_max: float = 1.0
     max_edge_xy: float | None = 6.0
     two_way: bool = False
-    top_k: int | None = None
     hop_discount: float = 1.0
     reached_xy: float | None = 3.0
     rho_reached: float = 0.9
@@ -103,13 +105,34 @@ class PlannerConfig:
             raise ValueError("switch_steps must be >= 0 or None")
 
 
+def trusted_edges(
+    rho_raw: np.ndarray,
+    sources: np.ndarray,
+    targets: np.ndarray,
+    config: PlannerConfig | None = None,
+    exclude_diagonal: bool = False,
+) -> np.ndarray:
+    """The planner's trust rule for edges from observations sources [S, obs_dim] to targets
+    [T, obs_dim]: rho_min <= rho_raw < rho_max and xy distance <= max_edge_xy. [S, T] bool
+
+    rho_raw is the FB estimate before clipping (with two_way, the min over both directions);
+    graph.trusted_edges explains the bounds. The xy cap guards against wormholes with rho < 1.
+    exclude_diagonal drops self-loops when sources and targets are the same list. config
+    defaults to PlannerConfig().
+    """
+    cfg = config or PlannerConfig()
+    trusted = graph.trusted_edges(rho_raw, cfg.rho_min, exclude_diagonal, cfg.rho_max)
+    if cfg.max_edge_xy is not None:
+        dist = np.linalg.norm(sources[:, None, :2] - targets[None, :, :2], axis=-1)
+        trusted &= dist <= cfg.max_edge_xy
+    return trusted
+
+
 @dataclass(frozen=True)
 class TaskPlan:
     """The graph solved for one task."""
 
     z_r: np.ndarray  # [d]
-    reward: np.ndarray | None  # R between landmarks [N, N]; None for edge_reward "zero"
-    direct: np.ndarray  # F(l, z_r)^T z_r at each landmark [N]
     solution: GraphSolution
 
 
@@ -140,7 +163,6 @@ class GraphPlannerController:
         self._replans = 0
         self._advances = 0
         self._switches = 0
-        self._rho_waypoint = np.nan
 
     @classmethod
     def from_dataset(
@@ -167,7 +189,7 @@ class GraphPlannerController:
     def trusted(self) -> np.ndarray:
         """Trusted landmark-to-landmark edges [N, N], without self-loops."""
         raw = self._pair_min(self.edges.rho_raw, self.edges.rho_raw.T)
-        return self._trusted(raw, self.landmarks, exclude_diagonal=True)
+        return trusted_edges(raw, self.landmarks, self.landmarks, self.config, True)
 
     def reset(self, task: TaskSpec, seed: int) -> None:
         """Solve the graph for the task (cached per task). The policy is deterministic."""
@@ -178,7 +200,6 @@ class GraphPlannerController:
         self.plan = self._plans[key]
         self._waypoint, self._steps_on_waypoint = None, 0
         self._replans, self._advances, self._switches = 0, 0, 0
-        self._rho_waypoint = np.nan
 
     def act(self, obs: np.ndarray) -> np.ndarray:
         if self._needs_replan():
@@ -197,21 +218,17 @@ class GraphPlannerController:
             "replans": self._replans,
             "advances": self._advances,
             "switches": self._switches,
-            "rho_waypoint": self._rho_waypoint,
         }
 
     def _action(self, obs: np.ndarray, z: np.ndarray) -> np.ndarray:
         return np.asarray(self.fb.low_action(obs[None], z[None]))[0]
 
     def _solve(self, z_r: np.ndarray) -> TaskPlan:
-        reward = None
-        if self.config.options.edge_reward != "zero":
-            table = self.options.pair_table(self.landmarks, self.targets, z_r)
-            if self._edges is None:  # the same pass gives rho; keep it for later tasks
-                self._edges = replace(table, reward=None)
-            reward = table.reward
-        direct = self.options.direct_value(self.landmarks, z_r)
         cfg = self.config
+        reward = None  # R = 0 unless edge_reward asks for it (an N x N pass per task)
+        if self.options.has_reward:
+            reward = self.options.pair_table(self.landmarks, self.targets, z_r).reward
+        direct = self.options.direct_value(self.landmarks, z_r)
         solution = value_iteration(
             self.edge_rho,
             reward,
@@ -221,7 +238,9 @@ class GraphPlannerController:
             cfg.vi_max_iters,
             cfg.vi_tol,
         )
-        return TaskPlan(z_r, reward, direct, solution)
+        if not solution.converged:
+            raise RuntimeError(f"value iteration did not converge in {cfg.vi_max_iters} sweeps")
+        return TaskPlan(z_r, solution)
 
     def _needs_replan(self) -> bool:
         cfg = self.config
@@ -238,21 +257,20 @@ class GraphPlannerController:
             self._replan(obs)
             return
         stop = int(self.plan.solution.best_next[self._waypoint])
-        (q_stop,), (rho_stop,) = self._stop_values(obs, np.array([stop]))
+        (q_stop,) = self._stop_values(obs, np.array([stop]))
         if not np.isfinite(q_stop):
             return  # keep heading for the waypoint until its next stop is trusted
         if np.isfinite(margin):
-            best, q_best, rho_best = self._choose(obs)
+            best, q_best = self._choose(obs)
             if q_best - q_stop > (self.fb.discount**-margin - 1.0) * abs(q_stop):
-                self._set_waypoint(best, rho_best)
+                self._set_waypoint(best)
                 self._switches += 1
                 return
-        self._set_waypoint(stop, rho_stop)
+        self._set_waypoint(stop)
         self._advances += 1
 
-    def _set_waypoint(self, waypoint: int, rho: float) -> None:
-        self._waypoint, self._rho_waypoint = waypoint, rho
-        self._steps_on_waypoint = 0
+    def _set_waypoint(self, waypoint: int) -> None:
+        self._waypoint, self._steps_on_waypoint = waypoint, 0
 
     def _reached(
         self, obs: np.ndarray, idx: np.ndarray, rho: np.ndarray | None = None
@@ -268,74 +286,74 @@ class GraphPlannerController:
 
     def route(self, obs: np.ndarray) -> list[int]:
         """Landmark ids that the plan visits from obs, in order (diagnostics and plots)."""
-        first, _, _ = self._choose(obs)
+        first, _ = self._choose(obs)
         return [] if first == DIRECT else extract_route(self.plan.solution, first)
 
     def _replan(self, obs: np.ndarray) -> None:
-        best, _, rho = self._choose(obs)
-        self._set_waypoint(best, rho)
+        self._set_waypoint(self._choose(obs)[0])
         self._replans += 1
 
-    def _choose(self, obs: np.ndarray) -> tuple[int, float, float]:
-        """Best waypoint from obs with its Q and rho, or (DIRECT, task value, nan).
+    def _choose(self, obs: np.ndarray) -> tuple[int, float]:
+        """Best waypoint from obs and its Q, or (DIRECT, task value). Ties follow
+        graph.best_options.
 
         Landmarks that count as reached are excluded: the landmark under the agent has
-        Q = rho * V_H ~ V_H, and choosing it again would stall the agent. Ties follow
-        graph.best_options.
+        Q = rho * V_H ~ V_H, and choosing it again would stall the agent.
         """
-        cfg, plan = self.config, self.plan
-        row, rho, raw = self._row(obs)
-        reached = self._reached(obs, np.arange(len(self.landmarks)), row.rho[0])
-        candidates = np.where(reached, -np.inf, raw)
-        mask = self._trusted(candidates, obs[None])
-        q = q_values(rho, row.reward, plan.solution.values, mask, cfg.hop_discount)[0]
-        direct = float(self.options.direct_value(obs[None], plan.z_r)[0])
-        best = int(best_options(q[None], plan.solution.values, np.array([direct]))[0])
-        if best == DIRECT:
-            return DIRECT, direct, np.nan
-        return best, float(q[best]), float(row.rho[0, best])
+        q = self._q(obs, exclude_reached=True)
+        direct = self._task_value(obs)
+        best = int(best_options(q[None], self.plan.solution.values, np.array([direct]))[0])
+        return (DIRECT, direct) if best == DIRECT else (best, float(q[best]))
 
     def _advance(self, obs: np.ndarray) -> None:
-        """Move on along the route while the next stop is worth at least the current waypoint."""
-        while self._waypoint != DIRECT:
+        """Move on along the route while the next stop is worth at least the current waypoint.
+
+        A route visits each landmark at most once, so the loop has at most N steps; the bound
+        also ends a cycle of tied stops.
+        """
+        for _ in range(len(self.landmarks)):
+            if self._waypoint == DIRECT:
+                return
             nxt = int(self.plan.solution.best_next[self._waypoint])
-            (q_now, q_next), (_, rho_next) = self._stop_values(obs, np.array([self._waypoint, nxt]))
+            q_now, q_next = self._stop_values(obs, np.array([self._waypoint, nxt]))
             # A tie moves on: the next stop is nearer the goal (TIE_RTOL, see graph.best_options).
             if not (np.isfinite(q_next) and q_next >= q_now - TIE_RTOL * abs(q_now)):
                 return
-            self._set_waypoint(nxt, rho_next)
+            self._set_waypoint(nxt)
             self._advances += 1
 
-    def _stop_values(self, obs: np.ndarray, stops: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Q(s, w) and rho(s, w) for route stops (DIRECT: the task value, rho nan).
-
-        A stop behind an untrusted edge gets Q = -inf. top_k is not applied: it ranks a full row.
-        """
-        q, rho_out = np.full(len(stops), -np.inf), np.full(len(stops), np.nan)
+    def _stop_values(self, obs: np.ndarray, stops: np.ndarray) -> np.ndarray:
+        """Q(s, w) for route stops; DIRECT stops get the task value. [len(stops)]"""
+        q = np.full(len(stops), self._task_value(obs) if (stops == DIRECT).any() else -np.inf)
         landmark = stops != DIRECT
         if landmark.any():
-            idx = stops[landmark]
-            row, rho, raw = self._row(obs, idx)
-            mask = self._trusted(raw, obs[None], idx=idx)
-            values = self.plan.solution.values[idx]
-            q[landmark] = q_values(rho, row.reward, values, mask, self.config.hop_discount)[0]
-            rho_out[landmark] = row.rho[0]
-        if not landmark.all():
-            q[~landmark] = self.options.direct_value(obs[None], self.plan.z_r)[0]
-        return q, rho_out
+            q[landmark] = self._q(obs, stops[landmark])
+        return q
 
-    def _row(
-        self, obs: np.ndarray, idx: np.ndarray | None = None
-    ) -> tuple[OptionTable, np.ndarray, np.ndarray]:
-        """The option table from obs to the landmarks idx (default: all), and the edge
-        discounts for values (clipped rho) and for trust (raw rho), each the two-way min
-        with two_way."""
-        targets = self.targets if idx is None else self.targets.take(idx)
-        row = self.options.pair_table(obs[None], targets, self.plan.z_r)
+    def _q(
+        self, obs: np.ndarray, idx: np.ndarray | None = None, exclude_reached: bool = False
+    ) -> np.ndarray:
+        """Q(s, w) for the landmarks idx (default: all), -inf behind an untrusted edge and,
+        with exclude_reached, for landmarks that count as reached. [len(idx)]"""
+        idx = np.arange(len(self.landmarks)) if idx is None else idx
+        row, rho, raw = self._row(obs, idx)
+        trusted = trusted_edges(raw, obs[None], self.landmarks[idx], self.config)[0]
+        if exclude_reached:
+            trusted &= ~self._reached(obs, idx, row.rho[0])
+        values = self.plan.solution.values[idx]
+        return q_values(rho, row.reward, values, trusted[None], self.config.hop_discount)[0]
+
+    def _task_value(self, obs: np.ndarray) -> float:
+        """F(s, z_r)^T z_r: the value of switching to the task policy now."""
+        return float(self.options.direct_value(obs[None], self.plan.z_r)[0])
+
+    def _row(self, obs: np.ndarray, idx: np.ndarray) -> tuple[OptionTable, np.ndarray, np.ndarray]:
+        """The option table from obs to the landmarks idx, and the edge discounts for values
+        (clipped rho) and for trust (raw rho), each the two-way min with two_way."""
+        row = self.options.pair_table(obs[None], self.targets.take(idx), self.plan.z_r)
         if not self.config.two_way:
             return row, row.rho, row.rho_raw
-        sources = self.landmarks if idx is None else self.landmarks[idx]
-        back = self.options.pair_table(sources, self.options.targets(obs[None]))
+        back = self.options.pair_table(self.landmarks[idx], self.options.targets(obs[None]))
         return (
             row,
             self._pair_min(row.rho, back.rho.T),
@@ -346,26 +364,9 @@ class GraphPlannerController:
         """min(rho(u, w), rho(w, u)) with two_way, else rho(u, w)."""
         return np.minimum(rho, reverse) if self.config.two_way else rho
 
-    def _trusted(
-        self,
-        rho: np.ndarray,
-        sources: np.ndarray,
-        exclude_diagonal: bool = False,
-        idx: np.ndarray | None = None,
-    ) -> np.ndarray:
-        """Trust rules of PlannerConfig for edges from source observations to the landmarks
-        idx (default: all). top_k ranks a full row, so it applies only to all landmarks."""
-        cfg = self.config
-        targets = self.landmarks if idx is None else self.landmarks[idx]
-        if cfg.max_edge_xy is not None:
-            dist = np.linalg.norm(sources[:, None, :2] - targets[None, :, :2], axis=-1)
-            rho = np.where(dist <= cfg.max_edge_xy, rho, -np.inf)
-        top_k = cfg.top_k if idx is None else None
-        return trusted_edges(rho, cfg.rho_min, top_k, exclude_diagonal, cfg.rho_max)
-
 
 class GraphPlusHighController(GraphPlannerController):
-    """Same route, but B(w*) is the task of the baseline pi_h, which then picks the intention."""
+    """Same route, but z_w* is the task of the baseline pi_h, which then picks the intention."""
 
     name = "graph_plus_high"
 

@@ -19,6 +19,7 @@ import numpy as np
 from fbplan.contracts import normalize_z
 
 # A U-shaped corridor: the two bottom ends are 4 cells apart in xy but 10 steps apart on foot.
+START, GOAL = (1, 4), (5, 4)  # the two bottom ends; GOAL is the default goal of task 1
 U_MAZE = (
     "#######",
     "#.....#",
@@ -51,7 +52,7 @@ class GridFB:
         self.index = {c: i for i, c in enumerate(self.cells)}
         self.latent_dim = len(self.cells)
         self.dist = self._all_distances()
-        self.goals = goals or {1: (5, 4)}
+        self.goals = goals or {1: GOAL}
         self.measure = np.stack([self._exact_measure()] * 2)  # [head, target, source, cell]
         for (head, src, dst), rho in (wormholes or {}).items():
             j = self.index[dst]
@@ -60,6 +61,10 @@ class GridFB:
 
     def obs(self, cell: tuple[int, int]) -> np.ndarray:
         return np.asarray(cell, dtype=np.float32)
+
+    def all_obs(self) -> np.ndarray:
+        """The observation of every cell, in cell order. [n_cells, 2]"""
+        return np.stack([self.obs(c) for c in self.cells])
 
     def cell_ids(self, obs: np.ndarray) -> np.ndarray:
         xy = np.rint(np.asarray(obs)[:, :2]).astype(int)
