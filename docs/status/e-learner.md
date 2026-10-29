@@ -144,6 +144,20 @@
   B clean at that temperature -> `approach_b/medium/clean-awr2x/seed<k>` (same batches as the B-clean
   runs, so only the temperature differs). Budget: about 1.9 GPU hours, about $0.40.
 
+- **B-region ready for d-eval (23:58 MSK):** policy `region` seeds 0-4 (window latents, own
+  critic `value-region`), trained on 58234389 (22:40-23:50 MSK, code a189a49), pulled and exported
+  to `approach_b/medium/region/seed{0..4}/`. Evaluate with `--checkpoint b:region:<seed>`. Checks:
+  loads, F/B/pi_l equal the provided ones; MSE 0.62-0.65 -> 0.59-0.62 (smoother targets than
+  clean); 89 % valid; no NaN; temperatures 0.211, 0.121, 0.177, 0.102, 0.131. Current-code
+  command per seed k: `uv run python -m fbplan.learned.train_b policy --env antmaze-medium-navigate-v0 --seed k --variant region`.
+- **AWR 2x started (23:53 MSK)** on 58234389 with code 97d9200 (`push --no-tests` after region):
+  `bash scripts/gpu/awr2x.sh > runs/awr2x.log` in tmux session `awr2x`.
+- **Attribution control (h-learn H1, coordinator 2026-10-29):** B clean with `--critic v_1` (V_1 where
+  the targets and the advantage use V_H), the shared 2x temperature of `clean-awr2x`, the same
+  batches; folder `approach_b/medium/clean-v1-awr2x/seed<k>`, d-eval name `b:clean-v1-awr2x:<seed>`.
+  Script `scripts/gpu/awr2x_v1.sh`. It needs new code, so it starts after awr2x.sh logs "all done":
+  `push --no-tests`, then the script (about 1 GPU hour, about $0.21).
+
 ## Analysis: the seed split of B-clean (for the report; no new training)
 
 Success per training seed (d-eval, `results/medium/b_clean/seed*.csv` and
@@ -264,7 +278,9 @@ What ran on 58234389:
 | 19:24 | 20:32 | value expectile 0.7 seeds 0-4 |
 | 20:32 | 21:29 | policy clean seeds 0-4 (queue-b1 resumed) |
 | 21:29 | 22:40 | policy wide seeds 0-4 (rho cap 1.0 cancelled at 22:34 MSK, coordinator decision: B stops) |
-| 22:40 | | policy region seeds 0-4 |
+| 22:40 | 23:50 | policy region seeds 0-4 |
+| 23:51 | 23:53 | push of 97d9200 without tests (no job ran) |
+| 23:53 | | awr2x.sh: baseline high_alpha 0.2, calibration, B clean 2x; then the V_1 control |
 | 18:58 | | ablations approved (coordinator for the user): queue `runs/queue-ablations.sh` (below) holds queue-b1, then runs value expectile 0.7, resumes queue-b1 (policy clean, wide, region), then value rho cap 1.0 |
 
 The ablation queue. The instance runs code a189a49, which has no `--name`; each ablation writes
