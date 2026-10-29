@@ -4,7 +4,9 @@
         [--label-root results/medium] [--reference baseline] [--cluster config_hash]
 
 Per env: success (%) per task and overall with the 95 % stratified bootstrap CI, and the paired
-comparison of every method against the reference method on the same episodes.
+comparison of every method against each reference method (default: baseline and baseline_raw,
+docs/design.md §8) on the same episodes. Runs whose resets are not seeded (UNPAIRED: upstream's
+own evaluation loop) have no episode pairs; they get the unpaired comparison instead.
 Rows are named by fbplan.stats.row_labels: the method, the trained pi_h and its training seed
 ("baseline[retrained]/seed3"), and "@hash" for a method with several configs. With
 --label-root, rows are named by CSV path instead ("planner/l0").
@@ -21,9 +23,17 @@ from pathlib import Path
 
 import pandas as pd
 
-from fbplan.stats import load_results, paired_table, pool_label, row_labels, summary_table
+from fbplan.stats import (
+    load_results,
+    paired_table,
+    pool_label,
+    row_labels,
+    summary_table,
+    unpaired_comparison,
+)
 
 PRIVILEGED = {"oracle"}  # methods that read privileged information
+UNPAIRED = {"upstream"}  # runs without seeded resets (analysis/parity.py): no episode pairs
 
 
 def markdown(df: pd.DataFrame) -> str:
@@ -80,10 +90,23 @@ def pooled_paired_markdown(table: pd.DataFrame) -> str:
     return markdown(rows)
 
 
+def unpaired_markdown(df: pd.DataFrame, methods: list[str], reference: str) -> str:
+    """fbplan.stats.unpaired_comparison of each method against the reference."""
+    rows = []
+    for method in methods:
+        est = unpaired_comparison(df, method, reference)
+        diff = f"{100 * est.mean:+.1f} [{100 * est.low:+.1f}, {100 * est.high:+.1f}]"
+        rows.append((method, diff, est.n))
+    return markdown(pd.DataFrame(rows, columns=["method", "diff (pp)", "episodes"]))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("csv", nargs="+", type=Path)
-    parser.add_argument("--reference", default="baseline", help="method for paired comparisons")
+    parser.add_argument(
+        "--reference", nargs="+", default=["baseline", "baseline_raw"],
+        help="methods for paired comparisons; one table per reference present",
+    )
     parser.add_argument("--cluster", help="column of a shared random factor, e.g. config_hash")
     parser.add_argument("--label-root", type=Path, help="name rows by CSV path below this folder")
     args = parser.parse_args()
@@ -97,13 +120,19 @@ def main() -> None:
         kind = f"cluster bootstrap over {args.cluster}" if args.cluster else "stratified bootstrap"
         print(f"## {env_name}\n\nSuccess (%), 95 % {kind} CI\n")
         print(success_markdown(summary_table(shown, cluster=args.cluster)))
-        if args.reference in set(env_df["method"]) and env_df["method"].nunique() > 1:
-            print(f"\nPaired difference against {args.reference} (pp = percentage points)\n")
-            paired = paired_table(env_df, args.reference)
-            print(paired_markdown(paired))
-            if pooled and shown["method"].nunique() < env_df["method"].nunique():
-                print("\nPooled methods: mean and range of the paired differences\n")
-                print(pooled_paired_markdown(paired))
+        unpaired = env_df["method"].map(pool_label).isin(UNPAIRED)
+        paired_df = env_df[~unpaired]
+        for reference in [r for r in args.reference if r in set(paired_df["method"])]:
+            if paired_df["method"].nunique() > 1:
+                print(f"\nPaired difference against {reference} (pp = percentage points)\n")
+                paired = paired_table(paired_df, reference)
+                print(paired_markdown(paired))
+                if pooled and shown["method"].nunique() < env_df["method"].nunique():
+                    print("\nPooled methods: mean and range of the paired differences\n")
+                    print(pooled_paired_markdown(paired))
+            if unpaired.any():
+                print(f"\nUnpaired difference against {reference} (resets not seeded)\n")
+                print(unpaired_markdown(env_df, sorted(set(env_df["method"][unpaired])), reference))
         print()
 
 
