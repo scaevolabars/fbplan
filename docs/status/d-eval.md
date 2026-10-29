@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-30, 01:55. Branch merged with `main` at 3e36461.
+Last update: 2026-10-30, 02:20. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -389,25 +389,29 @@ CSVs come from the same commands on the instance (one process per eval seed, the
 - Large (follows): the same evaluate commands with `--env antmaze-large-navigate-v0`, run on
   the vast.ai host as 5 processes per config (one per eval seed), joined into one CSV.
 
-## AWR sharpness at 2× (design.md §8, coordinator 2026-10-29 23:00)
+## AWR sharpness at 2× (design.md §8; Linux, medium, 5 eval seeds, 1,250 episodes per run)
 
-Waiting for e-learner's export of the baseline at `high_alpha = 0.2`
-(`baselines/medium/awr2x/seed<k>`, `--checkpoint retrained:awr2x:<k>`) and B clean at matched 2×
-sharpness (`approach_b/medium/clean-awr2x/seed<k>`, `--checkpoint b:clean-awr2x:<k>`), 5 seeds
-each; watchers wake me when each family is exported, and the jobs are written. CSVs will go to
-`results/medium/baseline_retrained_awr2x/` and `results/medium/b_clean_awr2x/`; the held-out
-selection runs with `--reference retrained` and `--reference retrained_awr2x`. Then: all 5 seeds × 5 eval seeds on medium, pooled rows paired against
-each other, the original retrained baselines and baseline_raw, and the held-out selection rule
-for both families. `--checkpoint retrained:<variant>:<seed>` (new) loads a variant folder of the
-retrained baselines (`baselines/medium/<variant>/seed<k>`); B uses `b:<variant>:<seed>`. These
-jobs need my branch's code on the instance (a separate tree, checked against a committed run).
-Instance rule (coordinator, 2026-10-30 00:15; budget raised to $50): instance 58279543 stays up
-while the 2× families and the H1 control are expected; it is destroyed when the coordinator says
-so or when nothing is queued or expected for 2 hours. No automatic destroy watcher runs.
-The 2× jobs run from a third code tree on the instance, `~/fbplan_deval` (d-eval 7b7770f, with
-`retrained:<variant>:<seed>`). Check: from that tree, eval seed 0 of the baseline repeats
-`results/medium/baseline.csv` exactly (250 of 250 records), so its runs pair with all
-committed medium rows.
+`results/medium/baseline_retrained_awr2x/` (`--checkpoint retrained:awr2x:<k>`, high_alpha 0.2) and
+`results/medium/b_clean_awr2x/` (`b:clean-awr2x:<k>`, shared 2× temperature), 5 training seeds
+each; code tree 6c603a3 (it repeats the committed baseline exactly). Pooled rows, paired:
+
+| family | success [95 % CI] | vs baseline 2× (pp) | vs retrained (pp) | vs baseline_raw (pp) | vs baseline (pp) |
+|---|---|---|---|---|---|
+| baseline 2× | 80.9 [78.9, 82.6] | – | +2.7 [−0.1, +5.2] | +0.1 [−2.9, +3.1] | +3.9 [+0.8, +6.9] |
+| B clean 2× | 80.2 [77.4, 82.3] | −0.8 [−4.3, +2.5] | +1.9 [−1.4, +4.8] | −0.6 [−4.2, +2.6] | +3.1 [−0.5, +6.5] |
+| retrained | 78.3 [76.9, 79.7] | −2.7 [−5.1, −0.0] | – | −2.5 [−5.2, +0.2] | +1.2 [−1.5, +4.1] |
+| B clean | 79.3 [76.4, 82.2] | −1.6 [−5.3, +2.0] | +1.1 [−2.4, +4.5] | −1.5 [−5.1, +2.1] | +2.3 [−1.5, +6.1] |
+
+- Seeds 0–4: baseline 2× 81.8, 77.2, 82.6, 81.3, 81.8; B clean 2× 80.4, 75.0, 82.7, 81.0, 81.7 %.
+  B clean 2× − B clean = +0.8 [−3.3, +4.7].
+- Reading (fixed in §8): B at 2× beats neither the baseline at 2× (−0.8) nor baseline_raw (−0.6),
+  so B stays negative. The sharper AWR weighting lifts the baseline π_h (+2.7 over the original
+  retrained baselines, CI touching 0) about as much as B; this is a π_h tuning effect, not
+  chaining.
+- Held-out selection (`results/medium/heldout_selection.csv`, and `heldout_selection_awr2x.csv`
+  with the 2× baseline as reference): baseline 2× selects seed 4 (eval 81.8 %), B clean 2× seed 3
+  (81.0 %); selected B 2× − selected baseline 2× = −0.7 [−3.7, +2.2] (p 0.67), − baseline_raw =
+  +0.2 (p 0.92).
 
 ## Final protocol, 10 eval seeds (Linux, `results/medium_10seeds/`, 2,500 episodes per run)
 
@@ -426,8 +430,12 @@ episodes); ensembles are single runs (T1, code 0be1249). Paired on the same 2,50
 | T1 ensemble, retrained | 77.9 [76.3, 79.5] | −0.5 [−2.8, +1.7], p 0.68 | −2.6 [−4.8, −0.4], p 0.023 |
 | T1 ensemble, B clean | 80.0 [78.4, 81.6] | +1.6 [−0.6, +3.7], p 0.17 | −0.5 [−2.6, +1.7], p 0.69 |
 | T1 ensemble, B region | 81.0 [79.4, 82.5] | +2.5 [+0.4, +4.6], p 0.024 | +0.5 [−1.7, +2.6], p 0.69 |
+| oracle (privileged, region r 0.5, lookahead 2) | 81.5 [80.0, 83.0] | +3.1 [+0.9, +5.3], p 0.0069 | +1.0 [−1.2, +3.2], p 0.37 |
 
 - With 10 eval seeds, baseline_raw − baseline = +2.0 pp (p 0.07); with 5 seeds it was +3.8.
+- Headroom bound (f-report): the privileged oracle on eval seeds 0–9 is +3.1 pp over the
+  baseline and +1.0 pp (not significant) over baseline_raw; seeds 5–9 ran in the main tree
+  (84a8127), the code of its seeds 0–4.
 - T1 (design.md §8 reading): B region ensemble − retrained ensemble = +3.0 [+0.9, +5.3]
   (p 0.0068; B clean ensemble +2.1, p 0.071). The B region ensemble gains against the baseline
   (+2.5, p 0.024) but not against baseline_raw (+0.5, p 0.69), so it does not pass the gain rule;
