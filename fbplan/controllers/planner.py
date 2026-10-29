@@ -10,6 +10,8 @@ timeout, and acts with pi_l(a | s, z_w*) (or pi_l(a | s, z_r) on the task policy
 z_w is the landmark's option latent: B(w) by default, or a region mean (fbplan.landmarks).
 With lookahead, it moves on along the planned route as soon as the next stop is worth at
 least as much from s as the current waypoint, so the agent does not slow down at each one.
+When w* is reached, the controller replans, or with switch_steps it takes the plan's next
+stop unless a replan saves more than switch_steps FB steps.
 """
 
 from __future__ import annotations
@@ -62,6 +64,15 @@ class PlannerConfig:
         Defaults reached_xy = 3 with lookahead: on 100 held-out medium episodes (same start
         states for all) 79/100 successes, against 56/100 for reached_xy = 1.5 without it and
         62/100 for reached_xy = 3 without it (baseline pi_h: 84/100).
+    switch_steps: route following at a reach. None: when w* is reached, rescore all
+        landmarks (full replan). A number k: take the plan's next stop after w* instead
+        (best_next, a landmark or the task policy), unless the full replan finds a choice
+        worth more than gamma^-k times its Q, that is, one that saves more than k FB steps.
+        While that stop is not trusted from s, the agent keeps heading for w* (until the
+        timeout). A full replan from near w* often prefers another landmark:
+        near the goal the max over many landmark values beats the one task value, and
+        between two ways around a loop small FB errors flip the choice at each reach.
+        inf: always follow the plan between timeouts.
     commit_timeout: replan after this many steps on one waypoint or on the task policy.
     replan_every_step: rescore all landmarks at every step instead of committing to w*
         (design.md §4.A). With exact values this is never worse (option interruption);
@@ -79,10 +90,15 @@ class PlannerConfig:
     reached_xy: float | None = 3.0
     rho_reached: float = 0.9
     lookahead: bool = True
+    switch_steps: float | None = None
     commit_timeout: int = 100
     replan_every_step: bool = False
     vi_max_iters: int = 1000
     vi_tol: float = 1e-8
+
+    def __post_init__(self) -> None:
+        if self.switch_steps is not None and self.switch_steps < 0:
+            raise ValueError("switch_steps must be >= 0 or None")
 
 
 @dataclass(frozen=True)
@@ -121,6 +137,7 @@ class GraphPlannerController:
         self._steps_on_waypoint = 0
         self._replans = 0
         self._advances = 0
+        self._switches = 0
         self._rho_waypoint = np.nan
 
     @classmethod
@@ -158,11 +175,14 @@ class GraphPlannerController:
             self._plans[key] = self._solve(z_r)
         self.plan = self._plans[key]
         self._waypoint, self._steps_on_waypoint = None, 0
-        self._replans, self._advances, self._rho_waypoint = 0, 0, np.nan
+        self._replans, self._advances, self._switches = 0, 0, 0
+        self._rho_waypoint = np.nan
 
     def act(self, obs: np.ndarray) -> np.ndarray:
-        if self._needs_replan(obs):
+        if self._needs_replan():
             self._replan(obs)
+        elif self._waypoint != DIRECT and self._reached(obs, np.array([self._waypoint]))[0]:
+            self._on_reach(obs)
         elif self.config.lookahead:
             self._advance(obs)
         self._steps_on_waypoint += 1
@@ -174,6 +194,7 @@ class GraphPlannerController:
             "waypoint": DIRECT if self._waypoint is None else self._waypoint,
             "replans": self._replans,
             "advances": self._advances,
+            "switches": self._switches,
             "rho_waypoint": self._rho_waypoint,
         }
 
@@ -200,15 +221,36 @@ class GraphPlannerController:
         )
         return TaskPlan(z_r, reward, direct, solution)
 
-    def _needs_replan(self, obs: np.ndarray) -> bool:
+    def _needs_replan(self) -> bool:
         cfg = self.config
-        if cfg.replan_every_step or self._waypoint is None:
-            return True
-        if self._steps_on_waypoint >= cfg.commit_timeout:
-            return True
-        if self._waypoint == DIRECT:
-            return False
-        return bool(self._reached(obs, np.array([self._waypoint]))[0])
+        return (
+            cfg.replan_every_step
+            or self._waypoint is None
+            or self._steps_on_waypoint >= cfg.commit_timeout
+        )
+
+    def _on_reach(self, obs: np.ndarray) -> None:
+        """The waypoint counts as reached: replan, or follow the route (switch_steps)."""
+        margin = self.config.switch_steps
+        if margin is None:
+            self._replan(obs)
+            return
+        stop = int(self.plan.solution.best_next[self._waypoint])
+        (q_stop,), (rho_stop,) = self._stop_values(obs, np.array([stop]))
+        if not np.isfinite(q_stop):
+            return  # keep heading for the waypoint until its next stop is trusted
+        if np.isfinite(margin):
+            best, q_best, rho_best = self._choose(obs)
+            if q_best - q_stop > (self.fb.discount**-margin - 1.0) * abs(q_stop):
+                self._set_waypoint(best, rho_best)
+                self._switches += 1
+                return
+        self._set_waypoint(stop, rho_stop)
+        self._advances += 1
+
+    def _set_waypoint(self, waypoint: int, rho: float) -> None:
+        self._waypoint, self._rho_waypoint = waypoint, rho
+        self._steps_on_waypoint = 0
 
     def _reached(
         self, obs: np.ndarray, idx: np.ndarray, rho: np.ndarray | None = None
@@ -224,16 +266,16 @@ class GraphPlannerController:
 
     def route(self, obs: np.ndarray) -> list[int]:
         """Landmark ids that the plan visits from obs, in order (diagnostics and plots)."""
-        first, _ = self._choose(obs)
+        first, _, _ = self._choose(obs)
         return [] if first == DIRECT else extract_route(self.plan.solution, first)
 
     def _replan(self, obs: np.ndarray) -> None:
-        self._waypoint, self._rho_waypoint = self._choose(obs)
-        self._steps_on_waypoint = 0
+        best, _, rho = self._choose(obs)
+        self._set_waypoint(best, rho)
         self._replans += 1
 
-    def _choose(self, obs: np.ndarray) -> tuple[int, float]:
-        """Best waypoint from obs and its rho, or (DIRECT, nan).
+    def _choose(self, obs: np.ndarray) -> tuple[int, float, float]:
+        """Best waypoint from obs with its Q and rho, or (DIRECT, task value, nan).
 
         Landmarks that count as reached are excluded: the landmark under the agent has
         Q = rho * V_H ~ V_H, and choosing it again would stall the agent.
@@ -244,10 +286,11 @@ class GraphPlannerController:
         candidates = np.where(reached, -np.inf, raw)
         mask = self._trusted(candidates, obs[None])
         q = q_values(rho, row.reward, plan.solution.values, mask, cfg.hop_discount)[0]
-        if q.max() <= self.options.direct_value(obs[None], plan.z_r)[0]:
-            return DIRECT, np.nan
+        direct = float(self.options.direct_value(obs[None], plan.z_r)[0])
+        if q.max() <= direct:
+            return DIRECT, direct, np.nan
         best = int(q.argmax())
-        return best, float(row.rho[0, best])
+        return best, float(q[best]), float(row.rho[0, best])
 
     def _advance(self, obs: np.ndarray) -> None:
         """Move on along the route while the next stop is worth at least the current waypoint."""
@@ -256,8 +299,7 @@ class GraphPlannerController:
             (q_now, q_next), (_, rho_next) = self._stop_values(obs, np.array([self._waypoint, nxt]))
             if not (np.isfinite(q_next) and q_next >= q_now):
                 return
-            self._waypoint, self._rho_waypoint = nxt, rho_next
-            self._steps_on_waypoint = 0
+            self._set_waypoint(nxt, rho_next)
             self._advances += 1
 
     def _stop_values(self, obs: np.ndarray, stops: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
