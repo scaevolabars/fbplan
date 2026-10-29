@@ -4,6 +4,11 @@ Last update: 2026-10-29.
 
 ## Summary
 
+Act-ahead (2026-10-29, time-boxed, done): planner_high acting on the region latent 8 xy ahead
+along its own route closes about a third of its gap to the privileged oracle on held-out medium
+episodes (+4.4 of 12.8 points, p 0.30), level with the baseline (0.0) and baseline_raw (−1.6):
+no gain. Option `act_ahead_xy` stays, off by default. Details in "Act-ahead" below.
+
 Latest (2026-10-29, evening): the approach A ablations moved to the Linux cloud (user decision);
 the exact commands for d-eval are in "Approach A ablations" below, with the Mac numbers as a
 cross-check (no single change beats the defaults; the look-ahead and the reached radius matter
@@ -221,6 +226,72 @@ for tuning), 300 landmarks from the train split:
 - The planner is far below the baseline on this set (68 against 92). The landmark set also moves
   it by several points (see "After the merge").
 
+## Act-ahead: an oracle-like executor on the planner's route (2026-10-29, time-boxed)
+
+Question (coordinator): how much of approach A's execution gap closes when A acts like the
+privileged oracle, i.e. with the region-mean latent (radius 0.5) of a point 1–2 cells ahead
+instead of the single-state latent of its waypoint? Under the rule (gain against baseline_raw)
+no gain is possible on medium: on Linux baseline_raw 80.8 %, oracle 81.3 %.
+
+New option `act_ahead_xy` (commit de2c3b4, off by default): planning stays on the single-state
+landmarks; pi_l (or pi_h as task, planner_high) gets the region latent
+(`landmarks.RegionField`, the landmark data pool, radius `act_region_xy` 0.5) of the point
+`act_ahead_xy` xy units ahead along the planned route (agent → waypoint → best_next stops), and
+z_r past the last landmark. No privileged data. Tests: the latent of the point 2 and 4 xy ahead,
+z_r past the end, pi_h as task, the field from the landmark pool, all 15 tabular tasks solved;
+4 mutants caught.
+
+Dev (eval seed 100, 5 tasks × 20 episodes, medium, 4 niced workers on the Mac):
+
+| run | success /100 |
+|---|---|
+| baseline | 80 |
+| baseline_raw | 75 |
+| planner, defaults | 76 |
+| planner_high, defaults | 74 |
+| planner, act-ahead 4 / 8 | 72 / 74 |
+| planner_high, act-ahead 4 / 8 | 68 / **77** |
+| same, route extended to the landmark of largest V_H (probe, reverted) | planner 69 / 69, planner_high 73 / 72 |
+| oracle (d-eval, privileged: true path, val regions, 2 cells ahead) | 89 |
+| my executor on the true path (privileged probe): 4 / 8 xy ahead, 2 cells snapped | 81 / 84 / 83 |
+
+- The executor works: on the true path it gets 81–84 (oracle 89; the difference is within
+  noise or comes from the val-split regions). On the planner's own route the same executor gets
+  68–77, no better than acting on the waypoint (74–76). So the remaining gap is the route
+  (straight segments between landmarks up to 6 xy apart, FB edge values), not the latent type.
+- The route point ahead is rarely off the data (1 % of steps, median gap 0.02 xy); z_r is used
+  in 39 % of steps (the route's last landmark can be several xy from the goal). FB's best goal
+  estimate is the landmark of largest V_H (0.4–1.3 xy from the goal on medium and large;
+  B(s)ᵀz_r is 2–44 xy off), but extending the route to it did not help (probe above).
+- Chosen on dev for the single held-out check: planner_high, act-ahead 8.
+
+Held-out check, once (eval seed 300, 5 tasks × 50 episodes = 250 paired episodes per run, Mac;
+CSVs in `runs/c-planner/ahead/`, not committed). Difference in points [95 % CI], McNemar p:
+
+| run | success | − planner_high | − baseline | − baseline_raw |
+|---|---|---|---|---|
+| baseline | 78.0 % | | – | |
+| baseline_raw | 79.6 % | | | – |
+| planner, defaults | 72.4 % | | | |
+| planner_high, defaults | 73.6 % | – | −4.4 [−11.2, +2.4], p 0.27 | |
+| **planner_high, act-ahead 8** | **78.0 %** | +4.4 [−2.8, +11.6], p 0.30 | 0.0 [−7.2, +7.2], p 1.0 | −1.6 [−8.4, +5.2], p 0.74 |
+| my executor on the true path, 8 xy ahead (privileged probe) | 80.0 % | +6.4 [−0.8, +13.2], p 0.11 | +2.0, p 0.66 | +0.4, p 1.0 |
+| oracle (privileged) | 86.4 % | +12.8 [+5.6, +19.6], p 7e-4 | +8.4, p 0.02 | +6.8, p 0.05 |
+
+Answer: acting like the oracle closes about a third of A's execution gap, within noise. The gap
+oracle − planner_high is 12.8 points; act-ahead 8 recovers 4.4 of them (34 %; CI −2.8 to +11.6,
+p 0.30), which brings planner_high level with the baseline (0.0) and baseline_raw (−1.6), with no
+gain. Point estimates of the rest: the route (my executor on the true path instead of the
+planner's route) +2.0, and the oracle's own executor (cell centres snapped 2 cells ahead,
+regions from the validation split) +6.4. None of these steps alone is significant.
+
+Command for d-eval's Linux 5-seed run (optional; pairs: `results/medium/planner_high/l0.csv`,
+`baseline.csv`, `baseline_raw.csv`):
+
+    uv run python -m fbplan.evaluate --method planner_high --env antmaze-medium-navigate-v0 \
+        --seeds 0 1 2 3 4 --episodes 50 --workers 4 --opt landmarks.seed=0 act_ahead_xy=8.0 \
+        --out results/medium/planner_ablations/high_act_ahead8/l0.csv
+
 ## Teleport: do routes avoid the teleporter entries? (2026-10-29, light Mac analysis)
 
 `analysis/planner_routes.py --env antmaze-teleport-navigate-v0 --method planner|planner_high`,
@@ -247,7 +318,11 @@ to one of 3 exits; exit (1, 7) is a cell walled in on all four sides (the trap).
   for the entry that task 3 walked into (4.8 xy away).
 - Every task has a route that avoids both entries (checked on the map, for diagnosis only).
 
-Proposal (QUESTION FOR COORDINATOR, see the end of this file): a data-derived jump guard, switch
+Decision (coordinator, 2026-10-29): no guard (option C); the report shows this failure mode with
+the analysis above. Reason: b-theory's docs/theory.md §11 bounds what walking can reach on
+teleport with this pi_l (about 24–34 % for tasks 1–4, because of the time limit), close to the
+baseline's 27.7 %, so a guard cannot give a clear gain. The proposal, not implemented: a
+data-derived jump guard, switch
 `avoid_jumps` (off by default; it does nothing when the data has no jumps):
 1. Entry zones: dataset states whose next state is more than 2 xy away (above any ant step).
 2. Landmarks within r_zone of an entry zone are not used, and an edge whose xy segment passes
@@ -462,12 +537,6 @@ following does not touch. The option stays, off by default, as an ablation.
 
 - None.
 
-## Open question to the coordinator
-
-- Teleport guard (see "Teleport" above): options (A) data-derived jump guard `avoid_jumps`
-  (entry zones from one-step jumps in the offline data; untrust landmarks and edges near them;
-  task-policy hand-over under the same trust rule), (B) FB-only measure guard (measured: not
-  usable), (C) no guard, report the failure mode. Recommendation: A.
 
 ## Requests to the coordinator
 
