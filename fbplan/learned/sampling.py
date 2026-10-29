@@ -157,8 +157,14 @@ def sample_switch_batch(
     )
 
 
-def region_latents(latents: np.ndarray, terminals: np.ndarray, half_width: int) -> np.ndarray:
-    """Mean latent over the states within +-half_width steps on the same trajectory. [N, d]."""
+def trajectory_window_latents(
+    latents: np.ndarray, terminals: np.ndarray, half_width: int
+) -> np.ndarray:
+    """Mean latent over the states within +-half_width steps on the same trajectory. [N, d].
+
+    The latents of the B-region variant. (fbplan.landmarks.region_latents is another average:
+    over the states within an xy radius.)
+    """
     (ends,) = np.nonzero(terminals > 0)
     starts = np.concatenate([[0], ends[:-1] + 1])
     out = np.empty(latents.shape, dtype=np.float32)

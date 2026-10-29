@@ -8,10 +8,22 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 import jax
+import jax.numpy as jnp
 import pandas as pd
 
 State = TypeVar("State")
 Info = dict[str, Any]
+
+
+def scan_updates(
+    update: Callable[[State, jax.Array], tuple[State, Info]], state: State, key: jax.Array, n: int
+) -> tuple[State, Info]:
+    """n updates inside one lax.scan, each with its own key. Returns the state and mean metrics.
+
+    Call it inside a jitted function, so that the n steps run without a host round trip.
+    """
+    state, infos = jax.lax.scan(update, state, jax.random.split(key, n))
+    return state, jax.tree_util.tree_map(jnp.mean, infos)
 
 
 def run_logged(

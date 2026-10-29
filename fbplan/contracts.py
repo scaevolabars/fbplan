@@ -7,6 +7,7 @@ Math and notation are in docs/design.md.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -21,21 +22,23 @@ def normalize_z(z: Array, latent_dim: int) -> Array:
     """Scale latents to norm sqrt(d) along the last axis, as upstream FB pi-Switch does."""
     xp = np if isinstance(z, np.ndarray) else jnp
     norm = xp.linalg.norm(z, axis=-1, keepdims=True)
-    return z / (norm + 1e-8) * np.sqrt(latent_dim)
+    # A Python float, so that float32 input stays float32 (NumPy 2 promotion rules).
+    return z / (norm + 1e-8) * math.sqrt(latent_dim)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class TaskSpec:
     """One evaluation task of an OGBench environment.
 
     `task_id` 1..5 are the OGBench eval tasks. Ids above `fbplan.evaluate.HELDOUT_OFFSET` (100)
     are held-out goals for hyperparameter selection: goal k = task_id - 100 of
     `results/heldout_goals/<env>.csv`. Strata, pairing keys and reset seeds use `task_id` as is.
+    Specs compare by identity: their array fields have no single truth value.
     """
 
     env_name: str  # e.g. "antmaze-medium-navigate-v0"
     task_id: int  # 1..5 eval tasks; 101.. held-out goals
-    z_r: np.ndarray  # [d] raw task embedding from FBModel.infer_task_latent
+    z_r: np.ndarray  # [d] task embedding from FBModel.infer_task_latent (design.md §2)
     goal_xy: np.ndarray  # [2] privileged: only oracle controllers and diagnostics may read it
 
 
@@ -59,16 +62,15 @@ class FBModel(Protocol):
         """B(s). obs [N, obs_dim] -> [N, d], raw (not normalized)."""
         ...
 
-    def low_action(
-        self, obs: Array, z: Array, temperature: float = 0.0, seed: jax.Array | None = None
-    ) -> Array:
-        """Low-level policy pi_l(a | s, z). Returns actions [N, act_dim] clipped to [-1, 1]."""
+    def low_action(self, obs: Array, z: Array) -> Array:
+        """Low-level policy pi_l(s, z): the mean action [N, act_dim], clipped to [-1, 1].
+
+        The mean, because evaluation runs at temperature 0 (design.md §5).
+        """
         ...
 
-    def high_latent(
-        self, obs: Array, z_task: Array, temperature: float = 0.0, seed: jax.Array | None = None
-    ) -> Array:
-        """Baseline high-level policy pi_h(z | s, z_task). Returns normalized intentions [N, d]."""
+    def high_latent(self, obs: Array, z_task: Array) -> Array:
+        """Baseline high-level policy pi_h(s, z_task): the mean intention, normalized [N, d]."""
         ...
 
     def infer_task_latent(self, task_id: int) -> np.ndarray:
@@ -93,7 +95,7 @@ class Controller(Protocol):
         ...
 
     def step_info(self) -> dict[str, float | int | str]:
-        """Optional per-step debug values (for example the current waypoint id). Can be {}."""
+        """Per-step debug values, for example the current waypoint id. {} if there are none."""
         ...
 
 

@@ -1,47 +1,58 @@
 """Single switch vs. chained switches on the tabular fake FB, with exact evaluation.
 
-The planners use only FB quantities (F, B, pi_l, pi_h through the `FBModel` methods); the
-evaluation uses the exact maze. Landmarks are states. For one task latent z_r:
-
-    rho_hat(s, w) = F(s, z_w)^T B(w) / F(w, z_w)^T B(w),  clipped to [0, gamma] for s != w
-    R_hat(s, w)   = F(s, z_w)^T z_r - rho_hat(s, w) F(w, z_w)^T z_r     ("full")
-                    F(s, z_w)^T z_r                                     ("proxy", as upstream)
-                    0                                                   ("zero": shortest path)
-    v_d(s)        = F(s, z_r)^T z_r
+The planners see only FB quantities, and they get them from the planner's own code:
+`fbplan.option_model.OptionModel` (rho_hat, R_hat and the direct value per F head, then min or
+mean over the heads; rho_hat clipped to [0, gamma] for distinct states) and `fbplan.graph`
+(trusted edges on the raw rho_hat, value iteration, Q-values). The evaluation uses the exact
+maze. Landmarks are states. Names: `v_direct` = F(s, z_r)^T z_r (V_d in docs/theory.md),
+`v_graph` = V_H, `r_before` = R_hat.
 
 Planner kinds:
     direct    pi_l(z_r) only.
-    baseline  the fake's idealised pi_h (argmax of the upstream proxy advantage), then pi_l.
-    single    best single switch: Q(s, w) = R_hat(s, w) + rho_hat(s, w) v_d(w).
-    chained   Q(s, w) = R_hat(s, w) + rho_hat(s, w) V_H(w), V_H from graph value iteration.
-For single and chained, only edges with rho_hat >= rho_min are used, each hop costs hop_cost,
-and the agent acts with pi_l(z_r) when no option beats v_d(s). By default the choice is redone
-at every step; with `commit` the agent keeps w* until it is reached or a timeout.
+    baseline  the fake's idealised pi_h (upstream proxy advantage), then pi_l.
+    single    best single switch: Q(s, w) = R_hat(s, w) + hop_discount rho_hat(s, w) v_direct(w).
+    chained   Q(s, w) = R_hat(s, w) + hop_discount rho_hat(s, w) v_graph(w).
+For single and chained, an edge is trusted when rho_min <= raw rho_hat < 1, and the agent acts
+with pi_l(z_r) when no trusted option beats v_direct(s). By default the choice is redone at
+every step; with `commit` the agent keeps w* until it is reached or a timeout.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 import numpy as np
 
 from fbplan.contracts import normalize_z
+from fbplan.graph import q_values, trusted_edges, value_iteration
+from fbplan.option_model import EdgeReward, HeadAgg, OptionModel, OptionModelConfig, OptionTable
 from fbplan.tabular.fake_fb import TabularFB
-from fbplan.tabular.options import graph_value_iteration, option_values
+
+PlannerKind = Literal["direct", "baseline", "single", "chained"]
+_KINDS = ("direct", "baseline", "single", "chained")
 
 
 @dataclass(frozen=True)
-class PlannerConfig:
-    """One planner variant. Only `single` and `chained` read the fields after `kind`."""
+class StudyPlannerConfig:
+    """One planner variant. Only `single` and `chained` read the fields after `kind`.
+
+    head_agg, edge_reward: as in `OptionModelConfig` ("exact" R, "paper" = the upstream proxy
+    F(s, z_w)^T z_r, "zero"). hop_discount: factor on rho_hat per hop, as in `fbplan.graph`.
+    """
 
     name: str
-    kind: Literal["direct", "baseline", "single", "chained"] = "chained"
-    aggregate: Literal["mean", "min"] = "mean"  # how the F heads are combined
+    kind: PlannerKind = "chained"
+    head_agg: HeadAgg = "mean"
+    edge_reward: EdgeReward = "exact"
     rho_min: float = 0.0
-    hop_cost: float = 0.0
-    reward: Literal["full", "proxy", "zero"] = "full"  # the R_hat variant, see the module doc
+    hop_discount: float = 1.0
     commit: bool = False
+
+    def __post_init__(self) -> None:
+        if self.kind not in _KINDS:
+            raise ValueError(f"unknown planner kind {self.kind!r}")
+        OptionModelConfig(head_agg=self.head_agg, edge_reward=self.edge_reward)  # validates
 
 
 @dataclass(frozen=True)
@@ -49,46 +60,54 @@ class Plan:
     """Option choice per state for one task."""
 
     choice: np.ndarray  # [n] landmark column, or -1 for "act with z_r"
-    value: np.ndarray  # [n] predicted value max(v_d, max_w Q)
-    rho: np.ndarray  # [n, L] rho_hat used by the plan
+    value: np.ndarray  # [n] predicted value max(v_direct, max_w Q)
+    rho: np.ndarray  # [n, L] clipped rho_hat used by the plan
 
 
 class LandmarkModel:
-    """F(s, B(w)) for all states s and landmarks w, computed once per fake model."""
+    """Option latents of the landmarks, their pi_l actions and the task-free rho_hat tables,
+    computed once per fake model."""
 
     def __init__(self, model: TabularFB, landmarks: np.ndarray) -> None:
         self.model = model
         self.landmarks = np.asarray(landmarks)
-        maze, n, n_land = model.maze, model.maze.n_states, len(landmarks)
-        self._z_w = model.backward(maze.xy[self.landmarks])  # [L, d]
-        obs, z = np.tile(maze.xy, (n_land, 1)), np.repeat(self._z_w, n, axis=0)  # landmark-major
-        forward = model.forward(obs, z).reshape(model.config.n_heads, n_land, n, -1)
-        self._forward = forward.transpose(0, 2, 1, 3)  # [H, n, L, d]
-        self._m = np.einsum("hsld,ld->hsl", self._forward, self._z_w)  # F(s, z_w)^T B(w)
-        self.option_actions = maze.action_from_vector(model.low_action(obs, z)).reshape(n_land, n)
+        maze, n_land = model.maze, len(self.landmarks)
+        self._batch = maze.n_states * n_land  # one F call per table
+        self.targets = self._option_model("mean", "zero").targets(maze.xy[self.landmarks])
+        self.own = np.arange(maze.n_states)[:, None] == self.landmarks[None, :]  # [n, L] s == w
+        obs = np.tile(maze.xy, (n_land, 1))  # landmark-major
+        z = np.repeat(self.targets.z, maze.n_states, axis=0)
+        actions = maze.action_from_vector(model.low_action(obs, z))
+        self.option_actions = actions.reshape(n_land, maze.n_states)
+        self._rho_tables: dict[str, OptionTable] = {}
 
-    def estimates(
-        self, z_r: np.ndarray, aggregate: str, reward: str = "full"
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """(rho_hat [n, L], R_hat [n, L], v_d [n]) for task latent z_r."""
-        maze, cols = self.model.maze, np.arange(len(self.landmarks))
-        v_w = np.einsum("hsld,d->hsl", self._forward, z_r)  # F(s, z_w)^T z_r
-        f_r = self.model.forward(maze.xy, np.tile(z_r, (maze.n_states, 1)))
-        v_d = f_r @ z_r  # [H, n]
-        m = self._m
-        if aggregate == "mean":  # F is linear in the heads, so average before the ratio
-            m, v_w, v_d = m.mean(0, keepdims=True), v_w.mean(0, keepdims=True), v_d.mean(0)[None]
-        rho = m / m[:, self.landmarks, cols][:, None, :]
-        r_hat = {
-            "full": v_w - rho * v_w[:, self.landmarks, cols][:, None, :],
-            "proxy": v_w,
-            "zero": np.zeros_like(v_w),
-        }[reward]
-        rho, r_hat, v_d = rho.min(0), r_hat.min(0), v_d.min(0)  # no-op after "mean"
-        own = np.zeros_like(rho, dtype=bool)
-        own[self.landmarks, cols] = True
-        rho = np.where(own, 1.0, np.clip(rho, 0.0, self.model.discount))  # rho <= gamma, s != w
-        return rho, r_hat, v_d
+    def table(
+        self, head_agg: HeadAgg, edge_reward: EdgeReward = "zero", z_r: np.ndarray | None = None
+    ) -> OptionTable:
+        """rho_hat [n, L] from every state to every landmark, and R_hat [n, L] for z_r.
+
+        With edge_reward "zero" or no z_r, the task-free rho table is computed once per head
+        rule; R_hat is then 0 (or None without z_r).
+        """
+        if edge_reward == "zero" or z_r is None:
+            if head_agg not in self._rho_tables:
+                option_model = self._option_model(head_agg, "zero")
+                self._rho_tables[head_agg] = option_model.pair_table(
+                    self.model.maze.xy, self.targets
+                )
+            rho = self._rho_tables[head_agg]
+            return rho if z_r is None else replace(rho, reward=np.zeros_like(rho.rho))
+        option_model = self._option_model(head_agg, edge_reward)
+        return option_model.pair_table(self.model.maze.xy, self.targets, z_r)
+
+    def v_direct(self, z_r: np.ndarray, head_agg: HeadAgg) -> np.ndarray:
+        """F(s, z_r)^T z_r at every state: [n]."""
+        return self._option_model(head_agg, "zero").direct_value(self.model.maze.xy, z_r)
+
+    def _option_model(self, head_agg: HeadAgg, edge_reward: EdgeReward) -> OptionModel:
+        config = OptionModelConfig(head_agg=head_agg, edge_reward=edge_reward,
+                                   batch_size=self._batch)
+        return OptionModel(self.model, config)
 
 
 def goal_latent(model: TabularFB, goal: int) -> np.ndarray:
@@ -96,48 +115,58 @@ def goal_latent(model: TabularFB, goal: int) -> np.ndarray:
     return np.asarray(normalize_z(model.basis[goal], model.latent_dim))
 
 
-def make_plan(lm: LandmarkModel, cfg: PlannerConfig, z_r: np.ndarray) -> Plan:
+def make_plan(lm: LandmarkModel, cfg: StudyPlannerConfig, z_r: np.ndarray) -> Plan:
     """Option values and choices of a `single` or `chained` planner for task latent z_r."""
-    rho, r_hat, v_d = lm.estimates(z_r, cfg.aggregate, cfg.reward)
-    r_eff = np.where(rho >= cfg.rho_min, r_hat - cfg.hop_cost, -np.inf)
+    table = lm.table(cfg.head_agg, cfg.edge_reward, z_r)
+    v_direct = lm.v_direct(z_r, cfg.head_agg)
+    trusted = trusted_edges(table.rho_raw, cfg.rho_min) & ~lm.own
     land = lm.landmarks
     if cfg.kind == "chained":
-        v_land = graph_value_iteration(rho[land], r_eff[land], v_d[land])
+        solution = value_iteration(
+            table.rho[land], table.reward[land], v_direct[land], trusted[land], cfg.hop_discount
+        )
+        if not solution.converged:
+            raise RuntimeError(f"graph value iteration did not converge for {cfg.name}")
+        v_graph = solution.values
     elif cfg.kind == "single":
-        v_land = v_d[land]
+        v_graph = v_direct[land]
     else:
         raise ValueError(f"planner kind {cfg.kind!r} has no option plan")
-    q = option_values(rho, r_eff, v_land, land)
+    q = q_values(table.rho, table.reward, v_graph, trusted, cfg.hop_discount)
     best = q.argmax(axis=1)
     best_q = q[np.arange(len(best)), best]
-    choice = np.where(best_q > v_d, best, -1)
-    return Plan(choice=choice, value=np.maximum(v_d, best_q), rho=rho)
+    choice = np.where(best_q > v_direct, best, -1)  # ties go to the task policy, as in graph.py
+    return Plan(choice=choice, value=np.maximum(v_direct, best_q), rho=table.rho)
 
 
-def _direct_actions(lm: LandmarkModel, z_r: np.ndarray) -> np.ndarray:
+def direct_actions(lm: LandmarkModel, z_r: np.ndarray) -> np.ndarray:
+    """Action id per state of pi_l(z_r): [n]."""
     maze = lm.model.maze
     return maze.action_from_vector(lm.model.low_action(maze.xy, np.tile(z_r, (maze.n_states, 1))))
 
 
-def plan_policy(lm: LandmarkModel, cfg: PlannerConfig, z_r: np.ndarray) -> np.ndarray:
+def plan_actions(lm: LandmarkModel, plan: Plan, z_r: np.ndarray) -> np.ndarray:
+    """Action id per state of the policy that re-picks the best option at every step: [n]."""
+    states = np.arange(lm.model.maze.n_states)
+    options = lm.option_actions[np.maximum(plan.choice, 0), states]
+    return np.where(plan.choice >= 0, options, direct_actions(lm, z_r))
+
+
+def markov_actions(lm: LandmarkModel, cfg: StudyPlannerConfig, z_r: np.ndarray) -> np.ndarray:
     """Action id per state of a planner that re-plans at every step: [n]."""
     model, maze = lm.model, lm.model.maze
     if cfg.kind == "direct":
-        return _direct_actions(lm, z_r)
+        return direct_actions(lm, z_r)
     if cfg.kind == "baseline":
         z_task = np.tile(z_r, (maze.n_states, 1))
         return maze.action_from_vector(
             model.low_action(maze.xy, model.high_latent(maze.xy, z_task))
         )
-    plan = make_plan(lm, cfg, z_r)
-    states = np.arange(maze.n_states)
-    options = lm.option_actions[np.maximum(plan.choice, 0), states]
-    return np.where(plan.choice >= 0, options, _direct_actions(lm, z_r))
+    return plan_actions(lm, make_plan(lm, cfg, z_r), z_r)
 
 
-def plan_route(lm: LandmarkModel, cfg: PlannerConfig, z_r: np.ndarray, start: int) -> list[int]:
+def plan_route(lm: LandmarkModel, plan: Plan, start: int) -> list[int]:
     """Landmark states the plan visits from `start` if every option succeeds."""
-    plan = make_plan(lm, cfg, z_r)
     route: list[int] = []
     state = start
     while plan.choice[state] >= 0 and int(lm.landmarks[plan.choice[state]]) not in route:
@@ -146,13 +175,18 @@ def plan_route(lm: LandmarkModel, cfg: PlannerConfig, z_r: np.ndarray, start: in
     return route
 
 
-def wormhole_mask(rho_hat: np.ndarray, dist: np.ndarray, gamma: float) -> np.ndarray:
-    """Pairs whose rho_hat is more than twice the physical bound gamma^dist (true rho <= it)."""
+def rho_bound_wormholes(rho_hat: np.ndarray, dist: np.ndarray, gamma: float) -> np.ndarray:
+    """Pairs whose rho_hat is more than twice the bound gamma^dist (true rho <= gamma^dist).
+
+    This is the tabular definition. d-eval's `analysis/calibration.py` uses another one for the
+    ant: a trusted pair whose FB distance is shorter than the time to walk the geodesic at the
+    ant's top speed.
+    """
     return rho_hat > 2.0 * gamma**dist
 
 
 def evaluate_goal_reaching(
-    lm: LandmarkModel, cfg: PlannerConfig, goals: np.ndarray, horizon: int
+    lm: LandmarkModel, cfg: StudyPlannerConfig, goals: np.ndarray, horizon: int
 ) -> tuple[np.ndarray, np.ndarray]:
     """Success [n_starts, n_goals] and steps (horizon + 1 on failure) from every start state."""
     maze = lm.model.maze
@@ -164,7 +198,7 @@ def evaluate_goal_reaching(
         if cfg.commit:
             steps[:, k] = _committed_rollouts(lm, cfg, z_r, int(goal), horizon)
         else:
-            steps[:, k] = _markov_rollouts(lm, plan_policy(lm, cfg, z_r), int(goal), horizon)
+            steps[:, k] = _markov_rollouts(lm, markov_actions(lm, cfg, z_r), int(goal), horizon)
     return steps <= horizon, steps
 
 
@@ -179,11 +213,15 @@ def _markov_rollouts(lm: LandmarkModel, actions: np.ndarray, goal: int, horizon:
 
 
 def _committed_rollouts(
-    lm: LandmarkModel, cfg: PlannerConfig, z_r: np.ndarray, goal: int, horizon: int
+    lm: LandmarkModel, cfg: StudyPlannerConfig, z_r: np.ndarray, goal: int, horizon: int
 ) -> np.ndarray:
-    """Keep w* until it is reached or for twice its predicted duration log(rho)/log(gamma)."""
+    """Keep w* until it is reached, or re-plan after twice its predicted duration plus 2 steps.
+
+    The predicted duration is log(rho_hat) / log(gamma) steps; the 2 extra steps keep the
+    timeout above 0 for rho_hat near 1.
+    """
     maze, gamma = lm.model.maze, lm.model.discount
-    plan, direct = make_plan(lm, cfg, z_r), _direct_actions(lm, z_r)
+    plan, direct = make_plan(lm, cfg, z_r), direct_actions(lm, z_r)
     states = np.arange(maze.n_states)
     target = np.full(maze.n_states, -1)
     deadline = np.zeros(maze.n_states)

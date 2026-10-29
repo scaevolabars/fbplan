@@ -1,29 +1,33 @@
 #!/usr/bin/env bash
-# Run e-learner GPU jobs on a rented vast.ai instance. Run this script on your own machine.
+# Run GPU training jobs on a rented vast.ai instance. Run this script on your own machine.
 #
 # Needs: the vastai CLI (`uv tool install vastai`) with an API key (`vastai set api-key <key>`),
-# and the frozen checkpoints in ~/.cache/fbplan/checkpoints (`uv run python -m fbplan.frozen`).
+# jq, the frozen checkpoints (`uv run python -m fbplan.frozen`), and VAST_LABEL: the label that
+# marks your instances. FBPLAN_CKPT_DIR, FBPLAN_BASELINE_DIR and FBPLAN_APPROACH_B_DIR move the
+# local folders, as in the Python code.
 #
 #   scripts/gpu/vast.sh offers                         suitable offers, cheapest first
-#   scripts/gpu/vast.sh create <offer-id>              rent one with our label and SSH key
-#   scripts/gpu/vast.sh list                           our instances (label $VAST_LABEL)
+#   scripts/gpu/vast.sh create <offer-id>              rent one with label $VAST_LABEL and your SSH key
+#   scripts/gpu/vast.sh list                           your instances (label $VAST_LABEL)
 #   scripts/gpu/vast.sh push <instance-id>             code at HEAD + checkpoints, then remote setup
 #   scripts/gpu/vast.sh train <instance-id> <env> [seed ...]   retrain pi_h in tmux (seeds 0-4)
 #   scripts/gpu/vast.sh run <instance-id> <session> <command ...>   any command in tmux, in fbplan/
 #   scripts/gpu/vast.sh status <instance-id>           GPU use and the last log line of each run
-#   scripts/gpu/vast.sh pull <instance-id>             runs/ and the trained models in ~/.cache/fbplan
+#   scripts/gpu/vast.sh pull <instance-id>             runs/ and the trained models
 #   scripts/gpu/vast.sh ssh <instance-id> [command]    shell or one command on the instance
 #   scripts/gpu/vast.sh destroy <instance-id> [-y]     delete the instance and its disk (stops billing)
 #
-# The API key belongs to a team account that holds other members' instances. Every command that
-# takes an instance id refuses an instance whose label is not ours. The SSH key is attached to
-# our instance only, never to the account.
+# An API key can give access to instances of other people. Every command that takes an instance
+# id refuses an instance whose label is not VAST_LABEL. The SSH key is attached to the new
+# instance only, not to the account.
 set -euo pipefail
 
 REPO=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 REMOTE_DIR=fbplan
-# Our instances carry a fixed label (VAST_LABEL); commands refuse any other label.
-LABEL=${VAST_LABEL:-fbplan-gpu}
+CACHE=$HOME/.cache/fbplan
+CKPT_DIR=${FBPLAN_CKPT_DIR:-$CACHE/checkpoints}
+BASELINE_DIR=${FBPLAN_BASELINE_DIR:-$CACHE/baselines}
+APPROACH_B_DIR=${FBPLAN_APPROACH_B_DIR:-$CACHE/approach_b}
 SSH_PUBKEY=${SSH_PUBKEY:-$HOME/.ssh/id_rsa.pub}
 # jaxlib 0.10.2 ships CUDA 12.9 libraries; an older driver may fail to run them. Hosts in CN
 # are excluded: setup downloads from PyPI, GitHub and the OGBench server, which can be slow there.
@@ -38,13 +42,20 @@ die() {
   exit 1
 }
 
-# require_ours <instance-id>: stop unless the instance exists and carries our label.
+# label: VAST_LABEL, which every command that creates or touches an instance needs.
+label() {
+  [[ -n ${VAST_LABEL:-} ]] || die "set VAST_LABEL to the label of your instances"
+  echo "$VAST_LABEL"
+}
+
+# require_ours <instance-id>: stop unless the instance exists and carries label VAST_LABEL.
 require_ours() {
-  local label
+  local label expected
+  expected=$(label)
   [[ $1 =~ ^[0-9]+$ ]] || die "instance id must be a number, got '$1'"
   label=$(vastai show instance "$1" --raw | jq -r '.label // ""') ||
     die "cannot read instance $1"
-  [[ $label == "$LABEL" ]] || die "instance $1 has label '$label', not '$LABEL': not ours"
+  [[ $label == "$expected" ]] || die "instance $1 has label '$label', not '$expected'"
 }
 
 # remote <instance-id> [command ...]: run a command on the instance over SSH.
@@ -73,17 +84,17 @@ cmd_create() {
   local out id
   [[ -f $SSH_PUBKEY ]] || die "no public key at $SSH_PUBKEY"
   out=$(vastai create instance "$1" --image "$IMAGE" --disk 40 --ssh --direct \
-    --label "$LABEL" --raw)
+    --label "$(label)" --raw)
   id=$(jq -r '.new_contract // empty' <<<"$out")
   [[ -n $id ]] || die "create failed: $out"
-  echo "created instance $id (label $LABEL); it bills until: $0 destroy $id"
+  echo "created instance $id (label $(label)); it bills until: $0 destroy $id"
   vastai attach ssh "$id" "$(cat "$SSH_PUBKEY")" ||
     die "could not attach $SSH_PUBKEY to instance $id; retry the attach or destroy it"
   echo "next: $0 push $id"
 }
 
 cmd_list() {
-  vastai show instances --label "$LABEL"
+  vastai show instances --label "$(label)"
 }
 
 # The instance gets exactly the committed tree (and the submodule commit that HEAD records),
@@ -91,7 +102,7 @@ cmd_list() {
 cmd_push() {
   local id=$1 rev ssm_rev
   [[ -z $(git -C "$REPO" status --porcelain) ]] || die "commit first: the instance gets HEAD"
-  [[ -d $HOME/.cache/fbplan/checkpoints ]] || die "no checkpoints in ~/.cache/fbplan/checkpoints"
+  [[ -d $CKPT_DIR ]] || die "no checkpoints in $CKPT_DIR"
   rev=$(git -C "$REPO" rev-parse HEAD)
   ssm_rev=$(git -C "$REPO" rev-parse HEAD:third_party/ssm)
   wait_for_ssh "$id"
@@ -101,7 +112,7 @@ cmd_push() {
   git -C "$REPO/third_party/ssm" archive --prefix=third_party/ssm/ "$ssm_rev" |
     remote "$id" "tar -x -C $REMOTE_DIR"
   echo "$rev" | remote "$id" "cat > $REMOTE_DIR/REVISION"
-  tar -c -C "$HOME/.cache/fbplan" checkpoints | remote "$id" "tar -x -C .cache/fbplan"
+  tar -c -C "$CKPT_DIR" . | remote "$id" "mkdir -p .cache/fbplan/checkpoints && tar -x -C .cache/fbplan/checkpoints"
   remote "$id" "bash $REMOTE_DIR/scripts/gpu/remote_setup.sh"
 }
 
@@ -128,12 +139,19 @@ cmd_status() {
     "echo \"\$f: \$(tail -n 1 \"\$f\" | cut -c1-100)\"; done; true"
 }
 
-# Everything except the frozen checkpoints, which came from this machine.
+# runs/ and the trained models; not the frozen checkpoints, which came from this machine.
 cmd_pull() {
-  mkdir -p "$REPO/runs" "$HOME/.cache/fbplan"
+  local kind dest
+  mkdir -p "$REPO/runs"
   remote "$1" "tar -c -C $REMOTE_DIR runs" | tar -x -C "$REPO"
-  remote "$1" "tar -c -C .cache/fbplan --exclude ./checkpoints ." | tar -x -C "$HOME/.cache/fbplan"
-  echo "pulled into $REPO/runs and ~/.cache/fbplan"
+  for kind in baselines approach_b; do
+    dest=$BASELINE_DIR
+    [[ $kind == approach_b ]] && dest=$APPROACH_B_DIR
+    remote "$1" "test -d .cache/fbplan/$kind" 2>/dev/null || continue
+    mkdir -p "$dest"
+    remote "$1" "tar -c -C .cache/fbplan/$kind ." | tar -x -C "$dest"
+  done
+  echo "pulled into $REPO/runs, $BASELINE_DIR and $APPROACH_B_DIR"
 }
 
 cmd_ssh() {

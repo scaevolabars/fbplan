@@ -23,8 +23,9 @@ Construction (n states, latent dimension d, counting measure over states):
   noise rho_noise / (1 - gamma). `low_policy="optimal"` executes pi*_z instead, which isolates
   errors of the planning values from errors of the controller. `true_successor_measure` gives
   the exact M of the executed policy.
-- The baseline pi_h(z | s, z_r) is idealised: the exact argmax over states w != s of the switching
-  advantage computed from this model's F and B, returning normalised B(w*). `high_radius` limits
+- The baseline pi_h(z | s, z_r) is idealised: the exact argmax over states w != s of the upstream
+  proxy switching advantage (it drops -rho F(w, z_w)^T z, as upstream training does), computed
+  from this model's F and B, returning normalised B(w*). `high_radius` limits
   w to states within that walking distance of s, like the support of the training subgoals
   (a geometric offset along trajectories). Without it, the proxy advantage counts the goal twice
   and pi_h picks the goal itself, which makes it the same as acting with z_r.
@@ -60,9 +61,14 @@ class FakeFBConfig:
     rho_noise: float = 0.0
     n_heads: int = 2
     low_policy: Literal["greedy", "optimal"] = "greedy"  # greedy on noisy F, or exact pi*_z
-    high_advantage: Literal["proxy", "full"] = "proxy"  # proxy drops -rho F(w,z_w)^T z (upstream)
     high_radius: int | None = None  # pi_h subgoals within this walking distance; None: all
     seed: int = 0
+
+    def __post_init__(self) -> None:
+        if self.basis not in ("laplacian", "euclidean"):
+            raise ValueError(f"unknown basis {self.basis!r}")
+        if self.low_policy not in ("greedy", "optimal"):
+            raise ValueError(f"unknown low_policy {self.low_policy!r}")
 
 
 @dataclass(frozen=True)
@@ -89,6 +95,7 @@ class TabularFB:
         self.discount = config.discount
         self.basis = np.sqrt(n) * _orthonormal_basis(self.maze, config.basis, d)  # B, [n, d]
         self._intentions: dict[bytes, _Intention] = {}
+        self._probe = np.random.default_rng(0).standard_normal(d)  # see _unique_latents
         self._subgoals: dict[bytes, np.ndarray] = {}
 
     # ----- FBModel protocol -----
@@ -140,6 +147,7 @@ class TabularFB:
         return reward
 
     def task_spec(self, task_id: int) -> TaskSpec:
+        """TaskSpec of OGBench task `task_id` on this maze, with z_r from infer_task_latent."""
         goal_ij = self.maze.tasks[task_id - 1][1]
         return TaskSpec(
             env_name=self.env_name,
@@ -166,12 +174,17 @@ class TabularFB:
         return np.asarray(normalize_z(np.asarray(z, dtype=np.float64), self.latent_dim))
 
     def _unique_latents(self, z: Array) -> list[tuple[np.ndarray, np.ndarray]]:
-        """Group a batch of latents: (normalised latent, row indices) per distinct direction."""
+        """Group a batch of latents: (normalised latent, row indices) per distinct direction.
+
+        Rows are grouped by a random projection of the rounded latent (np.unique on whole rows
+        sorts them and dominates the study's run time); the check below rules out collisions.
+        """
         z_hat = self._normalize(np.asarray(z))
-        keys, first, inverse = np.unique(
-            np.round(z_hat, 9), axis=0, return_index=True, return_inverse=True
-        )
-        return [(z_hat[first[i]], np.flatnonzero(inverse == i)) for i in range(len(keys))]
+        rounded = np.round(z_hat, 9)
+        _, first, inverse = np.unique(rounded @ self._probe, return_index=True, return_inverse=True)
+        if not np.array_equal(rounded, rounded[first][inverse]):
+            raise RuntimeError("two different latents share a projection")
+        return [(z_hat[first[i]], np.flatnonzero(inverse == i)) for i in range(len(first))]
 
     def _intention(self, z_hat: np.ndarray) -> _Intention:
         key = np.round(z_hat, 9).tobytes()
@@ -213,7 +226,7 @@ class TabularFB:
         return self._subgoals[key]
 
     def _switch_advantages(self, z_hat: np.ndarray) -> np.ndarray:
-        """A[s, w] from this model's F and B with head-mean F; proxy or full per the config."""
+        """Upstream proxy advantage A[s, w] from this model's F and B, with head-mean F."""
         v_task = self._intention(z_hat).forward.mean(axis=0) @ z_hat  # F(s, z)^T z
         adv = np.empty((self.maze.n_states, self.maze.n_states))
         for w in range(self.maze.n_states):
@@ -223,8 +236,6 @@ class TabularFB:
             rho = m_sw / m_sw[w]
             v_sw = f_w @ z_hat  # F(s, z_w)^T z
             adv[:, w] = v_sw + rho * v_task[w] - v_task
-            if self.config.high_advantage == "full":
-                adv[:, w] -= rho * v_sw[w]
         return adv
 
 

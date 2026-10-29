@@ -1,193 +1,193 @@
-maze,resolution,discount,rank,basis,rho_noise,n_heads,low_policy,high_advantage,high_radius,seed,planner,dist_lo,dist_hi,success,n_pairs
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,direct,1,5,1.0,2464
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,direct,6,10,1.0,3646
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,direct,11,15,1.0,3356
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,direct,16,23,1.0,1246
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,pi_h (idealised),1,5,1.0,2464
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,pi_h (idealised),6,10,1.0,3646
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,pi_h (idealised),11,15,1.0,3356
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,pi_h (idealised),16,23,1.0,1246
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,single switch,1,5,1.0,2464
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,single switch,6,10,1.0,3646
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,single switch,11,15,1.0,3356
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,single switch,16,23,1.0,1246
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,chained,1,5,1.0,2464
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,chained,6,10,1.0,3646
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,chained,11,15,1.0,3356
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,chained,16,23,1.0,1246
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,chained R=0,1,5,1.0,2464
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,chained R=0,6,10,1.0,3646
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,chained R=0,11,15,1.0,3356
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,chained R=0,16,23,1.0,1246
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",1,5,1.0,2464
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",6,10,1.0,3646
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",11,15,1.0,3356
-medium,2,0.9,104,laplacian,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",16,23,1.0,1246
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,direct,1,5,1.0,2464
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,direct,6,10,1.0,3646
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,direct,11,15,1.0,3356
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,direct,16,23,1.0,1246
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,pi_h (idealised),1,5,1.0,2464
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,pi_h (idealised),6,10,1.0,3646
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,pi_h (idealised),11,15,1.0,3356
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,pi_h (idealised),16,23,0.9919743178170144,1246
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,single switch,1,5,1.0,2464
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,single switch,6,10,1.0,3646
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,single switch,11,15,1.0,3356
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,single switch,16,23,1.0,1246
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,chained,1,5,1.0,2464
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,chained,6,10,1.0,3646
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,chained,11,15,1.0,3356
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,chained,16,23,1.0,1246
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,chained R=0,1,5,1.0,2464
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,chained R=0,6,10,1.0,3646
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,chained R=0,11,15,1.0,3356
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,chained R=0,16,23,1.0,1246
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",1,5,1.0,2464
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",6,10,1.0,3646
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",11,15,1.0,3356
-medium,2,0.9,64,laplacian,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",16,23,1.0,1246
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,direct,1,5,0.9310064935064936,2464
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,direct,6,10,0.9122325836533187,3646
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,direct,11,15,0.9120977353992848,3356
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,direct,16,23,0.9221508828250401,1246
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,pi_h (idealised),1,5,0.9310064935064936,2464
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,pi_h (idealised),6,10,0.9111354909489852,3646
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,pi_h (idealised),11,15,0.8873659117997617,3356
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,pi_h (idealised),16,23,0.78330658105939,1246
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,single switch,1,5,0.9419642857142857,2464
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,single switch,6,10,0.9237520570488206,3646
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,single switch,11,15,0.9275923718712753,3356
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,single switch,16,23,0.9333868378812199,1246
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,chained,1,5,0.9476461038961039,2464
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,chained,6,10,0.9243006034009874,3646
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,chained,11,15,0.9120977353992848,3356
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,chained,16,23,0.9237560192616372,1246
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,chained R=0,1,5,0.9184253246753247,2464
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,chained R=0,6,10,0.8765770707624795,3646
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,chained R=0,11,15,0.8623361144219309,3356
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,chained R=0,16,23,0.841091492776886,1246
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",1,5,0.9257305194805194,2464
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",6,10,0.8891936368623149,3646
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",11,15,0.8805125148986889,3356
-medium,2,0.9,32,laplacian,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",16,23,0.8715890850722311,1246
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,direct,1,5,0.6911525974025974,2464
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,direct,6,10,0.6793746571585298,3646
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,direct,11,15,0.6474970202622169,3356
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,direct,16,23,0.7086677367576244,1246
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,pi_h (idealised),1,5,0.6761363636363636,2464
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,pi_h (idealised),6,10,0.657707076247943,3646
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,pi_h (idealised),11,15,0.6108462455303934,3356
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,pi_h (idealised),16,23,0.5802568218298555,1246
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,single switch,1,5,0.6566558441558441,2464
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,single switch,6,10,0.6343938562808558,3646
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,single switch,11,15,0.5980333730631704,3356
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,single switch,16,23,0.6099518459069021,1246
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,chained,1,5,0.6469155844155844,2464
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,chained,6,10,0.6009325287986835,3646
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,chained,11,15,0.5950536352800954,3356
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,chained,16,23,0.6115569823434992,1246
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,chained R=0,1,5,0.6489448051948052,2464
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,chained R=0,6,10,0.6121777290181021,3646
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,chained R=0,11,15,0.5464839094159714,3356
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,chained R=0,16,23,0.5858747993579454,1246
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",1,5,0.6075487012987013,2464
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",6,10,0.5748765770707625,3646
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",11,15,0.5098331346841478,3356
-medium,2,0.9,16,laplacian,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",16,23,0.5617977528089888,1246
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,direct,1,5,1.0,2464
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,direct,6,10,1.0,3646
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,direct,11,15,1.0,3356
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,direct,16,23,1.0,1246
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,pi_h (idealised),1,5,1.0,2464
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,pi_h (idealised),6,10,1.0,3646
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,pi_h (idealised),11,15,1.0,3356
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,pi_h (idealised),16,23,1.0,1246
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,single switch,1,5,1.0,2464
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,single switch,6,10,1.0,3646
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,single switch,11,15,1.0,3356
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,single switch,16,23,1.0,1246
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,chained,1,5,1.0,2464
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,chained,6,10,1.0,3646
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,chained,11,15,1.0,3356
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,chained,16,23,1.0,1246
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,chained R=0,1,5,1.0,2464
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,chained R=0,6,10,1.0,3646
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,chained R=0,11,15,1.0,3356
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,chained R=0,16,23,1.0,1246
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",1,5,1.0,2464
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",6,10,1.0,3646
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",11,15,1.0,3356
-medium,2,0.9,104,euclidean,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",16,23,1.0,1246
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,direct,1,5,1.0,2464
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,direct,6,10,0.9975315414152496,3646
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,direct,11,15,0.9997020262216925,3356
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,direct,16,23,1.0,1246
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,pi_h (idealised),1,5,1.0,2464
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,pi_h (idealised),6,10,0.9975315414152496,3646
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,pi_h (idealised),11,15,0.9868891537544696,3356
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,pi_h (idealised),16,23,0.9686998394863563,1246
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,single switch,1,5,1.0,2464
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,single switch,6,10,0.9953373560065826,3646
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,single switch,11,15,0.9949344457687723,3356
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,single switch,16,23,0.9839486356340289,1246
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,chained,1,5,1.0,2464
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,chained,6,10,0.9994514536478333,3646
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,chained,11,15,0.9985101311084624,3356
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,chained,16,23,0.9959871589085072,1246
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,chained R=0,1,5,1.0,2464
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,chained R=0,6,10,1.0,3646
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,chained R=0,11,15,1.0,3356
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,chained R=0,16,23,1.0,1246
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",1,5,1.0,2464
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",6,10,1.0,3646
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",11,15,1.0,3356
-medium,2,0.9,64,euclidean,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",16,23,1.0,1246
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,direct,1,5,1.0,2464
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,direct,6,10,0.9860120680197477,3646
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,direct,11,15,0.9815256257449344,3356
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,direct,16,23,0.9446227929373997,1246
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,pi_h (idealised),1,5,1.0,2464
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,pi_h (idealised),6,10,0.98052660449808,3646
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,pi_h (idealised),11,15,0.9430870083432658,3356
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,pi_h (idealised),16,23,0.8009630818619583,1246
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,single switch,1,5,0.9914772727272727,2464
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,single switch,6,10,0.9668129456939112,3646
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,single switch,11,15,0.9079261025029798,3356
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,single switch,16,23,0.7744783306581059,1246
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,chained,1,5,0.9586038961038961,2464
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,chained,6,10,0.9226549643444871,3646
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,chained,11,15,0.9117997616209773,3356
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,chained,16,23,0.8475120385232745,1246
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,chained R=0,1,5,1.0,2464
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,chained R=0,6,10,0.9860120680197477,3646
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,chained R=0,11,15,0.9636471990464839,3356
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,chained R=0,16,23,0.8683788121990369,1246
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",1,5,1.0,2464
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",6,10,0.9868348875479978,3646
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",11,15,0.9690107270560191,3356
-medium,2,0.9,32,euclidean,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",16,23,0.891653290529695,1246
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,direct,1,5,0.836038961038961,2464
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,direct,6,10,0.8444871091607241,3646
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,direct,11,15,0.7634088200238379,3356
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,direct,16,23,0.7520064205457464,1246
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,pi_h (idealised),1,5,0.836038961038961,2464
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,pi_h (idealised),6,10,0.8294020844761383,3646
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,pi_h (idealised),11,15,0.7017282479141835,3356
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,pi_h (idealised),16,23,0.4550561797752809,1246
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,single switch,1,5,0.7357954545454546,2464
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,single switch,6,10,0.7803071859572134,3646
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,single switch,11,15,0.6939809296781884,3356
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,single switch,16,23,0.5995184590690209,1246
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,chained,1,5,0.6988636363636364,2464
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,chained,6,10,0.7081733406472847,3646
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,chained,11,15,0.6549463647199046,3356
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,chained,16,23,0.6292134831460674,1246
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,chained R=0,1,5,0.8039772727272727,2464
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,chained R=0,6,10,0.773450356555129,3646
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,chained R=0,11,15,0.6626936829558999,3356
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,chained R=0,16,23,0.5890850722311396,1246
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",1,5,0.7958603896103896,2464
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",6,10,0.7602852441031267,3646
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",11,15,0.6460071513706794,3356
-medium,2,0.9,16,euclidean,0.0,2,greedy,proxy,10,0,"chained R=0, guarded",16,23,0.5184590690208668,1246
+maze,resolution,discount,rank,basis,rho_noise,n_heads,low_policy,high_radius,seed,planner,dist_lo,dist_hi,success,n_pairs
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,direct,1,5,1.0,2464
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,direct,6,10,1.0,3646
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,direct,11,15,1.0,3356
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,direct,16,23,1.0,1246
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,pi_h (idealised),1,5,1.0,2464
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,pi_h (idealised),6,10,1.0,3646
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,pi_h (idealised),11,15,1.0,3356
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,pi_h (idealised),16,23,1.0,1246
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,single switch,1,5,1.0,2464
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,single switch,6,10,1.0,3646
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,single switch,11,15,1.0,3356
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,single switch,16,23,1.0,1246
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,chained,1,5,1.0,2464
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,chained,6,10,1.0,3646
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,chained,11,15,1.0,3356
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,chained,16,23,1.0,1246
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,chained R=0,1,5,1.0,2464
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,chained R=0,6,10,1.0,3646
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,chained R=0,11,15,1.0,3356
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,chained R=0,16,23,1.0,1246
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,"chained R=0, guarded",1,5,1.0,2464
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,"chained R=0, guarded",6,10,1.0,3646
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,"chained R=0, guarded",11,15,1.0,3356
+medium,2,0.9,104,laplacian,0.0,2,greedy,10,0,"chained R=0, guarded",16,23,1.0,1246
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,direct,1,5,1.0,2464
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,direct,6,10,1.0,3646
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,direct,11,15,1.0,3356
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,direct,16,23,1.0,1246
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,pi_h (idealised),1,5,1.0,2464
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,pi_h (idealised),6,10,1.0,3646
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,pi_h (idealised),11,15,1.0,3356
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,pi_h (idealised),16,23,0.9919743178170144,1246
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,single switch,1,5,1.0,2464
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,single switch,6,10,1.0,3646
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,single switch,11,15,1.0,3356
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,single switch,16,23,1.0,1246
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,chained,1,5,1.0,2464
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,chained,6,10,1.0,3646
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,chained,11,15,1.0,3356
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,chained,16,23,1.0,1246
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,chained R=0,1,5,1.0,2464
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,chained R=0,6,10,1.0,3646
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,chained R=0,11,15,1.0,3356
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,chained R=0,16,23,1.0,1246
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,"chained R=0, guarded",1,5,1.0,2464
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,"chained R=0, guarded",6,10,1.0,3646
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,"chained R=0, guarded",11,15,1.0,3356
+medium,2,0.9,64,laplacian,0.0,2,greedy,10,0,"chained R=0, guarded",16,23,1.0,1246
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,direct,1,5,0.9310064935064936,2464
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,direct,6,10,0.9122325836533187,3646
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,direct,11,15,0.9120977353992848,3356
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,direct,16,23,0.9221508828250401,1246
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,pi_h (idealised),1,5,0.9310064935064936,2464
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,pi_h (idealised),6,10,0.9111354909489852,3646
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,pi_h (idealised),11,15,0.8873659117997617,3356
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,pi_h (idealised),16,23,0.78330658105939,1246
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,single switch,1,5,0.9419642857142857,2464
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,single switch,6,10,0.9237520570488206,3646
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,single switch,11,15,0.9275923718712753,3356
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,single switch,16,23,0.9333868378812199,1246
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,chained,1,5,0.948051948051948,2464
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,chained,6,10,0.9330773450356555,3646
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,chained,11,15,0.9317640047675805,3356
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,chained,16,23,0.9470304975922953,1246
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,chained R=0,1,5,0.9224837662337663,2464
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,chained R=0,6,10,0.9026330224904004,3646
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,chained R=0,11,15,0.9070321811680572,3356
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,chained R=0,16,23,0.9157303370786517,1246
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,"chained R=0, guarded",1,5,0.929788961038961,2464
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,"chained R=0, guarded",6,10,0.9119583104772353,3646
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,"chained R=0, guarded",11,15,0.9213349225268176,3356
+medium,2,0.9,32,laplacian,0.0,2,greedy,10,0,"chained R=0, guarded",16,23,0.9382022471910112,1246
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,direct,1,5,0.6911525974025974,2464
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,direct,6,10,0.6793746571585298,3646
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,direct,11,15,0.6474970202622169,3356
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,direct,16,23,0.7086677367576244,1246
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,pi_h (idealised),1,5,0.6761363636363636,2464
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,pi_h (idealised),6,10,0.657707076247943,3646
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,pi_h (idealised),11,15,0.6108462455303934,3356
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,pi_h (idealised),16,23,0.5802568218298555,1246
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,single switch,1,5,0.6623376623376623,2464
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,single switch,6,10,0.646187602852441,3646
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,single switch,11,15,0.6179976162097736,3356
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,single switch,16,23,0.6235955056179775,1246
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,chained,1,5,0.6546266233766234,2464
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,chained,6,10,0.6308283049917718,3646
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,chained,11,15,0.6171036948748511,3356
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,chained,16,23,0.6284109149277689,1246
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,chained R=0,1,5,0.6554383116883117,2464
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,chained R=0,6,10,0.6316511245200219,3646
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,chained R=0,11,15,0.5721096543504172,3356
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,chained R=0,16,23,0.6035313001605136,1246
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,"chained R=0, guarded",1,5,0.6185064935064936,2464
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,"chained R=0, guarded",6,10,0.6091607240811848,3646
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,"chained R=0, guarded",11,15,0.5581048867699643,3356
+medium,2,0.9,16,laplacian,0.0,2,greedy,10,0,"chained R=0, guarded",16,23,0.5963081861958266,1246
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,direct,1,5,1.0,2464
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,direct,6,10,1.0,3646
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,direct,11,15,1.0,3356
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,direct,16,23,1.0,1246
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,pi_h (idealised),1,5,1.0,2464
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,pi_h (idealised),6,10,1.0,3646
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,pi_h (idealised),11,15,1.0,3356
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,pi_h (idealised),16,23,1.0,1246
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,single switch,1,5,1.0,2464
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,single switch,6,10,1.0,3646
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,single switch,11,15,1.0,3356
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,single switch,16,23,1.0,1246
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,chained,1,5,1.0,2464
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,chained,6,10,1.0,3646
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,chained,11,15,1.0,3356
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,chained,16,23,1.0,1246
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,chained R=0,1,5,1.0,2464
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,chained R=0,6,10,1.0,3646
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,chained R=0,11,15,1.0,3356
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,chained R=0,16,23,1.0,1246
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,"chained R=0, guarded",1,5,1.0,2464
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,"chained R=0, guarded",6,10,1.0,3646
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,"chained R=0, guarded",11,15,1.0,3356
+medium,2,0.9,104,euclidean,0.0,2,greedy,10,0,"chained R=0, guarded",16,23,1.0,1246
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,direct,1,5,1.0,2464
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,direct,6,10,0.9975315414152496,3646
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,direct,11,15,0.9997020262216925,3356
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,direct,16,23,1.0,1246
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,pi_h (idealised),1,5,1.0,2464
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,pi_h (idealised),6,10,0.9975315414152496,3646
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,pi_h (idealised),11,15,0.9868891537544696,3356
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,pi_h (idealised),16,23,0.9686998394863563,1246
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,single switch,1,5,1.0,2464
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,single switch,6,10,0.9953373560065826,3646
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,single switch,11,15,0.9949344457687723,3356
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,single switch,16,23,0.9839486356340289,1246
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,chained,1,5,1.0,2464
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,chained,6,10,0.9994514536478333,3646
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,chained,11,15,0.9985101311084624,3356
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,chained,16,23,0.9959871589085072,1246
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,chained R=0,1,5,1.0,2464
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,chained R=0,6,10,1.0,3646
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,chained R=0,11,15,1.0,3356
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,chained R=0,16,23,1.0,1246
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,"chained R=0, guarded",1,5,1.0,2464
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,"chained R=0, guarded",6,10,1.0,3646
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,"chained R=0, guarded",11,15,1.0,3356
+medium,2,0.9,64,euclidean,0.0,2,greedy,10,0,"chained R=0, guarded",16,23,1.0,1246
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,direct,1,5,1.0,2464
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,direct,6,10,0.9860120680197477,3646
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,direct,11,15,0.9815256257449344,3356
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,direct,16,23,0.9446227929373997,1246
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,pi_h (idealised),1,5,1.0,2464
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,pi_h (idealised),6,10,0.98052660449808,3646
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,pi_h (idealised),11,15,0.9430870083432658,3356
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,pi_h (idealised),16,23,0.8009630818619583,1246
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,single switch,1,5,0.9914772727272727,2464
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,single switch,6,10,0.9668129456939112,3646
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,single switch,11,15,0.9079261025029798,3356
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,single switch,16,23,0.7744783306581059,1246
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,chained,1,5,0.9586038961038961,2464
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,chained,6,10,0.9226549643444871,3646
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,chained,11,15,0.9117997616209773,3356
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,chained,16,23,0.8475120385232745,1246
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,chained R=0,1,5,1.0,2464
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,chained R=0,6,10,0.9860120680197477,3646
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,chained R=0,11,15,0.9636471990464839,3356
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,chained R=0,16,23,0.8683788121990369,1246
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,"chained R=0, guarded",1,5,1.0,2464
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,"chained R=0, guarded",6,10,0.9868348875479978,3646
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,"chained R=0, guarded",11,15,0.9690107270560191,3356
+medium,2,0.9,32,euclidean,0.0,2,greedy,10,0,"chained R=0, guarded",16,23,0.891653290529695,1246
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,direct,1,5,0.836038961038961,2464
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,direct,6,10,0.8444871091607241,3646
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,direct,11,15,0.7634088200238379,3356
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,direct,16,23,0.7520064205457464,1246
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,pi_h (idealised),1,5,0.836038961038961,2464
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,pi_h (idealised),6,10,0.8294020844761383,3646
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,pi_h (idealised),11,15,0.7017282479141835,3356
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,pi_h (idealised),16,23,0.4550561797752809,1246
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,single switch,1,5,0.7362012987012987,2464
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,single switch,6,10,0.7805814591332968,3646
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,single switch,11,15,0.6945768772348033,3356
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,single switch,16,23,0.5995184590690209,1246
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,chained,1,5,0.6992694805194806,2464
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,chained,6,10,0.7144816236972024,3646
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,chained,11,15,0.6573301549463647,3356
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,chained,16,23,0.630016051364366,1246
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,chained R=0,1,5,0.8039772727272727,2464
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,chained R=0,6,10,0.773450356555129,3646
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,chained R=0,11,15,0.6626936829558999,3356
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,chained R=0,16,23,0.5890850722311396,1246
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,"chained R=0, guarded",1,5,0.7958603896103896,2464
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,"chained R=0, guarded",6,10,0.7602852441031267,3646
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,"chained R=0, guarded",11,15,0.6466030989272944,3356
+medium,2,0.9,16,euclidean,0.0,2,greedy,10,0,"chained R=0, guarded",16,23,0.5184590690208668,1246

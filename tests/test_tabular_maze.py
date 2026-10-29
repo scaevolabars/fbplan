@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from fbplan.frozen import make_env
 from fbplan.tabular.maze import ACTION_VECTORS, GridMaze
 
 
@@ -79,3 +80,32 @@ def test_tasks_follow_ogbench_cells():
     init_ij, goal_ij = maze.tasks[0]
     assert (init_ij, goal_ij) == ((1, 1), (6, 6))
     np.testing.assert_allclose(maze.cell_xy(goal_ij), [20.0, 20.0])
+
+
+@pytest.mark.parametrize(("resolution", "offset"), [(2, 0.5), (3, 0.0)])
+def test_centre_state_is_at_the_cell_centre_or_on_its_plus_xy_side(resolution, offset):
+    maze = GridMaze("medium", resolution=resolution)
+    s = maze.centre_state((1, 1))
+    np.testing.assert_allclose(maze.xy[s], maze.cell_xy((1, 1)) + offset * maze.fine_unit)
+
+
+@pytest.mark.parametrize("name", ["medium", "large", "giant", "teleport"])
+def test_maps_tasks_and_teleporters_equal_ogbench(name):
+    env = make_env(f"antmaze-{name}-navigate-v0").unwrapped
+    maze = GridMaze(name, resolution=2)
+    np.testing.assert_array_equal(maze.maze_map, env.maze_map == 1)
+    ogbench_tasks = [(tuple(t["init_ij"]), tuple(t["goal_ij"])) for t in env.task_infos]
+    assert [(tuple(a), tuple(b)) for a, b in maze.tasks] == ogbench_tasks
+    info = env._teleport_info
+    if info is None:
+        assert len(maze.entry_states) == 0
+        return
+    entries = [tuple(ij) for ij in info["teleport_in_ijs"]]
+    expected = sorted(s for ij in entries for s in maze.cell_states(ij))
+    assert sorted(maze.entry_states.tolist()) == expected
+    exits = sorted(maze.centre_state(tuple(ij)) for ij in info["teleport_out_ijs"])
+    jumps = np.argwhere(maze.probs[:, :, 0] < 1)  # (state, action) pairs with a random outcome
+    assert len(jumps) > 0
+    for s, a in jumps:
+        assert sorted(maze.next_states[s, a].tolist()) == exits
+        np.testing.assert_allclose(maze.probs[s, a], 1 / len(exits))

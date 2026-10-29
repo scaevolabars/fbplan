@@ -1,3 +1,5 @@
+"""Tests for approach B: switch batches, V_H (stage 1), the new pi_h (stage 2), train_b glue."""
+
 import dataclasses
 
 import flax
@@ -7,34 +9,49 @@ import numpy as np
 import pytest
 
 from fbplan import frozen
-from fbplan.learned.high_policy import matched_alpha, policy_update
+from fbplan.learned import train_b
+from fbplan.learned.checkpoint import (
+    FROZEN_MODULES,
+    load_b_model,
+    save_high_actor,
+    trained_dir,
+    with_fresh_high_actor,
+)
+from fbplan.learned.high_policy import masked_mean_std, policy_update, switch_advantage
 from fbplan.learned.option_targets import OptionConfig, direct_value
 from fbplan.learned.sampling import (
     HighBatchSpec,
     SwitchBatch,
     make_trajectory_data,
-    region_latents,
     sample_switch_batch,
+    trajectory_window_latents,
 )
 from fbplan.learned.train_b import (
     Split,
-    approach_b_dir,
-    config_from_dict,
-    example_batch,
-    load_b_model,
-    load_value,
+    Stage,
+    advantage_stds,
+    calibrate_alpha,
+    parse_args,
     policy_chunk,
-    save_value,
     value_chunk,
 )
-from fbplan.learned.value import ValueConfig, ValueState, expectile_loss, forward, value_update
-from fbplan.train_high import FROZEN_MODULES, save_checkpoint, with_fresh_high_actor
+from fbplan.learned.value import (
+    ValueConfig,
+    ValueState,
+    expectile_loss,
+    forward,
+    load_value,
+    save_value,
+    value_update,
+)
 
 fbpiswitch = frozen.upstream_module("agents.fbpiswitch")
 OBS_DIM, LATENT_DIM = 5, 4
 TINY_VALUE = ValueConfig(hidden_dims=(16, 16))
 SPEC = HighBatchSpec(batch_size=64, discount=0.9, actor_geom_sample=False, actor_p_randomgoal=0.3)
+STAGE = Stage(SPEC, 0.5, TINY_VALUE)
 TRAJ_ENDS = [99, 249, 399]
+MEDIUM = "antmaze-medium-navigate-v0"
 
 
 @pytest.fixture(scope="module")
@@ -52,19 +69,16 @@ def agent():
         "latent_dim": LATENT_DIM,
         "batch_size": 32,
     }
-    agent = fbpiswitch.FBpiSwitchAgent.create(123, example_batch_of(OBS_DIM), config)
+    batch = {
+        "observations": np.zeros((1, OBS_DIM), np.float32),
+        "actions": np.zeros((1, 2), np.float32),
+    }
+    agent = fbpiswitch.FBpiSwitchAgent.create(123, batch, config)
     params = flax.core.unfreeze(agent.network.params)
     params["modules_forward_repr"] = jax.tree_util.tree_map(
         lambda x: x.at[1].set(x[0]), params["modules_forward_repr"]
     )
     return agent.replace(network=agent.network.replace(params=params))
-
-
-def example_batch_of(obs_dim):
-    return {
-        "observations": np.zeros((1, obs_dim), np.float32),
-        "actions": np.zeros((1, 2), np.float32),
-    }
 
 
 @pytest.fixture(scope="module")
@@ -77,8 +91,8 @@ def data():
 
 
 @pytest.fixture(scope="module")
-def latents(agent, data):
-    return agent.network.select("backward_repr")(data.observations)
+def split(agent, data):
+    return Split(data, agent.network.select("backward_repr")(data.observations))
 
 
 @pytest.fixture(scope="module")
@@ -94,7 +108,7 @@ def same(a, b):
     return all(np.array_equal(x, y) for x, y in zip(leaves(a), leaves(b), strict=True))
 
 
-# ----- sampling -----
+# ----- sampling and CLI -----
 
 
 def test_switch_batch_looks_up_latents_and_normalizes_tasks(data):
@@ -108,27 +122,36 @@ def test_switch_batch_looks_up_latents_and_normalizes_tasks(data):
     assert 0.3 < float(batch.is_goal.mean()) < 0.7
 
 
-def test_region_latents_average_within_the_trajectory_only():
+def test_window_latents_average_within_the_trajectory_only():
     latents = np.arange(12, dtype=np.float32)[:, None]
     terminals = np.zeros(12)
     terminals[[5, 11]] = 1.0
-    region = region_latents(latents, terminals, half_width=1)[:, 0]
-    np.testing.assert_allclose(region[[0, 1, 5, 6]], [0.5, 1.0, 4.5, 6.5])
+    window = trajectory_window_latents(latents, terminals, half_width=1)[:, 0]
+    np.testing.assert_allclose(window[[0, 1, 5, 6]], [0.5, 1.0, 4.5, 6.5])
+
+
+def test_ablation_runs_get_their_own_folders():
+    env = ["--env", MEDIUM, "--seed", "0"]
+    main = parse_args(["value", *env])
+    ablation = parse_args(["value", *env, "--rho-cap", "1.0", "--name", "value-single-cap1"])
+    assert (main.name, ablation.name) == ("value-single", "value-single-cap1")
+    assert ablation.rho_cap == 1.0
+    policy = parse_args(["policy", *env, "--variant", "region"])
+    assert (policy.name, policy.value_name) == ("region", "value-region")
 
 
 # ----- stage 1 -----
 
 
-def test_value_is_never_below_the_single_intention_value(agent, value, data, latents):
-    batch = sample_switch_batch(data, latents, jax.random.PRNGKey(1), SPEC, 0.5)
+def test_value_is_never_below_the_single_intention_value(agent, value, split):
+    batch = split.batch(jax.random.PRNGKey(1), STAGE)
     v1 = direct_value(forward(agent, batch.observations, batch.task_latents), batch.task_latents)
     assert value.gain(batch.observations, batch.task_latents).shape == (2, SPEC.batch_size)
-    assert np.all(np.asarray(value.value(agent, batch.observations, batch.task_latents) >= v1))
+    assert np.all(np.asarray(value.value(v1, batch.observations, batch.task_latents) >= v1))
 
 
-def test_value_update_moves_params_and_the_target_by_ema(agent, value, data, latents):
-    batch = sample_switch_batch(data, latents, jax.random.PRNGKey(2), SPEC, 0.5)
-    new, info = value_update(value, agent, batch, TINY_VALUE)
+def test_value_update_moves_params_and_the_target_by_ema(agent, value, split):
+    new, info = value_update(value, agent, split.batch(jax.random.PRNGKey(2), STAGE), TINY_VALUE)
     assert np.isfinite(float(info["loss"])) and int(new.step) == 1
     assert float(info["valid"]) > 0.2
     assert not same(new.params, value.params)
@@ -145,14 +168,15 @@ def test_expectile_loss_weights_errors_above_more():
     np.testing.assert_allclose(expectile_loss(diff, 0.9), [0.9, 0.1])
 
 
-def test_value_config_round_trips_through_json_dict():
-    config = ValueConfig(option=OptionConfig(edge_reward="exact", rho_max=0.95), hop_cost=0.1)
-    assert config_from_dict(dataclasses.asdict(config)) == config
+def test_value_config_round_trips_through_its_json_dict():
+    config = ValueConfig(option=OptionConfig(edge_reward="exact", rho_cap=0.95), hop_cost=0.1)
+    assert ValueConfig.from_dict(dataclasses.asdict(config)) == config
 
 
-def test_value_checkpoint_round_trip(value, tmp_path):
-    save_value(value, {"value_config": dataclasses.asdict(TINY_VALUE)}, tmp_path)
-    loaded, config = load_value(tmp_path, OBS_DIM, LATENT_DIM)
+def test_value_round_trip_through_its_folder(value, tmp_path, monkeypatch):
+    monkeypatch.setenv("FBPLAN_APPROACH_B_DIR", str(tmp_path))
+    save_value(value, TINY_VALUE, {"seed": 0}, trained_dir("approach_b", MEDIUM, 0, "v"))
+    loaded, config = load_value(MEDIUM, "v", 0, OBS_DIM, LATENT_DIM)
     assert config == TINY_VALUE
     assert same(loaded.params, value.params) and same(loaded.target_params, value.target_params)
 
@@ -160,9 +184,9 @@ def test_value_checkpoint_round_trip(value, tmp_path):
 # ----- stage 2 -----
 
 
-def test_policy_update_changes_only_pi_h(agent, value, data, latents):
-    fresh = with_fresh_high_actor(agent, 0, example_batch_of(OBS_DIM))
-    batch = sample_switch_batch(data, latents, jax.random.PRNGKey(3), SPEC, 0.5)
+def test_policy_update_changes_only_pi_h(agent, value, split):
+    fresh = with_fresh_high_actor(agent, 0, OBS_DIM)
+    batch = split.batch(jax.random.PRNGKey(3), STAGE)
     trained, info = policy_update(fresh, value, batch, jnp.float32(0.1), TINY_VALUE)
     for name in FROZEN_MODULES:
         assert same(trained.network.params[name], fresh.network.params[name]), name
@@ -173,13 +197,17 @@ def test_policy_update_changes_only_pi_h(agent, value, data, latents):
 
 
 def test_invalid_edges_give_no_policy_gradient(agent, value, data):
-    """w = s has rho = 1: an untrusted self-loop, so the sample must not move pi_h."""
-    fresh = with_fresh_high_actor(agent, 0, example_batch_of(OBS_DIM))
-    s = data.observations[:16]
-    b_s = agent.network.select("backward_repr")(s)
+    """Subgoal = current state: an untrusted self-loop, so the sample must not move pi_h."""
+    fresh = with_fresh_high_actor(agent, 0, OBS_DIM)
+    states = data.observations[:16]
+    subgoals = states
     z = jnp.asarray(np.random.default_rng(2).normal(size=(16, LATENT_DIM)), jnp.float32)
     batch = SwitchBatch(
-        s, s, b_s, z * 2.0 / jnp.linalg.norm(z, axis=-1, keepdims=True), jnp.ones(16, bool)
+        observations=states,
+        subgoals=subgoals,
+        subgoal_latents=agent.network.select("backward_repr")(subgoals),
+        task_latents=z * 2.0 / jnp.linalg.norm(z, axis=-1, keepdims=True),
+        is_goal=jnp.ones(16, bool),
     )
     trained, info = policy_update(fresh, value, batch, jnp.float32(0.1), TINY_VALUE)
     assert float(info["valid"]) == 0.0
@@ -188,14 +216,35 @@ def test_invalid_edges_give_no_policy_gradient(agent, value, data):
     )
 
 
-def test_matched_alpha_gives_the_upstream_spread():
-    alpha = matched_alpha(upstream_adv_std=20.0, switch_adv_std=50.0, upstream_alpha=0.1)
-    assert alpha * 50.0 == pytest.approx(0.1 * 20.0)
+def test_advantage_spread_counts_valid_edges_only(agent, value, split):
+    key = jax.random.PRNGKey(4)
+    upstream_std, switch_std = advantage_stds(agent, value, split, key, STAGE)
+    _, k_b = jax.random.split(key)
+    adv, valid = switch_advantage(agent, value, split.batch(k_b, STAGE), TINY_VALUE)
+    assert 0 < valid.sum() < len(valid)
+    np.testing.assert_allclose(switch_std, np.std(np.asarray(adv)[np.asarray(valid)]), rtol=1e-4)
+    assert np.isfinite(float(upstream_std)) and float(upstream_std) > 0
+
+
+def test_calibrated_alpha_gives_alpha_times_a_the_upstream_spread(agent, value, split, monkeypatch):
+    monkeypatch.setattr(train_b, "CALIBRATION_BATCHES", 2)
+    key = jax.random.PRNGKey(5)
+    alpha, info = calibrate_alpha(agent, value, split, key, STAGE)
+    stds = [advantage_stds(agent, value, split, k, STAGE) for k in jax.random.split(key, 2)]
+    upstream = np.mean([float(s[0]) for s in stds])
+    switch = np.mean([float(s[1]) for s in stds])
+    assert info["upstream_adv_std"] == pytest.approx(upstream)
+    assert info["switch_adv_std"] == pytest.approx(switch)
+    assert alpha * switch == pytest.approx(float(agent.config["high_alpha"]) * upstream)
+
+
+def test_masked_mean_std_ignores_masked_samples():
+    x = jnp.array([1.0, 3.0, 100.0])
+    mean, std = masked_mean_std(x, jnp.array([True, True, False]))
+    assert (float(mean), float(std)) == (2.0, 1.0)
 
 
 # ----- both stages on the real checkpoint -----
-
-MEDIUM = "antmaze-medium-navigate-v0"
 
 
 @pytest.fixture(scope="module")
@@ -210,41 +259,20 @@ def medium():
 
 def test_both_stages_run_on_the_real_checkpoint_and_reload(medium, tmp_path, monkeypatch):
     model, split = medium
-    spec = HighBatchSpec.from_agent_config(model.agent.config)
-    obs_dim = split.data.observations.shape[-1]
-    value = ValueState.create(jax.random.PRNGKey(0), obs_dim, model.latent_dim, ValueConfig())
-    value, info = value_chunk(
-        value,
-        model.agent,
-        split.data,
-        split.latents,
-        jax.random.PRNGKey(1),
-        2,
-        spec,
-        0.5,
-        ValueConfig(),
-    )
+    stage = Stage(HighBatchSpec.from_agent_config(model.agent.config), 0.5, ValueConfig())
+    value = ValueState.create(jax.random.PRNGKey(0), split.obs_dim, model.latent_dim, stage.value)
+    value, info = value_chunk(value, model.agent, split, jax.random.PRNGKey(1), 2, stage)
     assert np.isfinite(float(info["loss"])) and 0.5 < float(info["valid"]) <= 1.0
 
-    fresh = with_fresh_high_actor(model.agent, 0, example_batch(model.agent, obs_dim))
-    trained, info = policy_chunk(
-        fresh,
-        value,
-        split.data,
-        split.latents,
-        jax.random.PRNGKey(2),
-        jnp.float32(0.1),
-        2,
-        spec,
-        0.5,
-        ValueConfig(),
-    )
+    fresh = with_fresh_high_actor(model.agent, 0, split.obs_dim)
+    alpha = jnp.float32(0.1)
+    trained, info = policy_chunk(fresh, value, split, jax.random.PRNGKey(2), alpha, 2, stage)
     assert np.isfinite(float(info["actor_loss"]))
     for name in FROZEN_MODULES:
         assert same(trained.network.params[name], model.agent.network.params[name]), name
 
     monkeypatch.setenv("FBPLAN_APPROACH_B_DIR", str(tmp_path))
-    save_checkpoint(trained, {}, approach_b_dir(MEDIUM, "clean", 0))
+    save_high_actor(trained, {}, trained_dir("approach_b", MEDIUM, 0, "clean"))
     loaded = load_b_model(MEDIUM, "clean", 0)
     obs = split.data.observations[:3]
     z = jnp.ones((3, model.latent_dim))
