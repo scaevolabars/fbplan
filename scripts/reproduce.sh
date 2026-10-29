@@ -4,8 +4,8 @@
 #   scripts/reproduce.sh [--smoke] [--workers N] [stage ...]
 #
 # Stages run in this order; the default is "checkpoints eval tables figures":
-#   checkpoints  download the frozen checkpoints of the four mazes (73 MB, hash-checked) and
-#                every published trained checkpoint
+#   checkpoints  download the frozen checkpoints of the four mazes (73 MB, hash-checked), every
+#                published trained checkpoint, and the medium datasets (270 MB)
 #   train        retrain pi_h and train approach B, 5 seeds each; needs a Linux machine with a
 #                GPU (about 1 h per job on an RTX 3090), so it is not in the default
 #   eval         evaluate every run of RUNS below: one CSV of episodes per run in
@@ -21,12 +21,15 @@
 # starts from an empty runs/smoke/ and writes only there: results/, docs/figures/ and
 # ~/.cache/fbplan stay unchanged; a run of a trained checkpoint evaluates the model that the
 # smoke run trained. After each evaluation it prints how many episodes equal the committed ones
-# (resets are seeded, so on the same machine all of them should, except the runs of models that
-# the smoke run trained; another CPU can change the chaotic dynamics).
+# (resets are seeded, so on the platform of the committed CSVs all of them should, except the
+# runs of models that the smoke run trained; another platform changes the chaotic dynamics).
 # --workers N sets the number of evaluation processes (default 4, smoke 1).
-# OGBench datasets download to ~/.ogbench/data on first use (medium train and val: 270 MB).
+# Other OGBench datasets download to ~/.ogbench/data on first use.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# The committed numbers come from CPU runs. A GPU multiplies float32 in TF32, which changes the
+# chaotic episodes, so every stage runs on CPU except the GPU training.
+export JAX_PLATFORMS=cpu
 
 # Evaluation runs, one per line: maze, CSV below results/<maze>/, number of eval seeds
 # (counted from 0), method (fbplan/controllers/__init__.py), more fbplan.evaluate arguments.
@@ -141,9 +144,9 @@ fi
 
 stage_checkpoints() {
   if $smoke; then
-    py -m fbplan.frozen "$(env_id medium)"
+    py -m fbplan.frozen "$(env_id medium)" --datasets "$(env_id medium)"
   else
-    py -m fbplan.frozen --trained
+    py -m fbplan.frozen --trained --datasets "$(env_id medium)"
   fi
 }
 
@@ -159,6 +162,7 @@ stage_train() {
       --run-dir runs/smoke/train/clean
     return
   fi
+  unset JAX_PLATFORMS
   uv run --locked python -c 'import jax, sys; sys.exit(jax.default_backend() != "gpu")' ||
     die "train needs a GPU; --smoke checks the training code on CPU"
   run bash scripts/gpu/run_seeds.sh runs/train_high/medium "$SEEDS" fbplan.train_high --env "$env"
@@ -166,6 +170,7 @@ stage_train() {
     fbplan.learned.train_b value --env "$env" --latents single
   run bash scripts/gpu/run_seeds.sh runs/train_b/medium/clean "$SEEDS" \
     fbplan.learned.train_b policy --env "$env" --variant clean
+  export JAX_PLATFORMS=cpu
 }
 
 stage_eval() {
@@ -259,7 +264,7 @@ stage_figures() {
     py analysis/heldout_goals.py --fig-dir "$figures"
   fi
   py analysis/planner_routes.py --env "$(env_id medium)" --out-dir "$figures"
-  py -m fbplan.tabular.run_study --workers "$workers" --out "$theory_dir" $study_args
+  py -m fbplan.tabular.run_study --workers "$workers" --out-dir "$theory_dir" $study_args
   py -m fbplan.tabular.study_plots --dir "$theory_dir"
   py -m fbplan.tabular.time_limit --out "$theory_dir"
 }
