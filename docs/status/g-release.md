@@ -6,69 +6,149 @@ Last update: 2026-10-29.
 
 - `scripts/reproduce.sh`: one entry point with the stages checkpoints, train, eval, tables,
   figures; `--smoke` and `--workers N` (default 4, design.md §7). It prints every command that it
-  runs. Bash 3.2 compatible (macOS default shell).
-  - The run table (`RUNS`) reproduces every committed CSV in `results/medium/`. Checked: the
-    options of the 13 oracle CSVs give the config hashes in the files.
-  - Training writes to `~/.cache/fbplan` as before. `--smoke` sends trained models to
-    `runs/smoke/models/` (`FBPLAN_BASELINE_DIR`, `FBPLAN_APPROACH_B_DIR`) and all outputs to
-    `runs/smoke/`, so it never touches `results/`, `docs/figures/` or the real models.
-  - Tables go to `results/<maze>/tables.md`. `upstream.csv` stays out of `tables.py`: its
-    episodes have the same keys as ours but other start states, so `tables.py` would pair them
-    (finding D2).
-  - `--smoke` passed in this worktree (all 5 stages, 30 output files; an older version with
-  the parity run). It took 17 min while six
-    review agents used the CPU. Step times on an idle CPU: training 102 s (3 runs), one eval run
-    about 30 s (model load, task latents, JIT), route plots 58 s, quick study 36 s. The parity run
-    (`analysis/parity.py`) took 310 s even with 4 workers, because it always runs 50 episodes per
-    task, so `--smoke` skips it (request 5).
+  runs and the time of each stage. Bash 3.2 compatible (macOS default shell); shellcheck clean.
+  - `RUNS` holds one line per committed CSV in `results/medium/` (25 runs) plus the parity run.
+    A line ends with raw `fbplan.evaluate` arguments (`--opt ...`, later `--checkpoint ...`).
+    Checked against the config hashes in the files: the 13 oracle CSVs, and the 9 planner CSVs
+    (`--opt landmarks.seed=k`, region runs also `landmarks.latent=region`) once the field
+    `switch_steps`, added after these runs, is left out of the hash (X18).
+  - Tables (`results/<maze>/tables.md`): the main table as in d-eval's command
+    (`{baseline,baseline_raw,nonhier,oracle}.csv` and `planner*/*.csv`, `--label-root`,
+    `--cluster config_hash`), the oracle sweep, failure classes of the 4 reference methods, and
+    `analysis/report_figures.py` (f-report's request: time-to-goal figure and the numbers of
+    report §8.4). `upstream.csv` stays out of `tables.py` (D2).
+  - Figures: success figure (same CSVs as the main table), calibration figures and
+    `results/calibration/` tables, `analysis/heldout_goals.py`, route plots, the tabular study
+    and `fbplan.tabular.time_limit`.
+  - Checkpoints stage: `python -m fbplan.frozen --trained` (frozen and published trained ones).
+  - In `--smoke`, each evaluation prints how many episodes equal the committed episode with the
+    same (task, eval seed, episode). With 1 episode per task, all 35 smoke episodes of the 7
+    result groups equalled the committed ones (success and steps): the current code reproduces
+    the committed CSVs, the planner included. It only prints, because another CPU can change
+    the chaotic dynamics.
+  - `--smoke` writes only to `runs/smoke/` (trained models via `FBPLAN_BASELINE_DIR`,
+    `FBPLAN_APPROACH_B_DIR`). It skips the parity run (50 episodes per task are fixed, request 5)
+    and `heldout_goals.py` (it always writes to `results/heldout_goals/`, see the CLI convention).
+- Clean clone (commit f058ae6, cloned without `--recurse-submodules`, empty `FBPLAN_CKPT_DIR`):
+  `--smoke` passed in 5.5 min with the datasets already in `~/.ogbench/data` (checkpoints 38 s,
+  train 81 s, eval 53 s, tables 41 s, figures 98 s). The script initialized the submodule, and
+  the clone stayed clean.
 - `devbox.json`: uv pinned to 0.11.8 (the version that wrote `uv.lock`), `--locked` in every
-  script, new scripts `reproduce` and `smoke`.
+  script, scripts `reproduce` and `smoke`. No `devbox.lock`: `devbox install` printed
+  "Ensuring packages are installed" and then nothing for 15 min (the Nix download stalls on this
+  Mac, as in a-frozen's check). So the README names uv as the primary setup path and devbox as
+  a way to get the pinned uv.
 - `.github/workflows/ci.yml`: `uv sync --locked`, `ruff check`, `pytest -ra` on ubuntu-24.04 with
-  `MUJOCO_GL=osmesa`. It downloads packages only, no data. Not run yet: no remote, and Docker is
-  not running on this machine. Checked locally: with an empty `HOME` (no checkpoints, no
-  datasets), `pytest` gives 247 passed, 30 skipped, and downloads nothing.
-- Code review, first pass: findings below.
-
-- README: the Reproduce section points at `scripts/reproduce.sh`; the long list of analysis
-  commands moved into the script; the layout table lists `fbplan/controllers/` and `scripts/`.
-
-- Clean clone (commit f058ae6, cloned without `--recurse-submodules`, empty
-  `FBPLAN_CKPT_DIR`): `scripts/reproduce.sh --smoke` passed in 5.5 min on the 12-core Mac with
-  the datasets already in `~/.ogbench/data`. Stages: checkpoints 38 s (venv and download),
-  train 81 s, eval 53 s, tables 41 s, figures 98 s. The script initialized the submodule, and
-  the clone stayed clean (outputs only in the ignored `runs/`).
+  `MUJOCO_GL=osmesa`; packages only, no data. With an empty `HOME`, `pytest` downloads nothing.
+  Linux check (user approved): the same steps in a `python:3.11-slim-bookworm` container
+  (arm64, uv 0.11.8, `libosmesa6`, the 16 CUDA packages left out) on commit 8ce6821: ruff
+  clean, pytest 247 passed, 30 skipped. Not checked: the x86_64 runner, the CUDA wheels, and
+  today's `pyproject.toml` settings on Linux (the first GitHub Actions run checks them).
+- `pyproject.toml` (X15): removed `h5py` (no import in our code, upstream or the packages we use;
+  only dm_control's mocap loader imports it, which antmaze never loads; 343 tests pass without
+  it); `addopts = "-ra"`; `pythonpath = [".", "tests"]` (`planner_fakes`, and tests of
+  `analysis/`); ruff `per-file-ignores` for `E402` in the plot scripts. The 44
+  `# noqa: E402` comments in 8 files of other owners are now redundant
+  (`ruff check --extend-select RUF100` lists them); the owners can delete them.
+- `tests/conftest.py` (X14): fixtures `require_files` (`.checkpoint(env)`, `.dataset(env,
+  split)`: skip when the file is absent; works in parametrized tests), `medium_model` and
+  `medium_val` (session scope: the real model loads once per session, not once per module).
+  Checked with and without data. Owners replace their copies (`test_frozen.py:26-34`,
+  `test_evaluate.py:298-301, 343-349`, `test_learned_train_high.py:135-142`,
+  `test_learned_b.py:201-208`). Not in conftest, by choice: `MEDIUM` (a literal env id reads
+  better than an import), and `same()` / the tiny upstream config (both only in e-learner's two
+  test files; a `tests/learned_fakes.py` like `planner_fakes.py` fits them).
+- README, gaps from a-frozen's clean-clone check: evaluation with `--workers 4` and its time
+  (about 11 min per 5-seed run on medium, about 4 h for the eval stage, estimate); the eval stage
+  writes the committed CSVs (`git diff` shows changes; `--out runs/...` for single runs); tests
+  never download data and list their skips; `fbplan.frozen --trained` in the setup; methods
+  table with `--checkpoint retrained:<seed>` and `b:<variant>:<seed>`.
+- Merged `main` (f1ae57d): fast-forward.
 
 ## Next
 
-- Add rows to `RUNS` when new result CSVs are committed (see requests).
-- Process files (brief step 4): proposal to the user.
+- Smoke run of the new `RUNS` and stages (running), then commit.
+- Add a `RUNS` line for every CSV whose command an owner writes in its status file: large,
+  retrained baselines, approach B, held-out goals.
+- When a-frozen adds `python -m fbplan.frozen --datasets <env>`: a data step in the README setup.
 
 ## Blockers
 
-- The full pipeline cannot reproduce the retrained baseline or approach B yet: the eval CLI has
-  no way to load a trained checkpoint (D1), and trained checkpoints have no download (A3).
+- None. The retrained baselines and approach B wait for their CSVs and the release of the
+  trained checkpoints.
 
 ## Requests to the coordinator
 
-1. For `scripts/reproduce.sh` to stay complete, every component that commits a CSV to `results/`
-   writes the exact command in its status file. I add it to `RUNS`. Pending result sets that I
-   know of: planner and planner_high (5 eval seeds, landmark seeds), planner with region latents,
-   baseline_raw, retrained baselines, approach B, large, giant and teleport.
-2. `pyproject.toml` has no owner in design.md §6. Proposed changes (X15): `addopts = "-ra"`
-   (skips show on a clean clone), remove the unused `h5py`, ruff `per-file-ignores` for `E402`
-   in the matplotlib scripts (20 `noqa` comments), and `pythonpath = ["tests"]` for
-   `planner_fakes`. I can apply them if you give me the file.
-3. design.md: a glossary in §3 for the names that differ across A, B and the tabular code (X3),
-   both wormhole definitions (X13), and the gaps in the §6 table (X17).
-4. Approve or reject each finding below, then send them to the owners.
-5. d-eval: an `--episodes` option for `analysis/parity.py` (default 50), so that `--smoke` can
-   run the parity check with 1 episode per task.
+1. X18 (new, must-fix, c-planner and d-eval): a config field added after a run changes the
+   `config_hash` of every committed CSV of that controller. c-planner added
+   `PlannerConfig.switch_steps` (default `None`, the old behaviour) after the 9 planner runs.
+   Consequences: a rerun of the same command writes a different `config_hash`, so "records
+   identical" fails on that column; `analysis/failures.py:94` refuses to replay any committed
+   planner CSV ("config hash differs"); and `tables.py` without `--label-root` would split old
+   and new runs of one config. Proposed fix (d-eval owns `config_hash`): hash only the fields
+   that differ from the dataclass defaults, so a new field with an old-behaviour default keeps
+   every hash. This changes the hash of every committed CSV once, so rewrite the column after a
+   check that a rerun of eval seed 0 gives identical records. Alternative: c-planner reruns.
+2. Still open: d-eval adds `--episodes` to `analysis/parity.py` (sent).
+3. F1 (new, should-fix, f-report): `analysis/report_figures.py` raises
+   `KeyError: ['planner_region'] not in index` when one planner variant has no CSV in
+   `--results`, so it cannot run on a subset. `reproduce.sh --smoke` now runs one CSV of each
+   result group, so the smoke run passes. Fix: drop absent variants with a printed note, or
+   raise a clear error that names the missing folder.
+   F2 (new, should-fix, f-report): `analysis/report_figures.py:72` raises `ValueError: cannot
+   convert float NaN to integer` for a method with no success (`int(median)` of an empty set).
+   The smoke run hit it with 1 episode per task: planner landmark set 0 fails the 5 episode-0
+   start states (as in the committed CSV). `--smoke` now runs 2 episodes per task, where every
+   group has successes. Fix: report the median as missing when there is no success.
+
+## CLI convention (X11, proposal; the owners adopt it)
+
+1. Inputs are positional paths: CSV files, or one folder.
+2. Outputs: `--out FILE` for one file, `--out-dir DIR` for one folder. A script that writes
+   figures and tables to different folders uses `--fig-dir` and `--table-dir`. A training CLI
+   uses `--out-dir` for the checkpoint and `--run-dir` for the logs.
+3. Every file that a script writes has a flag, so that `reproduce.sh --smoke` can send all
+   output to `runs/smoke/`.
+4. Defaults: a script that writes committed results defaults to their committed path in
+   `results/` or `docs/figures/`. Other output goes to `runs/<script name>/`, never to a folder
+   named after a branch. A quick or smoke option never defaults to a committed folder.
+5. `--env` for one env (`choices=frozen.ENV_NAMES`), `--envs` for several. `--seeds` for eval
+   seeds, `--seed` for one training or sampling seed; the help says which seed it is.
+6. `--workers` defaults to 4 (design.md §7) in every script that starts processes.
+7. Every argument has `help=`. The parser uses `description=` from the first docstring line and
+   `formatter_class=argparse.ArgumentDefaultsHelpFormatter`, so `--help` shows the defaults. The
+   usage line in the module docstring lists the real arguments.
+8. `--method` takes an alias of `fbplan.controllers.ALIASES`; `Controller.name` equals the
+   alias (X6), so the CSV `method` column is what the user typed.
+
+Changes that this needs, by owner:
+
+| Owner | Script | Change |
+|---|---|---|
+| d-eval | `fbplan/evaluate.py` | `--method` help from `sorted(ALIASES)`; `--env` choices; `--workers` default 4; help for `--tasks`, `--workers` |
+| d-eval | `analysis/parity.py` | `--workers` 5 → 4; `--episodes` (request 2) |
+| d-eval | `analysis/failures.py` | `--workers` 10 → 4 |
+| d-eval | `analysis/calibration.py` | `--out-dir` → `--fig-dir` (it also has `--table-dir`) |
+| d-eval | `analysis/heldout_goals.py` | add `--table-dir` (default `results/heldout_goals`) next to `--fig-dir` |
+| d-eval | `analysis/tables.py`, `plots.py` | help for `--reference` etc.; defaults shown |
+| c-planner | `analysis/planner_routes.py` | default `--out-dir runs/planner_routes`; help that `--seed` is the reset seed |
+| c-planner | `fbplan/controllers/planner.py` | `name` = alias (`planner`, `planner_high`) |
+| b-theory | `fbplan/tabular/run_study.py` | `--out` → `--out-dir`; `--workers` default 4; `--quick` defaults to `runs/run_study/` |
+| b-theory | `fbplan/tabular/study_plots.py` | `--dir` → positional folder |
+| b-theory | `fbplan/tabular/time_limit.py` | `--out` → `--out-dir` |
+| e-learner | `fbplan/train_high.py` | `--out` → `--out-dir`; help with the real default path |
+| e-learner | `fbplan/learned/train_b.py` | help text; `--name` / `--value-name` (E7) |
+| f-report | `analysis/report_figures.py` | `--results` → positional folder |
+
+When an owner renames a flag, it tells me, and I change `scripts/reproduce.sh` in the same
+merge.
 
 ## Process files before submission (brief step 4)
 
 Decision of the user (2026-10-29): remove `docs/briefs/` and `docs/status/` from the submitted
-tree. Before that, each owner moves a fact that is still needed into REPORT.md or design.md.
-The coordinator does the removal. Reasons:
+tree, in the final submission step only (until then they are the coordination channel). Before
+that, each owner moves a fact that is still needed into REPORT.md or design.md. The coordinator
+does the removal. Reasons:
 
 1. They describe the multi-session workflow (tabs, coordinator, approvals). REPORT.md must not
    (f-report rule 6), and a reviewer reads them as noise next to the code.
