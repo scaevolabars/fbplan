@@ -9,6 +9,7 @@ from fbplan.stats import (
     load_results,
     mcnemar_p_value,
     paired_comparison,
+    paired_table,
     success_ci,
     summary_table,
 )
@@ -119,3 +120,16 @@ def test_summary_table_rejects_results_from_two_envs():
     df = pd.concat([_episodes({1: [1]}), _episodes({1: [0]}).assign(env_name="other")])
     with pytest.raises(ValueError, match="one env"):
         summary_table(df)
+
+
+def test_paired_table_compares_every_other_method_with_the_reference():
+    ref = _episodes({1: [0, 0, 1, 1]}, method="ref")
+    better = _episodes({1: [1, 1, 1, 1]}, method="better")
+    same = _episodes({1: [0, 0, 1, 1]}, method="same")
+    table = paired_table(pd.concat([ref, better, same]), reference="ref")
+    assert table["method"].tolist() == ["better", "same"]
+    assert table["diff"].tolist() == [0.5, 0.0]
+    assert table[["only_method", "only_reference"]].values.tolist() == [[2, 0], [0, 0]]
+    assert list(table.columns) == [
+        "method", "diff", "ci_low", "ci_high", "only_method", "only_reference", "p_value", "n_pairs"
+    ]

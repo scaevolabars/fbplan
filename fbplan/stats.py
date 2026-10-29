@@ -173,3 +173,15 @@ def summary_table(df: pd.DataFrame, cluster: str | None = None, seed: int = 0) -
             est = success_ci(part, cluster=cluster, seed=seed)
             rows.append((method, task, est.n, est.mean, est.low, est.high))
     return pd.DataFrame(rows, columns=["method", "task", "n", "success", "ci_low", "ci_high"])
+
+
+def paired_table(df: pd.DataFrame, reference: str, seed: int = 0) -> pd.DataFrame:
+    """`paired_comparison` of every other method against `reference` (method minus reference)."""
+    rows = []
+    for method in df["method"].unique():
+        if method == reference:
+            continue
+        r = paired_comparison(df, method, reference, seed=seed)
+        rows.append((method, r.diff, r.low, r.high, r.only_a, r.only_b, r.p_value, r.n_pairs))
+    columns = ["method", "diff", "ci_low", "ci_high", "only_method", "only_reference", "p_value"]
+    return pd.DataFrame(rows, columns=[*columns, "n_pairs"])
