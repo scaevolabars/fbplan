@@ -17,6 +17,27 @@
   - Ground truth: `true_successor_measure(z)`, `policy(z)`, `reward_of_latent(z)`, `task_reward(k)`.
 - `fbplan/tabular/env.py`: `TabularMazeEnv` (OGBench-like reset/step/success) and `rollout(...)`.
 - Tests: `tests/test_tabular_{maze,mdp,fake_fb,env}.py`, 43 pass.
+- `fbplan/tabular/options.py` + `tests/test_tabular_theory.py` (19 checks, medium and teleport):
+  Lemma B.1, `R` = reward before the hit, Theorem 1 at the measure level, the chained formula
+  (4 hops), and "k sweeps of graph VI = best chain of ≤ k switches" all hold to 1e-8 against
+  ground truth built from definitions. Exact planning cannot beat the optimal direct value.
+
+## Findings on design.md §3 (stop point: waiting for the user)
+
+The formulas are correct for exact quantities. Extra conditions found:
+
+1. Graph Bellman equation: the max must exclude `w = u`. A self-loop has `ρ = 1`, `R = 0`, so
+   any `V(u)` above the other terms solves the equation (shown numerically: VI from a high start
+   stays +1000). Without self-loops the operator is a γ-contraction because `ρ(u,w) ≤ γ` for `u ≠ w`.
+2. Consequence for c-planner: clip `ρ̂` to `[0, γ]` for distinct landmarks, not `[0, 1]`.
+   With `ρ̂ = 1` cycles and `R̂ ≥ hop cost`, value iteration has no unique fixed point.
+3. Re-planning at every step (option interruption, Sutton–Precup–Singh 1999) is never worse than
+   committing to `w*` until it is reached, with exact values. It is strictly better at 7/26 states
+   (medium) and 20/45 (teleport) in the test. "Keep `w*`" is a defence against noise, not a
+   consequence of the theory.
+4. Expected assumptions, to be written in theory.md: option policies must be Markov (fixed `z_w`;
+   the last policy can be any); continuous states make the chain approximate (entry point on the
+   ball ≠ `w`, error per hop).
 
 ## Usage for c-planner
 
@@ -34,7 +55,7 @@ First observations (5 tasks × 4 seeds, 200 steps): exact → direct and `π_h` 
 
 ## Next
 
-- Theory: derivation of the chained formula and the graph Bellman equation; numeric tests.
+- `docs/theory.md`: the derivation with the conditions above.
 - Study: single switch vs. chained planning under noise and low rank.
 
 ## Blockers
@@ -44,3 +65,4 @@ First observations (5 tasks × 4 seeds, 200 steps): exact → direct and `π_h` 
 ## Requests to the coordinator
 
 - Please merge `b-theory` into `main` now, so c-planner can use `fbplan/tabular/fake_fb.py`.
+- After the user decides: update design.md §3 for findings 1–3 above.
