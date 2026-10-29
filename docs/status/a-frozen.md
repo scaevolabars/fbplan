@@ -34,6 +34,18 @@ Last update: 2026-10-29.
   precision. Checked on CPU: inside the context, `_forward`, `_low_action` and upstream
   `sample_actions` compile with `HIGHEST` (default: `DEFAULT`), and the jit cache compiles a new
   entry. CPU ignores the setting, so the GPU failure does not reproduce here.
+- Merged `main` (386b4e5: f-report, g-release, rules "no remote, no push" and "at most 4 eval
+  workers") into `a-frozen`: fast-forward.
+- Item 7, code: `download_trained(key, target=None)` downloads one trained checkpoint from the
+  GitHub releases of github.com/scaevolabars/fbplan, idempotent, sha256 pinned per file in
+  `_TRAINED_FILES` (empty until the first upload). `key` is the folder below `~/.cache/fbplan`,
+  for example `baselines/medium/seed0`; the asset name is the key with `-` for `/`, then `-` and
+  the file name. `uv run python -m fbplan.frozen --trained` also gets every published one.
+  `download_checkpoint` and `download_trained` share one fetch loop. Each download now writes its
+  own `.part` file, so parallel eval workers that download one missing file do not mix their
+  bytes (test). 8 new tests, 36 in `tests/test_frozen.py`; 284 tests pass.
+- Item 7, release files: prepared, not uploaded (see "Trained checkpoints").
+- Item 9, clean-clone check: done (see "Clean-clone check").
 - Sanity check (step 6): done. The result is below the paper; see below.
 
 ## Sanity check
@@ -84,6 +96,80 @@ Causes that are still possible: the checkpoint of training seed 0 is weaker than
 over 5 seeds; the paper used an eval protocol that differs from upstream `main.py`; a semantic
 change in the JAX stack (unlikely: `pi_h` and `pi_l` use only Dense, tanh and gelu layers).
 e-learner's retrained `pi_h` seeds will show if the `pi_h` training seed explains the gap.
+
+## Trained checkpoints (item 7)
+
+Present on this Mac only: `~/.cache/fbplan/baselines/medium/seed{0..4}/` (`params.pkl` 18.3 MB,
+`flags.json`). `~/.cache/fbplan/approach_b/` does not exist yet.
+
+**Content of a baseline `params.pkl`** (full upstream agent state, 18.3 MB):
+
+| part | MB | trained? |
+|---|---|---|
+| `modules_high_actor` (`pi_h`) | 2.69 | yes |
+| `opt_state` (Adam state of `pi_h`) | 5.37 | yes, needed only to resume training |
+| `modules_forward_repr`, `modules_backward_repr`, `modules_actor` | 10.25 | no: equal to the provided checkpoint, bit for bit |
+
+**Proposal (needs e-learner's agreement through the user): publish only the trained modules.**
+A file `high_actor.pkl` with the `modules_high_actor` params (2.7 MB, -85 %); for approach B also
+`value.pkl` (already modules only). The loader takes F, B and `pi_l` from `load_model(env)` and
+replaces only `pi_h`, so the frozen modules cannot differ, and the check in
+`load_retrained_model` becomes unnecessary. Reasons: a reviewer downloads about 135 MB instead of
+about 900 MB for about 50 checkpoints (baselines and B variants, 5 seeds); the release does not
+copy the authors' F, B and `pi_l` again. Cost: e-learner changes `save_checkpoint` and
+`load_retrained_model` and exports the 5 medium files once; no optimizer state, so a published
+run cannot be resumed (no step needs that).
+
+**Prepared release** (scratchpad of this session, not in the repo): tag `baselines-medium-v1` on
+public commit `e5d66d7`, 10 assets (5 × `params.pkl`, 5 × `flags.json`, 92 MB), notes with the
+sha256 table. Checks before upload:
+- Pickles: every text value in the pickle stream is a key or a numpy class name
+  (`numpy._core.multiarray._reconstruct`, `ndarray`, `dtype`); no path, no name.
+- `flags.json`: two items. `retrained_high_actor.from` is `/root/.cache/fbplan/checkpoints/medium`
+  (the GPU instance; no user name). `retrained_high_actor.commit` is the local commit `9557a55`; in
+  the public repo it is `e5d66d7` (from `~/.cache/fbplan/publish/commit-map`). The notes record
+  both hashes.
+- Notes: no match for the private-data patterns of `publish.sh` plus `/root/`, `/home/`, the
+  user name, `vast`, `token`, `@`.
+
+The upload waits for the user's decision on the format. After the upload: pin the hashes in
+`_TRAINED_FILES`, download each asset into an empty folder to check it, commit.
+
+## Clean-clone check (item 9)
+
+2026-10-29, public `main` at `ebff808` (= local `386b4e5`). Clone with submodules into the
+scratchpad; a new empty `HOME`, so no `~/.cache/fbplan` and no `~/.ogbench`. The uv package cache
+and the uv Python installs of this Mac stay, so no package download over 1 GB.
+
+| README step | result | time |
+|---|---|---|
+| `git clone --recurse-submodules ...` | OK, submodule at `22c938a` | 23 s |
+| `uv sync` | OK, 76 packages (from the cache), Homebrew Python 3.11 | 3 s |
+| `uv run python -m fbplan.frozen` | OK, 4 checkpoints, 72 MB from Google Drive | 87 s |
+| `uv run pytest` | OK: 261 passed, **16 skipped** | 121 s |
+| `fbplan.evaluate --method baseline`, 1 seed, 2 episodes, 2 workers | OK, 8 of 10 successes | 167 s (33 s episodes) |
+| `devbox run setup` | **did not finish in 400 s**: Nix download of uv 0.13.5 from cache.nixos.org stalled | - |
+
+Gaps for g-release (`README.md`, `devbox.json`):
+
+1. The evaluation commands use `--workers 10`; design §7 now allows at most 4. The time "about
+   1-2 min per method on medium with 10 workers" does not match this Mac: 228 env steps/s per
+   worker and about 500 steps per episode give about 11 min for 1250 episodes with 4 workers
+   (estimate; measured on 10 episodes).
+2. `uv run pytest` on a new machine skips 16 tests: 15 need the medium val split (24 MB), 1 the
+   medium train split (243 MB). OGBench files download only on first use; after the first
+   evaluation the same run gives 276 passed, 1 skipped. Fix: a data step before the tests, or a
+   sentence that these tests skip. (a-frozen can add a `--datasets` flag to `fbplan.frozen` if
+   g-release wants one.)
+3. No download step for the trained checkpoints. Without a GPU, a reviewer cannot evaluate the
+   retrained baselines or approach B. Fix after the release: `uv run python -m fbplan.frozen
+   --trained` in the setup.
+4. `devbox.json` asks for `uv@latest` and the repo has no `devbox.lock`, so devbox installs a
+   different uv on each day (0.13.5 today). Fix: pin the uv version and commit `devbox.lock`.
+   The Nix stall can be a network problem of this Mac; the uv path works.
+5. The evaluation commands write to the committed `results/medium/*.csv`. A reviewer who follows
+   the README overwrites them. If that is the intent (compare with `git diff`), say so; else use
+   `runs/`.
 
 ## Stack decision (design.md §8)
 
@@ -137,7 +223,8 @@ fails if the physics drift again.
 
 ## Next
 
-- a-frozen is done. The coordinator can merge `a-frozen` into `main` again.
+- Item 7: after the user's decision on the format, upload the release (user approval), pin the
+  hashes, check the download, commit. Then the same for the approach B checkpoints.
 - Download the train splits of large, giant, teleport (240 MB each) when c-planner or e-learner
   need them.
 
@@ -147,6 +234,22 @@ fails if the physics drift again.
 
 ## Requests to the coordinator
 
+- For e-learner (item 7): `load_baseline_model` and `load_b_model` should call
+  `frozen.download_trained(key, folder)` when a file is missing, with the key that matches the
+  folder below `~/.cache/fbplan`:
+  ```python
+  ckpt_dir = baseline_dir(env_name, seed)
+  if not (ckpt_dir / "params.pkl").exists():
+      frozen.download_trained(f"baselines/{env_name.split('-')[1]}/seed{seed}", ckpt_dir)
+  ```
+  (for B: `f"approach_b/{maze}/{variant}/seed{seed}"`). A key that is not published raises
+  `ValueError` with the list of published keys.
+- For e-learner (item 7), through the user: the file format proposal under "Trained checkpoints".
+- For e-learner: record portable values in `flags.json`. `retrained_high_actor.from` and
+  `approach_b.value_dir` hold absolute paths of the training machine (`/root/...` on the GPU,
+  the home folder with the user name on the Mac). A path relative to `~/.cache/fbplan`, for example
+  `checkpoints/medium`, says the same and holds no user name.
+- For g-release: the 5 gaps under "Clean-clone check".
 - Open: the baseline definition. Does `pi_h` get the raw `z_r` (exact upstream) or the normalized
   one (contract, current)? On large, the normalized `z_r` scores 14 points higher (one seed).
   This waits for the user's decision.
