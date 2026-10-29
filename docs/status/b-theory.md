@@ -22,8 +22,9 @@
   (4 hops), and "k sweeps of graph VI = best chain of ≤ k switches" all hold to 1e-8 against
   ground truth built from definitions. Exact planning cannot beat the optimal direct value.
 
-## Findings on design.md §3 (stop point: waiting for the user)
+## Findings on design.md §3
 
+User decision (2026-10-29): propose the changes to the coordinator, continue the work.
 The formulas are correct for exact quantities. Extra conditions found:
 
 1. Graph Bellman equation: the max must exclude `w = u`. A self-loop has `ρ = 1`, `R = 0`, so
@@ -65,4 +66,14 @@ First observations (5 tasks × 4 seeds, 200 steps): exact → direct and `π_h` 
 ## Requests to the coordinator
 
 - Please merge `b-theory` into `main` now, so c-planner can use `fbplan/tabular/fake_fb.py`.
-- After the user decides: update design.md §3 for findings 1–3 above.
+- Proposed design.md §3 edits (findings 1–3), approved by the user as a proposal:
+  - Graph Bellman: `max_{w∈L, w≠u, edge (u,w) trusted}`. Add: "For u ≠ w, ρ(u,w) = E[γ^H] ≤ γ
+    because H ≥ 1, so value iteration is a γ-contraction with a unique fixed point. A self-loop
+    (ρ = 1, R = 0) makes every larger V(u) a fixed point. Clip ρ̂ to [0, γ] for u ≠ w."
+  - §4.A: "keep w* until it is reached" → "commit to w* until reached, or re-plan every step
+    (config switch). With exact values re-planning is never worse (option interruption,
+    Sutton–Precup–Singh 1999); commitment guards against noisy values."
+  - §3, new line: "The chain formula assumes exact hitting of w and Markov option policies
+    (fixed z_w). In continuous states the option ends on a ball around w and the next option
+    starts at the entry point, so the formula is approximate (error bound in docs/theory.md)."
+  - c-planner brief: clip ρ to [0, γ] (not [0, 1]) for distinct landmarks.
