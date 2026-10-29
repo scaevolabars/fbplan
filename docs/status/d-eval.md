@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-30, 02:45. Branch merged with `main` at 3e36461.
+Last update: 2026-10-30, 03:00. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -404,6 +404,12 @@ paired on the same episodes.
   significant: by the fixed table (+1 to +3 pp, not significant) H1's held-out check comes first.
 - The oracle trades tasks: it loses task 3 (54.2 against 75.0 %) and wins tasks 2, 4 and 5
   (+7 to +10 points each).
+- Decision (coordinator, 02:55): H1's held-out check next (design.md §8 'H1 on large'). Waiting
+  for c-planner's commands: the 6-config grid on the large held-out goals, the oracle and
+  baseline on the same held-out episodes, then (if the check passes) the selected config on eval
+  seeds 0–9. All of these will run from the branch tree, updated with c-planner's H1 code: it
+  holds the current large goal file (flip rule; md5 equal to main), while the instance's main
+  tree (84a8127) still holds the old one and must not be used for large held-out runs.
 
 ## AWR sharpness at 2× (design.md §8; Linux, medium, 5 eval seeds, 1,250 episodes per run)
 
