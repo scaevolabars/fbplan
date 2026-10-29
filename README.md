@@ -60,6 +60,14 @@ scripts/reproduce.sh train         # retrain pi_h and approach B (Linux with a G
 | `tables` | success with 95 % CIs, paired tests against the baseline, failure classes; `analysis/report_figures.py` (time to goal, report §8.4) | `results/<maze>/tables.md`, `docs/figures/report/` |
 | `figures` | success, FB calibration and wormholes, held-out goals, planner routes; the tabular study | `results/figures/`, `results/calibration/`, `docs/figures/theory/` |
 
+**Platform.** The canonical evaluation CSVs in `results/<env>/` come from Linux x86_64 on CPU
+(`JAX_PLATFORMS=cpu`; the script sets it for every stage except training). `results/macos/`
+holds the same runs on macOS arm64 as a cross-platform check. The MuJoCo dynamics of the ant
+are chaotic: a tiny floating-point difference changes an episode. So on another platform, or
+on a GPU (which multiplies float32 in TF32), the same seeds give different episodes, but
+success rates that agree within noise. The calibration and held-out goal files do not depend
+on MuJoCo.
+
 The eval stage writes the committed CSVs in `results/`, so `git diff` shows any change.
 One 5-seed run on medium (1,250 episodes) takes about 11 min with 4 workers on a 12-core
 laptop; the runs with region latents take about twice as long. The whole eval stage (25 runs
@@ -67,9 +75,9 @@ and the parity check) takes about 4 h (estimate from these run times). `--worker
 number of evaluation processes (default 4). `--smoke` uses medium only, the first run of each
 result group, one eval seed, two episodes per task and 10 training steps; it writes to
 `runs/smoke/` and leaves `results/`, `docs/figures/` and the trained models unchanged. It also
-prints how many of its episodes equal the committed ones: resets are seeded, so on the
-platform of the committed CSVs all of them do. With devbox: `devbox run reproduce` and
-`devbox run smoke`.
+prints how many of its episodes equal the committed ones (on a Mac those in `results/macos/`):
+resets are seeded, so on the platform of the reference all of them do. With devbox:
+`devbox run reproduce` and `devbox run smoke`.
 
 **Single runs.** One evaluation (all methods use this loop); `--out runs/...` keeps the
 committed CSVs unchanged:
