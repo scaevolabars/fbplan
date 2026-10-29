@@ -283,6 +283,53 @@ def summary_table(df: pd.DataFrame, cluster: str | None = None, seed: int = 0) -
     return pd.DataFrame(rows, columns=["method", "task", "n", "success", "ci_low", "ci_high"])
 
 
+def pooled_paired_comparison(
+    df: pd.DataFrame,
+    method_a: str,
+    method_b: str,
+    cluster: str,
+    n_boot: int = 10_000,
+    level: float = 0.95,
+    seed: int = 0,
+) -> Estimate:
+    """Success of a minus b on the same episodes, each pooled over its clusters.
+
+    A cluster is, for example, one training seed (cluster="checkpoint_seed"); every cluster of a
+    method must cover the same episodes. Per episode, each method's success is the mean over its
+    clusters. The bootstrap resamples the clusters of a and of b independently and the episodes
+    within each task (shared by a and b, so the pairing stays), so the CI includes the
+    variance between training seeds. A method with one cluster is a single run.
+    """
+    a, b = (_cluster_matrix(df[df["method"] == m], cluster) for m in (method_a, method_b))
+    if not a.index.equals(b.index):
+        raise ValueError(f"episodes of {method_a!r} and {method_b!r} do not pair")
+    rng = np.random.default_rng(seed)
+    x_a, x_b = a.to_numpy(float), b.to_numpy(float)
+    weights = [
+        rng.multinomial(x.shape[1], np.full(x.shape[1], 1 / x.shape[1]), size=n_boot) / x.shape[1]
+        for x in (x_a, x_b)
+    ]
+    diffs = x_a @ weights[0].T - x_b @ weights[1].T  # [episodes, n_boot]
+    point = x_a.mean(axis=1) - x_b.mean(axis=1)
+    tasks = a.index.droplevel([k for k in EPISODE_KEY if k not in STRATA])
+    means, draws = [], np.zeros(n_boot)
+    for task in tasks.unique():
+        rows = np.flatnonzero(tasks == task)
+        means.append(point[rows].mean())
+        counts = rng.multinomial(len(rows), np.full(len(rows), 1 / len(rows)), size=n_boot)
+        draws += (counts * diffs[rows].T).sum(axis=1) / len(rows)
+    draws /= len(means)
+    return Estimate(float(np.mean(means)), *_quantiles(draws, level), n=len(point))
+
+
+def _cluster_matrix(df: pd.DataFrame, cluster: str) -> pd.DataFrame:
+    """Success [episodes, clusters] of one method, rows sorted by EPISODE_KEY."""
+    matrix = df.pivot_table(index=EPISODE_KEY, columns=cluster, values="success", aggfunc="mean")
+    if matrix.isna().any().any() or df.duplicated([*EPISODE_KEY, cluster]).any():
+        raise ValueError(f"each {cluster} must cover the same episodes once")
+    return matrix.sort_index()
+
+
 def paired_table(df: pd.DataFrame, reference: str, seed: int = 0) -> pd.DataFrame:
     """`paired_comparison` of every other method against `reference` (method minus reference)."""
     rows = []
