@@ -44,6 +44,12 @@ from fbplan.learned.sampling import (
 )
 
 
+def baseline_dir(env_name: str, seed: int) -> Path:
+    """Folder of a retrained pi_h. tests/test_evaluate.py calls it from here (until it switches
+    to fbplan.learned.checkpoint.trained_dir)."""
+    return trained_dir("baselines", env_name, seed)
+
+
 @partial(jax.jit, static_argnames=("n_steps", "spec"))
 def train_chunk(
     agent: Agent, data: TrajectoryData, key: jax.Array, n_steps: int, spec: HighBatchSpec
