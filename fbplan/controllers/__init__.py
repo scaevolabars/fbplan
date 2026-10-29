@@ -18,6 +18,8 @@ ALIASES = {
     "baseline": "fbplan.controllers.baseline:BaselineController",
     "nonhier": "fbplan.controllers.baseline:NonHierController",
     "oracle": "fbplan.controllers.oracle:make_oracle",
+    "planner": "fbplan.controllers.planner:make_planner",
+    "planner_high": "fbplan.controllers.planner:make_planner_high",
 }
 
 

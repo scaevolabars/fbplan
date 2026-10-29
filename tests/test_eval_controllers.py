@@ -11,6 +11,7 @@ from fbplan.controllers.oracle import (
     OracleWaypointController,
     make_oracle,
     nearest_observations,
+    region_latents,
 )
 
 MEDIUM_MAP = np.array([
@@ -114,7 +115,8 @@ def _dataset_at_cell_centres() -> np.ndarray:
 def test_oracle_targets_the_waypoint_lookahead_cells_ahead_on_the_shortest_path(lookahead):
     model = _FakeFB()
     oracle = OracleWaypointController(
-        model, MEDIUM, _dataset_at_cell_centres(), OracleConfig(lookahead=lookahead)
+        model, MEDIUM, _dataset_at_cell_centres(),
+        OracleConfig(lookahead=lookahead, waypoint="state"),
     )
     oracle.reset(_task(MEDIUM.centre((6, 6))), seed=0)
     oracle.act(_obs_at(MEDIUM.centre((1, 1)) + [0.5, -0.5]))
@@ -126,7 +128,7 @@ def test_oracle_targets_the_waypoint_lookahead_cells_ahead_on_the_shortest_path(
 def test_oracle_lookahead_stops_at_the_goal_cell():
     model = _FakeFB()
     oracle = OracleWaypointController(
-        model, MEDIUM, _dataset_at_cell_centres(), OracleConfig(lookahead=5)
+        model, MEDIUM, _dataset_at_cell_centres(), OracleConfig(lookahead=5, waypoint="state")
     )
     oracle.reset(_task(MEDIUM.centre((6, 6))), seed=0)
     oracle.act(_obs_at(MEDIUM.centre((5, 6))))
@@ -165,3 +167,28 @@ def test_geodesic_distances_are_symmetric_and_bounded_by_cell_paths():
                            for c in MEDIUM.free_cells()])
     assert np.all(dist >= euclid - 1e-9)
     assert np.all(dist <= MEDIUM.unit * cell_steps + 1e-9)
+
+
+def test_region_latents_average_b_over_states_within_the_radius():
+    obs = np.stack([_obs_at(xy) for xy in ([0.2, 0.0], [-0.2, 0.4], [3.0, 3.0], [8.0, 0.1])])
+    latents = region_latents(_FakeFB(), obs, np.array([[0.0, 0.0], [8.0, 0.0]]), radius=1.0)
+    np.testing.assert_allclose(latents[:, :2], [[0.0, 0.2], [8.0, 0.1]])
+
+
+def test_region_latents_reject_a_region_without_states():
+    with pytest.raises(ValueError, match="no dataset state"):
+        region_latents(_FakeFB(), _obs_at([0.0, 0.0])[None], np.array([[5.0, 5.0]]), radius=1.0)
+
+
+def test_region_oracle_uses_the_mean_latent_of_the_target_cell():
+    centre = MEDIUM.centre((2, 1))
+    extra = np.stack([_obs_at(centre + d) for d in ([0.6, 0.0], [-0.2, 0.0])])
+    model = _FakeFB()
+    oracle = OracleWaypointController(
+        model, MEDIUM, np.concatenate([_dataset_at_cell_centres(), extra]),
+        OracleConfig(lookahead=1, waypoint="region", radius=1.0),
+    )
+    oracle.reset(_task(MEDIUM.centre((6, 6))), seed=0)
+    oracle.act(_obs_at(MEDIUM.centre((1, 1))))
+    expected = np.mean([centre + 0.1, centre + [0.6, 0.0], centre + [-0.2, 0.0]], axis=0)
+    np.testing.assert_allclose(model.low_latents[-1][:2], expected)

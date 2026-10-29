@@ -1,15 +1,23 @@
 """Privileged oracle-waypoint controller and the maze geometry it uses.
 
 The oracle knows the true maze map and the goal position. It follows the shortest cell path
-to the goal and gives pi_l the intention z = B(w) of a waypoint w a few cells ahead.
+to the goal and gives pi_l the intention of a waypoint a few cells ahead.
 Its success rate estimates the best that a high-level method can get with this frozen pi_l.
 It is a diagnostic, not a method: label it privileged in every table.
+
+Waypoint intentions: "state" is B(w) of the one dataset state w nearest to the cell centre;
+"region" is the mean of B(s) over the dataset states near the centre, the way upstream builds
+the task latent z_r. "state" is far weaker: B(w) carries the pose and the velocity of w, and
+pi_l chases them (medium, eval seed 0, 250 episodes, lookahead 1/2/3: state 48/58/66 %,
+region with radius 0.5: 79/87/82 %). Defaults: region, radius 0.5 (the goal radius of the
+task reward that defines z_r), lookahead 2.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import cached_property
+from typing import Literal
 
 import gymnasium as gym
 import numpy as np
@@ -170,14 +178,46 @@ def nearest_observations(observations: np.ndarray, points_xy: np.ndarray) -> np.
     return observations[idx]
 
 
+def region_latents(
+    model: FBModel,
+    observations: np.ndarray,
+    centres_xy: np.ndarray,
+    radius: float,
+    batch_size: int = 8192,
+) -> np.ndarray:
+    """[C, d] mean B(s) over the dataset states within `radius` (in xy) of each centre."""
+    b = np.concatenate([
+        np.asarray(model.backward(observations[i : i + batch_size]))
+        for i in range(0, len(observations), batch_size)
+    ])
+    latents = []
+    for centre in centres_xy:
+        near = np.linalg.norm(observations[:, :2] - centre, axis=1) <= radius
+        if not near.any():
+            raise ValueError(f"no dataset state within {radius} of {centre}")
+        latents.append(b[near].mean(axis=0))
+    return np.stack(latents)
+
+
 @dataclass(frozen=True)
 class OracleConfig:
-    lookahead: int = 1  # the waypoint is this many cells ahead on the shortest path
+    """lookahead: the waypoint is this many cells ahead on the shortest path.
+    waypoint: "region" or "state" (see the module docstring).
+    radius: xy radius of a region waypoint.
+    """
+
+    lookahead: int = 2
+    waypoint: Literal["region", "state"] = "region"
+    radius: float = 0.5
+
+    def __post_init__(self) -> None:
+        if self.waypoint not in ("region", "state"):
+            raise ValueError(f"unknown waypoint kind {self.waypoint!r}")
 
 
 class OracleWaypointController:
-    """Privileged: pi_l(a | s, B(w)), w = dataset state nearest to the centre of the cell
-    `lookahead` moves ahead on the true shortest path to the goal."""
+    """Privileged: pi_l(a | s, z) with z the waypoint intention of the cell `lookahead` moves
+    ahead on the true shortest path to the goal."""
 
     name = "oracle"
 
@@ -192,8 +232,11 @@ class OracleWaypointController:
         self._model = model
         self._maze = maze
         cells = maze.free_cells()
-        waypoints = nearest_observations(dataset_obs, np.stack([maze.centre(c) for c in cells]))
-        latents = np.asarray(model.backward(waypoints))
+        centres = np.stack([maze.centre(c) for c in cells])
+        if self.config.waypoint == "region":
+            latents = region_latents(model, dataset_obs, centres, self.config.radius)
+        else:
+            latents = np.asarray(model.backward(nearest_observations(dataset_obs, centres)))
         self._latents = dict(zip(cells, latents, strict=True))
         self._steps = np.zeros_like(maze.maze_map)
         self._target: Cell = cells[0]

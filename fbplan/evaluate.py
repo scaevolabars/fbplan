@@ -11,6 +11,10 @@ CLI (writes one CSV of EpisodeRecords, prints the success table and the throughp
 
     uv run python -m fbplan.evaluate --method baseline --env antmaze-medium-navigate-v0 \
         --tasks 1 2 3 4 5 --seeds 0 --episodes 50 --workers 8 [--opt key=value ...]
+
+With many workers on one CPU, `XLA_FLAGS="--xla_cpu_multi_thread_eigen=false
+intra_op_parallelism_threads=1"` gives each worker one XLA thread (about +15 % steps/s with
+10 workers on a 12-core Mac; the results do not change).
 """
 
 from __future__ import annotations
