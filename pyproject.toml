@@ -18,6 +18,7 @@ dependencies = [
     "matplotlib>=3.10.7",
     "pandas",
     "tqdm",
+    "mujoco==3.1.6",
 ]
 
 [dependency-groups]
