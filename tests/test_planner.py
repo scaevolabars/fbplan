@@ -16,9 +16,11 @@ from fbplan.option_model import OptionModelConfig
 
 START, GOAL = (1, 4), (5, 4)  # the two bottom ends of the U maze, 10 steps apart
 # With horizon 4, edges are trusted up to 4 steps (gamma^4 = 0.656); a waypoint counts as
-# reached only on its own cell (adjacent cells have rho = 0.9). A small cost per hop makes
-# the route take as few hops as it can, so it is unique.
-HORIZON_CFG = PlannerConfig(rho_min=0.65, rho_reached=0.95, hop_discount=0.99, commit_timeout=20)
+# reached only on its own cell (cells are 1 xy unit apart). A small cost per hop makes the
+# route take as few hops as it can, so it is unique.
+HORIZON_CFG = PlannerConfig(rho_min=0.65, reached_xy=0.5, hop_discount=0.99, commit_timeout=20)
+# The same with the rho rule: only the waypoint's own cell has rho >= 0.95 (neighbours: 0.9).
+RHO_RULE_CFG = replace(HORIZON_CFG, reached_xy=None, rho_reached=0.95)
 
 
 def task(fb: GridFB, task_id: int = 1) -> TaskSpec:
@@ -96,12 +98,25 @@ def test_planner_reaches_a_goal_beyond_the_horizon_through_waypoints():
     assert len({w for w in waypoints if w >= 0}) == 2
 
 
-def test_waypoint_is_kept_until_it_is_reached():
+@pytest.mark.parametrize("cfg", [HORIZON_CFG, RHO_RULE_CFG], ids=["xy_rule", "rho_rule"])
+def test_waypoint_is_kept_until_it_is_reached(cfg):
     fb = GridFB(horizon=4)
-    cells, waypoints = rollout(fb, planner(fb), steps=10)
+    cells, waypoints = rollout(fb, planner(fb, cfg), steps=10)
+    assert GOAL in cells
     for t in range(1, len(waypoints)):
         if waypoints[t] != waypoints[t - 1]:
             assert cells[t] == fb.cells[waypoints[t - 1]]
+
+
+def test_xy_rule_ends_a_waypoint_within_the_radius():
+    fb = GridFB(horizon=4)
+    cells, waypoints = rollout(fb, planner(fb, replace(HORIZON_CFG, reached_xy=1.0)), steps=14)
+    assert GOAL in cells
+    switches = [t for t in range(1, len(waypoints)) if waypoints[t] != waypoints[t - 1]]
+    assert switches
+    for t in switches:
+        gap = np.subtract(cells[t], fb.cells[waypoints[t - 1]])
+        assert 0 < np.linalg.norm(gap) <= 1.0  # one cell before the waypoint
 
 
 def test_waypoint_is_dropped_after_the_timeout():
@@ -111,13 +126,18 @@ def test_waypoint_is_dropped_after_the_timeout():
     assert ctrl.step_info()["replans"] == 3  # at steps 0, 3 and 6
 
 
-def test_a_reached_landmark_is_not_chosen_again():
-    # Without a hop cost, the landmark under the agent has Q = 1 * V_H = the best Q, so only
-    # the exclusion stops the planner from choosing the landmark it already stands on.
+@pytest.mark.parametrize(
+    "rule", [{"reached_xy": 1.0}, {"reached_xy": None, "rho_reached": 0.85}], ids=["xy", "rho"]
+)
+def test_reached_landmarks_are_not_chosen_again(rule):
+    # Both rules make the neighbours of (2, 1) count as reached (1 xy unit away, rho = 0.9).
+    # Without a hop cost every landmark on the shortest path ties, (3, 1) has the lowest index
+    # among them, and only the exclusion stops the planner from choosing a reached landmark,
+    # which would stall the agent. (2, 1) itself has rho = 1 and is not a trusted edge anyway.
     fb = GridFB(horizon=4)
-    ctrl = planner(fb, replace(HORIZON_CFG, hop_discount=1.0))
+    ctrl = planner(fb, replace(HORIZON_CFG, hop_discount=1.0, **rule))
     ctrl.act(fb.obs((2, 1)))
-    assert fb.cells[ctrl.step_info()["waypoint"]] != (2, 1)
+    assert fb.cells[ctrl.step_info()["waypoint"]] not in {(1, 1), (2, 1), (3, 1)}
 
 
 def test_without_a_trusted_edge_the_task_policy_acts():
@@ -209,9 +229,9 @@ def test_xy_cap_applies_to_the_first_hop():
     assert np.linalg.norm(waypoint - fb.obs(START)) <= 1.0
 
 
-# FB says the cell next to the goal is close to START (rho 0.85, below rho_reached = 0.9);
-# the way back is gamma^9 = 0.39. A wormhole to GOAL itself would also raise the direct
-# value, since z_r targets GOAL.
+# FB says the cell next to the goal is close to START (rho 0.85); the way back is
+# gamma^9 = 0.39. A wormhole to GOAL itself would also raise the direct value, since z_r
+# targets GOAL.
 NEAR_GOAL = (5, 3)
 ONE_WAY = {(h, START, NEAR_GOAL): 0.85 for h in (0, 1)}
 
@@ -235,10 +255,10 @@ def test_two_way_consistency_applies_to_the_first_hop():
 
 
 def test_reached_landmarks_do_not_use_top_k_slots():
-    # top_k = 2 keeps the two corridor neighbours of every cell. With rho_reached = 0.85 the
-    # neighbours of (2, 1) (rho 0.9) count as reached. If they took the two slots before their
-    # exclusion, no edge would be left; the next cells towards the goal must get the slots.
+    # top_k = 2 keeps the two corridor neighbours of every cell. With reached_xy = 1 the
+    # neighbours of (2, 1) (rho 0.9, the largest) count as reached. If they took the two slots
+    # before their exclusion, no edge would be left; the next cells must get the slots.
     fb = GridFB(horizon=4)
-    ctrl = planner(fb, replace(HORIZON_CFG, top_k=2, rho_reached=0.85))
+    ctrl = planner(fb, replace(HORIZON_CFG, top_k=2, reached_xy=1.0))
     ctrl.act(fb.obs((2, 1)))
     assert fb.cells[ctrl.step_info()["waypoint"]] == (4, 1)

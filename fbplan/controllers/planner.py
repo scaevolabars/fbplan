@@ -5,8 +5,8 @@ Once per env: the rho table between landmarks. Once per task: V_H by value itera
 Q(s, w) = R(s, w) + hop_discount * rho(s, w) * V_H(w) over trusted edges, and the best one
 becomes the waypoint w*, unless the task policy has a higher value F(s, z_r)^T z_r.
 Edges from landmarks and from s follow the same trust rules (see PlannerConfig).
-The controller keeps w* until FB says it is reached (rho(s, w*) >= rho_reached) or until
-a timeout, and acts with pi_l(a | s, B(w*)) (or pi_l(a | s, z_r) on the task policy).
+The controller keeps w* until it is reached (see PlannerConfig.reached_xy) or until a
+timeout, and acts with pi_l(a | s, B(w*)) (or pi_l(a | s, z_r) on the task policy).
 """
 
 from __future__ import annotations
@@ -45,7 +45,12 @@ class PlannerConfig:
         (dynamics in the maze are nearly reversible; FB errors often are not).
     top_k: keep at most top_k trusted out-edges per source (None: no limit).
     hop_discount: factor on rho per hop; below 1 it is a cost per hop.
-    rho_reached: the waypoint is reached when rho(s, w*) >= rho_reached.
+    reached_xy: the waypoint is reached when the agent is within reached_xy xy units of it.
+        None: use rho(s, w*) >= rho_reached instead. The xy rule is the default because on
+        medium FB rho near a waypoint peaks at 0.88-0.90 (within 0.5 xy units) and passes
+        0.9 elsewhere about 2.3 units away; in a 30-episode probe the planner succeeded in
+        23/30 episodes with the xy rule and 10/30 with the rho rule.
+    rho_reached: threshold of the rho rule.
     commit_timeout: replan after this many steps on one waypoint or on the task policy.
     """
 
@@ -57,6 +62,7 @@ class PlannerConfig:
     two_way: bool = False
     top_k: int | None = None
     hop_discount: float = 1.0
+    reached_xy: float | None = 1.5
     rho_reached: float = 0.9
     commit_timeout: int = 100
     vi_max_iters: int = 1000
@@ -172,9 +178,19 @@ class GraphPlannerController:
             return True
         if self._waypoint == DIRECT:
             return False
-        waypoint = self.targets.take(np.array([self._waypoint]))
-        self._rho_waypoint = float(self.options.pair_table(obs[None], waypoint).rho[0, 0])
-        return self._rho_waypoint >= self.config.rho_reached
+        return bool(self._reached(obs, np.array([self._waypoint]))[0])
+
+    def _reached(
+        self, obs: np.ndarray, idx: np.ndarray, rho: np.ndarray | None = None
+    ) -> np.ndarray:
+        """Which landmarks idx count as reached from obs. The rho rule computes rho(obs, idx)
+        unless it is given."""
+        cfg = self.config
+        if cfg.reached_xy is not None:
+            return np.linalg.norm(self.landmarks[idx, :2] - obs[:2], axis=-1) <= cfg.reached_xy
+        if rho is None:
+            rho = self.options.pair_table(obs[None], self.targets.take(idx)).rho[0]
+        return rho >= cfg.rho_reached
 
     def route(self, obs: np.ndarray) -> list[int]:
         """Landmark ids that the plan visits from obs, in order (diagnostics and plots)."""
@@ -198,7 +214,8 @@ class GraphPlannerController:
         if cfg.two_way:  # rho(w, s) for every landmark w, with s as the target
             back = self.options.pair_table(self.landmarks, self.options.targets(obs[None]))
             rho = np.minimum(rho, back.rho.T)
-        candidates = np.where(row.rho >= cfg.rho_reached, -np.inf, rho)
+        reached = self._reached(obs, np.arange(len(self.landmarks)), row.rho[0])
+        candidates = np.where(reached, -np.inf, rho)
         mask = self._trusted(candidates, obs[None])
         q = q_values(rho, row.reward, plan.solution.values, mask, cfg.hop_discount)[0]
         if q.max() <= self.options.direct_value(obs[None], plan.z_r)[0]:

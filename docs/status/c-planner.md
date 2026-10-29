@@ -22,7 +22,10 @@ Last update: 2026-10-29.
   to the landmark graph and to the first hop from `s`.
   Committed controller on medium (200 landmarks from the validation split, defaults):
   5 routes with 6–11 hops, route end 1.1–3.3 xy units from the goal (mean 2.3), longest hop 5.7.
-- Tests: 61 pass (`uv run pytest`), ruff clean. They run on an exact tabular fake,
+- Reached rule, approved by the user on 2026-10-29: the waypoint is reached within
+  `reached_xy = 1.5` xy units (default); `reached_xy = None` gives the brief's rho rule. The same
+  test excludes reached landmarks at a replan.
+- Tests: 63 pass (`uv run pytest`), ruff clean. They run on an exact tabular fake,
   `tests/planner_fakes.py` (`rho = gamma^distance`; knobs for one-head wormholes and a horizon
   beyond which FB and `pi_z` fail). Closed loop on the fake: the planner reaches a goal 10 steps
   away with 4-step edges via 2 waypoints, where the task policy alone stands still.
@@ -65,13 +68,33 @@ validation split. Scripts are throw-away (not committed). Redo the numbers after
   planner with drop rho >= 1 + xy cap 6 = 6/10, same + pi_h 5/10. The planner replans 12–41 times
   per episode and often runs to 1000 steps: rho_reached = 0.9 and the 100-step timeout need tuning.
 
+- Reached rule (probe, medium, 200 landmarks): within 0.5 xy units of a waypoint, FB rho peaks
+  at 0.88–0.90, so rho >= 0.9 rarely fires there (16 of 90 waypoints timed out); elsewhere it fired
+  a median 2.3 units away.
+- Closed loop with paired start states (global NumPy RNG seeded, as d-eval found), 5 tasks × 6
+  episodes, medium. Too small to rank methods (SE about ±8 %):
+
+  | Method | Success | Median steps |
+  |---|---|---|
+  | baseline pi_h | 22/30 | 482 |
+  | oracle 2 cells ahead + pi_l (privileged, d-eval code) | 17/30 | 738 |
+  | oracle 1 cell ahead + pi_h (privileged, probe variant) | 20/30 | 581 |
+  | planner + pi_l, rho rule 0.9 | 10/30 | 1000 |
+  | planner + pi_l, xy rule 1.5 (probe subclass) | 23/30 | 584 |
+  | planner + pi_l, committed defaults | 20/30 | 714 |
+  | planner + pi_h, committed defaults | 21/30 | 671 |
+
+  The committed controller also uses the xy rule to exclude landmarks at a replan; the probe
+  subclass excluded only landmarks with rho >= 0.9.
+- Wall crossings: with the defaults, 35 of 5466 trusted edges have a maze geodesic length above
+  1.5 × xy length (d-eval's `MazeGeometry.geodesic_distances`).
+
 ## Next
 
-1. Commitment: the probe planner replanned 12–41 times per episode and often hit the time limit.
-   Measure `rho(s, w*)` near a waypoint and tune `rho_reached` and `commit_timeout`.
-2. Route plots on the medium maze (xy) for the 5 tasks; edge count and clip statistics.
+1. Route plots on the medium maze (xy) for the 5 tasks; edge count and clip statistics.
 3. Smoke run: 5 tasks × 10 episodes, planner vs. baseline, with a minimal loop.
-4. After a-frozen merges: redo the numbers with landmarks from the train split.
+4. After a-frozen merges: redo the numbers with landmarks from the train split, and hand the
+   factories to d-eval for a full evaluation (the probe samples are too small to rank methods).
 5. Switch the tests to `fbplan/tabular/fake_fb.py` when b-theory merges it.
 
 ## Blockers
@@ -89,5 +112,8 @@ validation split. Scripts are throw-away (not committed). Redo the numbers after
 - d-eval: please add aliases `planner` -> `fbplan.controllers.planner:make_planner` and
   `planner_high` -> `fbplan.controllers.planner:make_planner_high` to `ALIASES`.
 - Landmark tests are in `tests/test_graph.py`, because my brief lists no `tests/test_landmarks.py`.
+- d-eval / coordinator: in the probe the privileged oracle (waypoint = dataset state nearest to a
+  cell centre, `pi_l(B(w))`) was not an upper bound: 17/30 against 22/30 for the baseline. The
+  report should not call it "the best any high-level method can get" without that caveat.
 - I need a file for the route-plot / edge-stats / smoke-run script. Proposal: `analysis/planner_routes.py`,
   owned by c-planner (d-eval owns the rest of `analysis/`).
