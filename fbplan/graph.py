@@ -38,10 +38,11 @@ def trusted_edges(
 ) -> np.ndarray:
     """Boolean mask of edges with rho_min <= rho < rho_max, then at most top_k per row.
 
-    rho >= 1 is an FB error, not a free hop: for distinct states E[gamma^H] <= gamma < 1.
-    Clipped to 1 and trusted, such edges join far parts of the maze at no cost (wormholes).
-    rho_max > 1 trusts them (an ablation). exclude_diagonal removes self-loops first, so that
-    rho(u, u) = 1 does not use a top-k slot. top_k keeps the largest rho per row.
+    rho is the raw FB estimate, before clipping. rho >= 1 is an FB error, not a free hop: for
+    distinct states E[gamma^H] <= gamma < 1. Trusted, such edges join far parts of the maze at
+    almost no cost (wormholes). rho_max > 1 trusts them (an ablation). exclude_diagonal removes
+    self-loops first, so that rho(u, u) = 1 does not use a top-k slot. top_k keeps the largest
+    rho per row.
     """
     mask = (rho >= rho_min) & (rho < rho_max)
     if exclude_diagonal:

@@ -7,9 +7,13 @@ With z_w = B(w) and per F head h (docs/design.md §3):
     direct_h(s) = F_h(s, z_r)^T z_r                                    value of pi_{z_r}
 
 Each quantity is computed per head and then aggregated over heads (min or mean). rho is
-clipped to [0, 1] after aggregation, and the clips are counted because they measure how far
-FB is from a valid hitting-time discount. rho and R do not depend on the scale of B(w): the
-FB model normalizes z_w before F, and the ratio cancels the scale in the dot products.
+clipped after aggregation to [0, gamma] for distinct states (H >= 1, so E[gamma^H] <= gamma;
+this makes graph value iteration a gamma-contraction, design.md §3) and to [0, 1] for a state
+and itself (same observation, H = 0). The clips are counted because they measure how far FB is
+from a valid hitting-time discount, and the raw aggregate is kept: trust rules use it, because
+an estimate above 1 is an FB error that clipping would hide. rho and R do not depend on the
+scale of B(w): the FB model normalizes z_w before F, and the ratio cancels the scale in the
+dot products.
 """
 
 from __future__ import annotations
@@ -70,10 +74,11 @@ class Targets:
 class OptionTable:
     """rho and R for every (source, target) pair."""
 
-    rho: np.ndarray  # [N, M] in [0, 1]
+    rho: np.ndarray  # [N, M] clipped: [0, gamma] for distinct states, [0, 1] for a state and itself
+    rho_raw: np.ndarray  # [N, M] aggregated over heads, before clipping
     reward: np.ndarray | None  # [N, M], None when no task latent was given
-    n_clipped_low: int  # pairs with aggregated rho < 0 before clipping
-    n_clipped_high: int  # pairs with aggregated rho > 1 before clipping
+    n_clipped_low: int  # pairs with rho_raw < 0
+    n_clipped_high: int  # pairs with rho_raw above their upper bound (gamma or 1)
 
 
 class OptionModel:
@@ -98,20 +103,23 @@ class OptionModel:
         src, tgt = np.divmod(np.arange(n * m), m)
         self_measure = targets.self_measure
         value_after = None if z_r is None else targets.self_forward @ z_r  # [H, M]
-        raw = np.empty(n * m)
+        raw, upper = np.empty(n * m), np.empty(n * m)
         reward = None if z_r is None else np.empty(n * m)
         for c in self._chunks(n * m):
-            z_w = targets.z[tgt[c]]
-            f = self._call_padded(self.fb.forward, sources[src[c]], z_w)  # [H, P, d]
+            s, z_w = sources[src[c]], targets.z[tgt[c]]
+            f = self._call_padded(self.fb.forward, s, z_w)  # [H, P, d]
             rho_h = _safe_ratio(np.einsum("hpd,pd->hp", f, z_w), self_measure[:, tgt[c]])
             raw[c] = self._aggregate(rho_h)
+            same = np.all(s == targets.obs[tgt[c]], axis=-1)
+            upper[c] = np.where(same, 1.0, self.fb.discount)
             if reward is not None:
                 reward[c] = self._reward(f @ z_r, rho_h, value_after[:, tgt[c]])
         return OptionTable(
-            rho=np.clip(raw, 0.0, 1.0).reshape(n, m),
+            rho=np.clip(raw, 0.0, upper).reshape(n, m),
+            rho_raw=raw.reshape(n, m),
             reward=None if reward is None else reward.reshape(n, m),
             n_clipped_low=int((raw < 0).sum()),
-            n_clipped_high=int((raw > 1).sum()),
+            n_clipped_high=int((raw > upper).sum()),
         )
 
     def direct_value(self, obs: np.ndarray, z_r: np.ndarray) -> np.ndarray:

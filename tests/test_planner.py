@@ -215,6 +215,23 @@ def test_rho_at_one_is_not_a_trusted_edge():
     assert planner(fb, PlannerConfig(rho_min=0.3, rho_max=np.inf)).trusted[i, j]
 
 
+def test_first_hop_does_not_trust_a_raw_rho_at_or_above_one():
+    # Clipped to gamma, this edge would win the first hop (0.9 * 27 against 10.5 direct).
+    fb = GridFB(wormholes={(h, START, (5, 3)): 1.5 for h in (0, 1)})
+    ctrl = planner(fb, PlannerConfig(rho_min=0.3, max_edge_xy=None))
+    ctrl.act(fb.obs(START))
+    assert fb.cells[ctrl.step_info()["waypoint"]] != (5, 3)
+
+
+def test_value_iteration_uses_rho_clipped_to_gamma():
+    # Raw rho 0.95 from START to the cell next to the goal: trusted (raw < 1), valued at gamma.
+    fb = GridFB(wormholes={(h, START, (5, 3)): 0.95 for h in (0, 1)})
+    ctrl = planner(fb, PlannerConfig(rho_min=0.3, max_edge_xy=None))
+    v_next_to_goal = 3.0 * fb.discount / (1 - fb.discount)
+    expected = fb.discount * v_next_to_goal
+    assert ctrl.plan.solution.values[fb.index[START]] == pytest.approx(expected)
+
+
 def test_xy_cap_removes_long_landmark_edges():
     fb = GridFB()
     ctrl = planner(fb, PlannerConfig(rho_min=0.0, max_edge_xy=1.5))

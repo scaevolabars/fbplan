@@ -38,7 +38,8 @@ class PlannerConfig:
     """Every planner value in the report comes from this config.
 
     An edge (u, w) is trusted when rho_min <= rho(u, w) < rho_max and the xy distance from u
-    to w is at most max_edge_xy, then top_k keeps the largest rho per source.
+    to w is at most max_edge_xy, then top_k keeps the largest rho per source. Trust uses the
+    raw FB estimate; values use rho clipped to [0, gamma] (see option_model).
     rho_min: rho = gamma^k is about k steps.
     rho_max: rho >= 1 is an FB error (see graph.trusted_edges); above 1 trusts it (ablation).
     max_edge_xy: guard against wormholes with rho < 1. obs[:2] is the agent's xy position,
@@ -128,14 +129,14 @@ class GraphPlannerController:
 
     @cached_property
     def edge_rho(self) -> np.ndarray:
-        """Edge discounts between landmarks [N, N]: rho, or its two-way min."""
-        rho = self.edges.rho
-        return np.minimum(rho, rho.T) if self.config.two_way else rho
+        """Edge discounts between landmarks for values [N, N]: clipped rho (two-way min)."""
+        return self._pair_min(self.edges.rho, self.edges.rho.T)
 
     @cached_property
     def trusted(self) -> np.ndarray:
         """Trusted landmark-to-landmark edges [N, N], without self-loops."""
-        return self._trusted(self.edge_rho, self.landmarks, exclude_diagonal=True)
+        raw = self._pair_min(self.edges.rho_raw, self.edges.rho_raw.T)
+        return self._trusted(raw, self.landmarks, exclude_diagonal=True)
 
     def reset(self, task: TaskSpec, seed: int) -> None:
         """Solve the graph for the task (cached per task). The policy is deterministic."""
@@ -223,9 +224,9 @@ class GraphPlannerController:
         Q = rho * V_H ~ V_H, and choosing it again would stall the agent.
         """
         cfg, plan = self.config, self.plan
-        row, rho = self._row(obs)
+        row, rho, raw = self._row(obs)
         reached = self._reached(obs, np.arange(len(self.landmarks)), row.rho[0])
-        candidates = np.where(reached, -np.inf, rho)
+        candidates = np.where(reached, -np.inf, raw)
         mask = self._trusted(candidates, obs[None])
         q = q_values(rho, row.reward, plan.solution.values, mask, cfg.hop_discount)[0]
         if q.max() <= self.options.direct_value(obs[None], plan.z_r)[0]:
@@ -253,8 +254,8 @@ class GraphPlannerController:
         landmark = stops != DIRECT
         if landmark.any():
             idx = stops[landmark]
-            row, rho = self._row(obs, idx)
-            mask = self._trusted(rho, obs[None], idx=idx)
+            row, rho, raw = self._row(obs, idx)
+            mask = self._trusted(raw, obs[None], idx=idx)
             values = self.plan.solution.values[idx]
             q[landmark] = q_values(rho, row.reward, values, mask, self.config.hop_discount)[0]
             rho_out[landmark] = row.rho[0]
@@ -264,16 +265,25 @@ class GraphPlannerController:
 
     def _row(
         self, obs: np.ndarray, idx: np.ndarray | None = None
-    ) -> tuple[OptionTable, np.ndarray]:
-        """rho and R from obs to the landmarks idx (default: all), and the edge discount:
-        rho, or min(rho(s, w), rho(w, s)) with two_way."""
+    ) -> tuple[OptionTable, np.ndarray, np.ndarray]:
+        """The option table from obs to the landmarks idx (default: all), and the edge
+        discounts for values (clipped rho) and for trust (raw rho), each the two-way min
+        with two_way."""
         targets = self.targets if idx is None else self.targets.take(idx)
         row = self.options.pair_table(obs[None], targets, self.plan.z_r)
         if not self.config.two_way:
-            return row, row.rho
+            return row, row.rho, row.rho_raw
         sources = self.landmarks if idx is None else self.landmarks[idx]
         back = self.options.pair_table(sources, self.options.targets(obs[None]))
-        return row, np.minimum(row.rho, back.rho.T)
+        return (
+            row,
+            self._pair_min(row.rho, back.rho.T),
+            self._pair_min(row.rho_raw, back.rho_raw.T),
+        )
+
+    def _pair_min(self, rho: np.ndarray, reverse: np.ndarray) -> np.ndarray:
+        """min(rho(u, w), rho(w, u)) with two_way, else rho(u, w)."""
+        return np.minimum(rho, reverse) if self.config.two_way else rho
 
     def _trusted(
         self,

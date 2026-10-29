@@ -88,14 +88,29 @@ def test_head_aggregation_of_a_one_head_wormhole(head_agg, expected):
     np.testing.assert_allclose(rho[fb.index[START], fb.index[FAR_END]], expected, rtol=1e-6)
 
 
-def test_rho_is_clipped_to_the_unit_interval_and_clips_are_counted():
+def test_rho_of_distinct_states_is_clipped_to_zero_gamma_and_clips_are_counted():
+    # E[gamma^H] <= gamma when H >= 1 (design.md §3); 0.95 lies between gamma = 0.9 and 1.
+    near = (2, 1)
     wormholes = {(h, START, FAR_END): 1.5 for h in (0, 1)}
     wormholes |= {(h, FAR_END, START): -0.2 for h in (0, 1)}
+    wormholes |= {(h, START, near): 0.95 for h in (0, 1)}
     fb = GridFB(wormholes=wormholes)
     t = table(fb)
-    assert t.rho[fb.index[START], fb.index[FAR_END]] == 1.0
-    assert t.rho[fb.index[FAR_END], fb.index[START]] == 0.0
-    assert (t.n_clipped_low, t.n_clipped_high) == (1, 1)
+    i, j, k = fb.index[START], fb.index[FAR_END], fb.index[near]
+    assert t.rho[i, j] == t.rho[i, k] == fb.discount
+    assert t.rho[j, i] == 0.0
+    assert (t.n_clipped_low, t.n_clipped_high) == (1, 2)
+
+
+def test_rho_of_a_state_and_itself_stays_one():
+    t = table(GridFB())
+    np.testing.assert_allclose(np.diag(t.rho), 1.0)
+
+
+def test_pair_table_keeps_the_raw_estimate_for_trust_decisions():
+    fb = GridFB(wormholes={(h, START, FAR_END): 1.5 for h in (0, 1)})
+    t = table(fb)
+    assert t.rho_raw[fb.index[START], fb.index[FAR_END]] == pytest.approx(1.5)
 
 
 def test_targets_with_nonpositive_self_measure_are_unreachable():
