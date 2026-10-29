@@ -4,9 +4,9 @@ Owner: component a-frozen. Other components import only the public names below.
 All access to upstream code (third_party/ssm) goes through `upstream_module`, so the rest of
 fbplan does not depend on the upstream sys.path layout.
 
-Download the checkpoints with `uv run python -m fbplan.frozen [env_name ...]`; `--trained` also
-gets our published trained checkpoints. OGBench dataset files download on the first
-`load_dataset` call.
+Download the provided checkpoints with `uv run python -m fbplan.frozen [ENV ...]`. `--trained`
+also gets our published trained checkpoints, and `--datasets ENV ...` the OGBench train and val
+splits; without it, an OGBench split downloads on the first `load_dataset` call.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import shutil
 import sys
 import urllib.request
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from functools import cached_property
 from pathlib import Path
 from types import ModuleType
@@ -93,11 +93,24 @@ _CHECKPOINT_FILES: dict[str, dict[str, tuple[str, str]]] = {
 _DRIVE_URL = "https://drive.usercontent.google.com/download?id={}&export=download&confirm=t"
 
 # Our trained checkpoints (fbplan.train_high, fbplan.learned.train_b), published as assets of
-# GitHub releases of the public repo. Key: the checkpoint's folder below ~/.cache/fbplan, for
-# example "baselines/medium/seed0". Per file: (release tag, sha256 of the content).
+# GitHub releases of the public repo. Key: as in trained_dir, for example
+# "baselines/medium/seed0". Per file: (release tag, sha256 of the content).
 # The asset name is the key with "/" replaced by "-", then "-" and the file name.
 _TRAINED_FILES: dict[str, dict[str, tuple[str, str]]] = {}
 _RELEASE_URL = "https://github.com/scaevolabars/fbplan/releases/download/{tag}/{asset}"
+
+# Shared folders below ~/.cache/fbplan, one per kind of file. The env variable of a kind moves
+# its folder, for example so that a smoke run does not replace the real models.
+CacheKind = Literal["checkpoints", "baselines", "approach_b"]
+_CACHE_ENV_VARS: dict[str, str] = {
+    "checkpoints": "FBPLAN_CKPT_DIR",
+    "baselines": "FBPLAN_BASELINE_DIR",
+    "approach_b": "FBPLAN_APPROACH_B_DIR",
+}
+
+# A trained checkpoint stores only the retrained pi_h; F, B and pi_l stay the provided ones.
+HIGH_ACTOR_FILE = "high_actor.pkl"
+_TRAINED_MODULE = "modules_high_actor"
 
 # The only classes a checkpoint pickle may reference: together they rebuild numpy arrays.
 _PICKLE_ALLOWED = frozenset(
@@ -110,18 +123,40 @@ _ACTION_CLIP_EPS = 1e-5
 _log = logging.getLogger(__name__)
 
 
-def _maze_name(env_name: str) -> str:
+def maze_name(env_name: str) -> str:
     """medium, large, giant or teleport. Refuses other envs: no checkpoint exists for them."""
     if env_name not in ENV_NAMES:
         raise ValueError(f"no frozen checkpoint for {env_name!r}; known envs: {ENV_NAMES}")
     return env_name.split("-")[1]
 
 
+def cache_dir(kind: CacheKind) -> Path:
+    """Folder for one kind of file, shared by all worktrees: ~/.cache/fbplan/<kind>.
+
+    The env variable of the kind (FBPLAN_CKPT_DIR, FBPLAN_BASELINE_DIR, FBPLAN_APPROACH_B_DIR)
+    replaces the folder.
+    """
+    if kind not in _CACHE_ENV_VARS:
+        raise ValueError(f"unknown cache kind {kind!r}; kinds: {tuple(_CACHE_ENV_VARS)}")
+    default = Path.home() / ".cache" / "fbplan" / kind
+    return Path(os.environ.get(_CACHE_ENV_VARS[kind], default))
+
+
 def checkpoint_dir(env_name: str) -> Path:
-    """Folder with flags.json and params.pkl for one env. Shared by all worktrees."""
-    default = Path.home() / ".cache" / "fbplan" / "checkpoints"
-    root = Path(os.environ.get("FBPLAN_CKPT_DIR", default))
-    return root / _maze_name(env_name)
+    """Folder with flags.json and params.pkl of the provided checkpoint of one env."""
+    return cache_dir("checkpoints") / maze_name(env_name)
+
+
+def trained_dir(key: str) -> Path:
+    """Folder of one trained checkpoint, from its key "<kind>/<path>".
+
+    For example "baselines/medium/seed0" (fbplan.train_high) or "approach_b/medium/clean/seed0"
+    (fbplan.learned.train_b). The key also names the published checkpoint (download_trained).
+    """
+    kind, _, rest = key.partition("/")
+    if kind not in ("baselines", "approach_b") or not rest:
+        raise ValueError(f"trained checkpoint key {key!r} is not baselines/... or approach_b/...")
+    return cache_dir(kind) / rest
 
 
 def download_checkpoint(env_name: str) -> Path:
@@ -130,7 +165,7 @@ def download_checkpoint(env_name: str) -> Path:
     Idempotent: a file that is present is only hash-checked (see _fetch_pinned).
     """
     target = checkpoint_dir(env_name)
-    files = _CHECKPOINT_FILES[_maze_name(env_name)]
+    files = _CHECKPOINT_FILES[maze_name(env_name)]
     _fetch_pinned(
         {target / name: (_DRIVE_URL.format(id_), sha256) for name, (id_, sha256) in files.items()}
     )
@@ -142,17 +177,15 @@ def _asset_name(key: str, file_name: str) -> str:
     return f"{key.replace('/', '-')}-{file_name}"
 
 
-def download_trained(key: str, target: Path | None = None) -> Path:
-    """Download the published files of one trained checkpoint into target, and return target.
+def download_trained(key: str) -> Path:
+    """Download the published files of one trained checkpoint into trained_dir(key).
 
-    key is the checkpoint's folder below ~/.cache/fbplan, for example "baselines/medium/seed0"
-    or "approach_b/medium/clean/seed0". target defaults to that folder; a loader with its own
-    folder (an env override) passes it. Idempotent and hash-checked like download_checkpoint.
+    Idempotent and hash-checked like download_checkpoint. Returns the folder.
     """
     if key not in _TRAINED_FILES:
         published = ", ".join(sorted(_TRAINED_FILES)) or "none"
         raise ValueError(f"trained checkpoint {key} is not published; published: {published}")
-    target = target or Path.home() / ".cache" / "fbplan" / key
+    target = trained_dir(key)
     _fetch_pinned(
         {
             target / name: (_RELEASE_URL.format(tag=tag, asset=_asset_name(key, name)), sha256)
@@ -187,8 +220,8 @@ def _download(url: str, path: Path, sha256: str | None = None) -> None:
     try:
         with urllib.request.urlopen(url) as response, part.open("wb") as file:
             shutil.copyfileobj(response, file)
-        if sha256 is not None:
-            _check_sha256(part, sha256)
+        if sha256 is not None and (actual := _sha256(part)) != sha256:
+            raise ValueError(f"{url}: sha256 {actual} differs from the pinned {sha256}")
     except BaseException:
         part.unlink(missing_ok=True)
         raise
@@ -196,13 +229,16 @@ def _download(url: str, path: Path, sha256: str | None = None) -> None:
 
 
 def _check_sha256(path: Path, expected: str) -> None:
-    with path.open("rb") as file:
-        actual = hashlib.file_digest(file, "sha256").hexdigest()
-    if actual != expected:
+    if (actual := _sha256(path)) != expected:
         raise ValueError(
-            f"{path}: sha256 {actual} differs from the expected {expected}. "
+            f"{path}: sha256 {actual} differs from the pinned {expected}. "
             "Delete the file to download it again."
         )
+
+
+def _sha256(path: Path) -> str:
+    with path.open("rb") as file:
+        return hashlib.file_digest(file, "sha256").hexdigest()
 
 
 class _NumpyOnlyUnpickler(pickle.Unpickler):
@@ -217,9 +253,26 @@ class _NumpyOnlyUnpickler(pickle.Unpickler):
 
 
 def load_numpy_pickle(path: Path) -> Any:
-    """Load a pickle of nested dicts of numpy arrays, such as an upstream checkpoint."""
+    """Load a pickle of nested dicts of numpy arrays, such as an upstream checkpoint.
+
+    Refuses a pickle that references any other class, so loading cannot run code from the file.
+    """
     with path.open("rb") as file:
         return _NumpyOnlyUnpickler(file).load()
+
+
+def save_numpy_pickle(tree: Any, path: Path) -> None:
+    """Write nested dicts of numpy or JAX arrays as numpy arrays, for load_numpy_pickle.
+
+    Numpy arrays make the file independent of the JAX version. Refuses object arrays, because
+    load_numpy_pickle could not read them back.
+    """
+    arrays = jax.tree_util.tree_map(np.asarray, tree)
+    if any(leaf.dtype == object for leaf in jax.tree_util.tree_leaves(arrays)):
+        raise TypeError(f"{path}: only numeric arrays can be saved")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as file:
+        pickle.dump(arrays, file)
 
 
 def upstream_module(module: str) -> ModuleType:
@@ -256,15 +309,16 @@ def load_model(env_name: str) -> FrozenFBModel:
     fbpiswitch = upstream_module("agents.fbpiswitch")
     config = fbpiswitch.get_config()
     config.update(flags["agent"])
-    agent = fbpiswitch.FBpiSwitchAgent.create(0, _example_batch(state), config)
-    agent = flax.serialization.from_state_dict(agent, state)
-    # On device once, so the jitted calls below do not copy the 18 MB of weights every step.
-    return FrozenFBModel(env_name, jax.device_put(agent))
+    agent = fbpiswitch.FBpiSwitchAgent.create(0, example_batch(state["network"]["params"]), config)
+    return FrozenFBModel(env_name, flax.serialization.from_state_dict(agent, state))
 
 
-def _example_batch(state: dict[str, Any]) -> dict[str, np.ndarray]:
-    """Zero batch with the observation and action sizes that the saved weights expect."""
-    params = state["network"]["params"]
+def example_batch(params: Mapping[str, Any]) -> dict[str, np.ndarray]:
+    """Zero batch with the observation and action sizes of the network params of an agent.
+
+    Upstream FBpiSwitchAgent.create reads only these sizes. `params` is agent.network.params or
+    the network/params part of a saved state.
+    """
     obs_dim = params["modules_backward_repr"]["value_net"]["Dense_0"]["kernel"].shape[0]
     action_dim = params["modules_actor"]["mean_net"]["bias"].shape[0]
     return {
@@ -273,20 +327,51 @@ def _example_batch(state: dict[str, Any]) -> dict[str, np.ndarray]:
     }
 
 
-class FrozenFBModel:
-    """FBModel (see fbplan.contracts) on top of the restored upstream FBpiSwitchAgent.
+def save_trained_checkpoint(agent: Any, flags: dict[str, Any], out_dir: Path) -> None:
+    """Write the retrained pi_h of `agent` to out_dir: high_actor.pkl and flags.json.
 
-    Each method calls the same upstream network module and normalize_z as FBpiSwitchAgent does.
-    One deviation, required by the contract: high_latent normalizes z_task, while upstream
-    passes z_r to pi_h as it is. The real z_r has norm 0.92-0.98 sqrt(d) (see
-    infer_task_latent), so actions differ from upstream by about 1e-3.
-    `agent` is public for code that needs upstream methods, for example retraining pi_h or
-    upstream utils.evaluation.evaluate.
+    Only pi_h is stored (2.7 MB instead of 18.3 MB for the full state): F, B and pi_l stay the
+    provided ones, and load_trained_model takes them from the provided checkpoint. `flags` must
+    hold "env_name" as the provided flags.json does ("ogbench-<env>").
+    """
+    pi_h = flax.serialization.to_state_dict(agent.network.params[_TRAINED_MODULE])
+    save_numpy_pickle(pi_h, out_dir / HIGH_ACTOR_FILE)
+    (out_dir / "flags.json").write_text(json.dumps(flags, indent=2))
+
+
+def load_trained_model(env_name: str, key: str) -> FrozenFBModel:
+    """The provided model of env_name with the pi_h of the trained checkpoint `key`.
+
+    `key` as in trained_dir, for example "baselines/medium/seed0". Downloads a missing
+    published checkpoint. Raises if the checkpoint belongs to another env.
+    """
+    ckpt = trained_dir(key)
+    if not all((ckpt / name).exists() for name in (HIGH_ACTOR_FILE, "flags.json")):
+        download_trained(key)
+    flags = json.loads((ckpt / "flags.json").read_text())
+    if flags["env_name"] != f"ogbench-{env_name}":
+        raise ValueError(f"{ckpt} holds a checkpoint for {flags['env_name']}, not for {env_name}")
+    agent = load_model(env_name).agent
+    params = flax.core.unfreeze(agent.network.params)
+    saved = load_numpy_pickle(ckpt / HIGH_ACTOR_FILE)
+    params[_TRAINED_MODULE] = flax.serialization.from_state_dict(params[_TRAINED_MODULE], saved)
+    return FrozenFBModel(env_name, agent.replace(network=agent.network.replace(params=params)))
+
+
+class FrozenFBModel:
+    """FBModel (see fbplan.contracts) on top of an upstream FBpiSwitchAgent.
+
+    Each method calls the same upstream network module and normalize_z as FBpiSwitchAgent does,
+    at temperature 0: the policies return the mean action or intention. One deviation, required
+    by the contract: high_latent normalizes z_task, while upstream passes z_r to pi_h as it is
+    (see infer_task_latent). `agent` is public for code that needs upstream methods, for example
+    retraining pi_h or upstream utils.evaluation.evaluate.
     """
 
     def __init__(self, env_name: str, agent: Any) -> None:
         self.env_name = env_name
-        self.agent = agent  # upstream agents.fbpiswitch.FBpiSwitchAgent
+        # On device once, so the jitted calls below do not copy the 18 MB of weights every step.
+        self.agent = jax.device_put(agent)  # upstream agents.fbpiswitch.FBpiSwitchAgent
         self.latent_dim = int(agent.config["latent_dim"])
         self.discount = float(agent.config["discount"])
 
@@ -298,18 +383,13 @@ class FrozenFBModel:
         """B(s), raw. obs [N, obs_dim] -> [N, d]."""
         return _backward(self.agent, obs)
 
-    def low_action(
-        self, obs: Array, z: Array, temperature: float = 0.0, seed: jax.Array | None = None
-    ) -> jax.Array:
-        """pi_l(a | s, z). Returns actions [N, act_dim] clipped to [-1, 1]."""
-        return _low_action(self.agent, obs, z, temperature, _sampling_key(seed, temperature))
+    def low_action(self, obs: Array, z: Array) -> jax.Array:
+        """pi_l(s, z): the mean action [N, act_dim], clipped to [-1, 1]."""
+        return _low_action(self.agent, obs, z)
 
-    def high_latent(
-        self, obs: Array, z_task: Array, temperature: float = 0.0, seed: jax.Array | None = None
-    ) -> jax.Array:
-        """Baseline pi_h(z | s, z_task). Returns normalized intentions [N, d]."""
-        key = _sampling_key(seed, temperature)
-        return _high_latent(self.agent, obs, z_task, temperature, key)
+    def high_latent(self, obs: Array, z_task: Array) -> jax.Array:
+        """Baseline pi_h(s, z_task): the mean intention, normalized [N, d]."""
+        return _high_latent(self.agent, obs, z_task)
 
     def infer_task_latent(self, task_id: int) -> np.ndarray:
         """Task embedding z_r [d] for evaluation task `task_id` (1..5), as upstream main.py does.
@@ -318,9 +398,11 @@ class FrozenFBModel:
         else 0) and calls FBpiSwitchAgent.infer_latent on the first num_zero_shot_samples
         (100k) transitions: z_r = normalize_z(mean(r * B(s))). Upstream draws them with
         HGCDataset.sample(idxs=arange(n), relabeling=False), which returns exactly these rows.
-        The norm of z_r is a little below sqrt(d): upstream averages twice (uniform softmax
-        weights 1/n, then a mean), so the raw vector is about 1e-7 and the 1e-8 in normalize_z
-        is not negligible. We keep the upstream value.
+
+        The norm of z_r is 0.79-0.98 sqrt(d) over the tasks of the 4 mazes, not sqrt(d):
+        upstream averages twice (uniform softmax weights 1/n, then a mean), so the raw vector is
+        about 1e-7 and the 1e-8 in normalize_z is not negligible. We return the upstream value;
+        high_latent normalizes it, upstream does not (effect on success: design.md §2 and §8).
         """
         env = make_env(self.env_name)
         env.reset(options={"task_id": task_id})
@@ -340,18 +422,15 @@ class FrozenFBModel:
         )
 
 
-def _sampling_key(seed: jax.Array | None, temperature: float) -> jax.Array:
-    """PRNG key for a policy sample. At temperature 0 the sample is the mean, so any key works."""
-    if seed is not None:
-        return seed
-    if temperature != 0.0:
-        raise ValueError("a seed is required when temperature > 0")
-    return jax.random.PRNGKey(0)
+def forward(agent: Any, obs: Array, z: Array) -> jax.Array:
+    """F(s, z) of both heads [2, N, d] of an upstream agent, as upstream calls it.
 
-
-@jax.jit
-def _forward(agent: Any, obs: Array, z: Array) -> jax.Array:
+    Not jitted, so that jitted code of other components can call it inside its own jit.
+    """
     return agent.network.select("forward_repr")(obs, agent.normalize_z(z), goal_encoded=True)
+
+
+_forward = jax.jit(forward)
 
 
 @jax.jit
@@ -360,23 +439,16 @@ def _backward(agent: Any, obs: Array) -> jax.Array:
 
 
 @jax.jit
-def _low_action(agent: Any, obs: Array, z: Array, temperature: float, seed: jax.Array) -> jax.Array:
-    dist = agent.network.select("actor")(
-        obs, agent.normalize_z(z), goal_encoded=True, temperature=temperature
-    )
-    return jnp.clip(dist.sample(seed=seed), -1, 1)
+def _low_action(agent: Any, obs: Array, z: Array) -> jax.Array:
+    dist = agent.network.select("actor")(obs, agent.normalize_z(z), goal_encoded=True)
+    return jnp.clip(dist.mode(), -1, 1)
 
 
 @jax.jit
-def _high_latent(
-    agent: Any, obs: Array, z_task: Array, temperature: float, seed: jax.Array
-) -> jax.Array:
-    # pi_h was trained on task latents of norm sqrt(d). Its sampled intention is normalized
-    # before it goes to pi_l, as in upstream sample_actions.
-    dist = agent.network.select("high_actor")(
-        obs, agent.normalize_z(z_task), goal_encoded=True, temperature=temperature
-    )
-    return agent.normalize_z(dist.sample(seed=seed))
+def _high_latent(agent: Any, obs: Array, z_task: Array) -> jax.Array:
+    # The intention goes to pi_l normalized, as in upstream sample_actions.
+    dist = agent.network.select("high_actor")(obs, agent.normalize_z(z_task), goal_encoded=True)
+    return agent.normalize_z(dist.mode())
 
 
 def make_env(env_name: str) -> gym.Env:
@@ -409,19 +481,51 @@ def load_dataset(env_name: str, split: Literal["train", "val"]) -> dict[str, np.
     actions clipped to [-1 + 1e-5, 1 - 1e-5]. Upstream always loads both splits; this function
     loads, and downloads if absent, only the requested one.
     """
-    path = dataset_path(env_name, split)
-    if not path.exists():
-        _download(f"{ogbench.utils.DATASET_URL}/{path.name}", path)
+    path = _download_dataset(env_name, split)
     data = ogbench.utils.load_dataset(str(path), compact_dataset=False, add_info=True)
     data["actions"] = np.clip(data["actions"], -1 + _ACTION_CLIP_EPS, 1 - _ACTION_CLIP_EPS)
     return data
 
 
+def _download_dataset(env_name: str, split: Literal["train", "val"]) -> Path:
+    """Download one OGBench split if it is absent, and return its path."""
+    path = dataset_path(env_name, split)
+    if not path.exists():
+        _download(f"{ogbench.utils.DATASET_URL}/{path.name}", path)
+    return path
+
+
+def _known_env(name: str) -> str:
+    """argparse type: an env with a provided checkpoint."""
+    if name not in ENV_NAMES:
+        raise argparse.ArgumentTypeError(f"{name!r} is not one of {', '.join(ENV_NAMES)}")
+    return name
+
+
 def main(argv: Sequence[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Download checkpoints into ~/.cache/fbplan.")
-    parser.add_argument("env_names", nargs="*", help="frozen checkpoints to get (default: all 4)")
+    """CLI: download checkpoints and, on request, OGBench data. See the module docstring."""
+    parser = argparse.ArgumentParser(
+        description="Download the provided checkpoints into ~/.cache/fbplan/checkpoints."
+    )
     parser.add_argument(
-        "--trained", action="store_true", help="also get every published trained checkpoint"
+        "env_names",
+        nargs="*",
+        type=_known_env,
+        metavar="ENV",
+        help=f"provided checkpoints to get (default: all of {', '.join(ENV_NAMES)})",
+    )
+    parser.add_argument(
+        "--trained",
+        action="store_true",
+        help="also get every published trained checkpoint (retrained baselines, approach B)",
+    )
+    parser.add_argument(
+        "--datasets",
+        nargs="+",
+        type=_known_env,
+        default=[],
+        metavar="ENV",
+        help="also get the OGBench train and val splits of these envs into ~/.ogbench/data",
     )
     args = parser.parse_args(argv)
     for name in args.env_names or ENV_NAMES:
@@ -429,6 +533,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.trained:
         for key in _TRAINED_FILES:
             print(download_trained(key))
+    for name in args.datasets:
+        for split in ("train", "val"):
+            print(_download_dataset(name, split))
 
 
 if __name__ == "__main__":
