@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-30, 00:45. Branch merged with `main` at 3e36461.
+Last update: 2026-10-30, 01:05. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -408,6 +408,31 @@ The 2× jobs run from a third code tree on the instance, `~/fbplan_deval` (d-eva
 `retrained:<variant>:<seed>`). Check: from that tree, eval seed 0 of the baseline repeats
 `results/medium/baseline.csv` exactly (250 of 250 records), so its runs pair with all
 committed medium rows.
+
+## Final protocol, 10 eval seeds (Linux, `results/medium_10seeds/`, 2,500 episodes per run)
+
+Eval seeds 0–9 × 5 tasks × 50 episodes; seeds 0–4 are the committed runs, seeds 5–9 ran on the
+same code (84a8127). Families pool their 5 training seeds (bootstrap over checkpoint_seed and
+episodes); ensembles are single runs (T1, code 0be1249). Paired on the same 2,500 episodes.
+
+| method | success [95 % CI] | vs baseline (pp) | vs baseline_raw (pp) |
+|---|---|---|---|
+| baseline | 78.4 [76.9, 80.0] | – | −2.0 [−4.2, +0.1], p 0.07 |
+| baseline_raw | 80.5 [78.9, 82.0] | +2.0 [−0.2, +4.2], p 0.07 | – |
+| retrained (5 seeds) | 78.4 [77.0, 79.7] | −0.1 [−2.3, +2.2] | −2.1 [−4.3, +0.1] |
+| B clean (5 seeds) | 79.9 [77.5, 82.2] | +1.4 [−1.5, +4.3] | −0.6 [−3.5, +2.2] |
+| B wide (5 seeds) | 78.9 [75.4, 82.0] | +0.5 [−3.4, +4.0] | −1.6 [−5.4, +1.9] |
+| B region (5 seeds) | 79.9 [78.2, 81.4] | +1.4 [−1.0, +3.7] | −0.6 [−2.9, +1.7] |
+| T1 ensemble, retrained | 77.9 [76.3, 79.5] | −0.5 [−2.8, +1.7], p 0.68 | −2.6 [−4.8, −0.4], p 0.023 |
+| T1 ensemble, B clean | 80.0 [78.4, 81.6] | +1.6 [−0.6, +3.7], p 0.17 | −0.5 [−2.6, +1.7], p 0.69 |
+| T1 ensemble, B region | 81.0 [79.4, 82.5] | +2.5 [+0.4, +4.6], p 0.024 | +0.5 [−1.7, +2.6], p 0.69 |
+
+- With 10 eval seeds, baseline_raw − baseline = +2.0 pp (p 0.07); with 5 seeds it was +3.8.
+- T1 (design.md §8 reading): B region ensemble − retrained ensemble = +3.0 [+0.9, +5.3]
+  (p 0.0068; B clean ensemble +2.1, p 0.071). The B region ensemble gains against the baseline
+  (+2.5, p 0.024) but not against baseline_raw (+0.5, p 0.69), so it does not pass the gain rule;
+  the chaining condition (B ensemble beats the retrained ensemble) holds. The retrained ensemble
+  is no better than its single seeds (77.9 against 78.4 pooled).
 
 ## Wave 1 of the hypothesis tests (coordinator 2026-10-30, readings in design.md §8)
 
