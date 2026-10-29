@@ -194,7 +194,14 @@ Shared contracts: `fbplan/contracts.py` (`FBModel`, `Controller`, `TaskSpec`, `E
 
 ## 8. Open items
 
-- None.
+- Seed selection on held-out goals (plan B decision 8; rule fixed on 2026-10-29 at 22:40 MSK,
+  before any held-out result exists). For each family with several training seeds (retrained
+  baseline, B clean, B wide, B region): evaluate every seed on the 10 held-out goals of medium
+  (`--heldout`, eval seeds 0 1 2, 20 episodes per goal and eval seed, Linux instance). Select the
+  seed with the highest held-out success; ties go to the lower seed id. Report, on the 5 eval
+  tasks, the selected seed of each family paired against the selected retrained baseline and
+  against `baseline_raw`, next to the pooled rows. The rule applies to all families in the same
+  way, and nothing else is tuned on the held-out goals. No selection on the eval tasks.
 
 Closed:
 
