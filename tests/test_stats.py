@@ -12,6 +12,7 @@ from fbplan.stats import (
     paired_table,
     success_ci,
     summary_table,
+    unpaired_comparison,
 )
 
 
@@ -133,3 +134,25 @@ def test_paired_table_compares_every_other_method_with_the_reference():
     assert list(table.columns) == [
         "method", "diff", "ci_low", "ci_high", "only_method", "only_reference", "p_value", "n_pairs"
     ]
+
+
+def test_unpaired_comparison_of_identical_results_is_centred_on_zero():
+    a = _episodes({1: [1, 0] * 50, 2: [1, 1, 1, 0] * 25}, method="a")
+    est = unpaired_comparison(pd.concat([a, a.assign(method="b")]), "a", "b")
+    assert est.mean == 0.0
+    assert est.low < 0.0 < est.high
+    assert est.n == 400
+
+
+def test_unpaired_comparison_detects_a_large_difference():
+    a = _episodes({1: [1] * 90 + [0] * 10}, method="a")
+    b = _episodes({1: [1] * 50 + [0] * 50}, method="b")
+    est = unpaired_comparison(pd.concat([a, b]), "a", "b")
+    assert est.mean == pytest.approx(0.4)
+    assert est.low > 0.25
+
+
+def test_unpaired_comparison_rejects_different_task_sets():
+    df = pd.concat([_episodes({1: [1], 2: [1]}, method="a"), _episodes({1: [1]}, method="b")])
+    with pytest.raises(ValueError, match="same tasks"):
+        unpaired_comparison(df, "a", "b")

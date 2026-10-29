@@ -91,6 +91,35 @@ def success_ci(
     retrained pi_h. Each bootstrap sample then resamples clusters first and episodes inside
     each (task, cluster) cell second, so the CI includes the variance between clusters.
     """
+    mean, draws, n = _success_draws(df, cluster, n_boot, seed)
+    return Estimate(mean, *_quantiles(draws, level), n=n)
+
+
+def unpaired_comparison(
+    df: pd.DataFrame,
+    method_a: str,
+    method_b: str,
+    n_boot: int = 10_000,
+    level: float = 0.95,
+    seed: int = 0,
+) -> Estimate:
+    """Success of a minus success of b when the episodes do not pair.
+
+    Use it only when the start states differ, for example against upstream's unseeded
+    evaluation loop. The two stratified bootstraps are independent.
+    """
+    a, b = (df[df["method"] == m] for m in (method_a, method_b))
+    if set(map(tuple, a[STRATA].values)) != set(map(tuple, b[STRATA].values)):
+        raise ValueError(f"{method_a!r} and {method_b!r} must cover the same tasks")
+    mean_a, draws_a, n_a = _success_draws(a, None, n_boot, seed)
+    mean_b, draws_b, n_b = _success_draws(b, None, n_boot, seed + 1)
+    return Estimate(mean_a - mean_b, *_quantiles(draws_a - draws_b, level), n=n_a + n_b)
+
+
+def _success_draws(
+    df: pd.DataFrame, cluster: str | None, n_boot: int, seed: int
+) -> tuple[float, np.ndarray, int]:
+    """Point estimate, bootstrap draws and episode count of the overall success."""
     cells = (
         df.assign(_cluster=df[cluster] if cluster else 0)
         .groupby([*STRATA, "_cluster"])["success"]
@@ -101,8 +130,7 @@ def success_ci(
     if (n == 0).any():
         raise ValueError(f"every task needs episodes in every cluster of {cluster!r}")
     draws = _bootstrap_success(n, k, n_boot, np.random.default_rng(seed))
-    mean = float((k.sum(1) / n.sum(1)).mean())
-    return Estimate(mean, *_quantiles(draws, level), n=int(n.sum()))
+    return float((k.sum(1) / n.sum(1)).mean()), draws, int(n.sum())
 
 
 def mcnemar_p_value(only_a: int, only_b: int) -> float:
