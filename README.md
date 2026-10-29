@@ -40,7 +40,7 @@ that it runs:
 
 ```bash
 scripts/reproduce.sh               # checkpoints, eval, tables, figures (CPU)
-scripts/reproduce.sh --smoke       # every stage, training included, in a few minutes on CPU
+scripts/reproduce.sh --smoke       # every stage, training included, in about 6 min on CPU
 scripts/reproduce.sh eval tables   # selected stages
 scripts/reproduce.sh train         # retrain pi_h and approach B (Linux with a GPU)
 ```

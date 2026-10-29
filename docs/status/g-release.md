@@ -15,7 +15,8 @@ Last update: 2026-10-29.
   - Tables go to `results/<maze>/tables.md`. `upstream.csv` stays out of `tables.py`: its
     episodes have the same keys as ours but other start states, so `tables.py` would pair them
     (finding D2).
-  - `--smoke` passed in this worktree (all 5 stages, 30 output files). It took 17 min while six
+  - `--smoke` passed in this worktree (all 5 stages, 30 output files; an older version with
+  the parity run). It took 17 min while six
     review agents used the CPU. Step times on an idle CPU: training 102 s (3 runs), one eval run
     about 30 s (model load, task latents, JIT), route plots 58 s, quick study 36 s. The parity run
     (`analysis/parity.py`) took 310 s even with 4 workers, because it always runs 50 episodes per
@@ -31,9 +32,14 @@ Last update: 2026-10-29.
 - README: the Reproduce section points at `scripts/reproduce.sh`; the long list of analysis
   commands moved into the script; the layout table lists `fbplan/controllers/` and `scripts/`.
 
+- Clean clone (commit f058ae6, cloned without `--recurse-submodules`, empty
+  `FBPLAN_CKPT_DIR`): `scripts/reproduce.sh --smoke` passed in 5.5 min on the 12-core Mac with
+  the datasets already in `~/.ogbench/data`. Stages: checkpoints 38 s (venv and download),
+  train 81 s, eval 53 s, tables 41 s, figures 98 s. The script initialized the submodule, and
+  the clone stayed clean (outputs only in the ignored `runs/`).
+
 ## Next
 
-- Smoke run from a clean clone (`git clone` of this branch into a scratch folder).
 - Add rows to `RUNS` when new result CSVs are committed (see requests).
 - Process files (brief step 4): proposal to the user.
 
@@ -57,6 +63,29 @@ Last update: 2026-10-29.
 4. Approve or reject each finding below, then send them to the owners.
 5. d-eval: an `--episodes` option for `analysis/parity.py` (default 50), so that `--smoke` can
    run the parity check with 1 episode per task.
+
+## Proposal: process files before submission (brief step 4, waits for the user)
+
+Recommendation: remove `docs/briefs/` and `docs/status/` from the submitted tree.
+
+1. They describe the multi-session workflow (tabs, coordinator, approvals). REPORT.md must not
+   (f-report rule 6), and a reviewer reads them as noise next to the code.
+2. They hold account details: the vast.ai team account name, an instance label with the
+   user's surname, GPU costs (`docs/status/e-learner.md`).
+3. They hold numbers that no committed CSV backs (probes, dev-set runs, early loaders). A
+   reviewer can find a number that contradicts REPORT.md.
+4. The facts that matter already live in `docs/design.md`, `docs/theory.md`,
+   `docs/plans/approach-b.md` and REPORT.md. Before the removal, each owner moves a fact that is
+   still needed (for example a-frozen's stack decision and sanity check) into REPORT.md or
+   design.md.
+
+Notes:
+- Removal from the tree does not remove the files from git history. If the published history
+  keeps the old commits, the files stay visible there.
+- `docs/design.md` §6-§8 also describe the workflow (branches, tabs, merges). A short
+  "repository layout and code rules" section could replace them (coordinator's file).
+- Alternative: move the two folders to `docs/dev/`. This keeps the trail, but needs a scrub of
+  account details and of numbers without a CSV.
 
 ## Review findings, first pass (2026-10-29, commit 386b4e5)
 

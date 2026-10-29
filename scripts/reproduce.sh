@@ -12,7 +12,7 @@
 #   figures      success, calibration and route figures in results/figures/;
 #                tabular study tables and figures in docs/figures/theory/
 #
-# --smoke runs every stage, train included, on CPU in a few minutes: medium only, each method
+# --smoke runs every stage, train included, on CPU in about 6 minutes: medium only, each method
 # once, one eval seed, one episode per task, no parity run, 10 training steps. It starts from an
 # empty runs/smoke/ and writes only there: results/, docs/figures/ and ~/.cache/fbplan stay
 # unchanged.
