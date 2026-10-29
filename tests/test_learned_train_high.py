@@ -13,7 +13,6 @@ from fbplan.train_high import train, train_chunk
 fbpiswitch = frozen.upstream_module("agents.fbpiswitch")
 
 OBS_DIM, ACT_DIM = 5, 2
-MEDIUM = "antmaze-medium-navigate-v0"
 
 
 def tiny_config() -> dict:
@@ -60,7 +59,7 @@ def same(a, b) -> bool:
 
 
 def test_fresh_agent_keeps_frozen_modules_and_reinitializes_pi_h(frozen_agent):
-    fresh = with_fresh_high_actor(frozen_agent, 0, OBS_DIM)
+    fresh = with_fresh_high_actor(frozen_agent, 0)
     for name in FROZEN_MODULES:
         assert same(params_of(fresh, name), params_of(frozen_agent, name)), name
     assert not same(
@@ -69,15 +68,15 @@ def test_fresh_agent_keeps_frozen_modules_and_reinitializes_pi_h(frozen_agent):
 
 
 def test_pi_h_init_depends_only_on_seed(frozen_agent):
-    a = with_fresh_high_actor(frozen_agent, 0, OBS_DIM)
-    b = with_fresh_high_actor(frozen_agent, 0, OBS_DIM)
-    c = with_fresh_high_actor(frozen_agent, 1, OBS_DIM)
+    a = with_fresh_high_actor(frozen_agent, 0)
+    b = with_fresh_high_actor(frozen_agent, 0)
+    c = with_fresh_high_actor(frozen_agent, 1)
     assert same(params_of(a, "modules_high_actor"), params_of(b, "modules_high_actor"))
     assert not same(params_of(a, "modules_high_actor"), params_of(c, "modules_high_actor"))
 
 
 def test_training_updates_only_pi_h(frozen_agent, data):
-    fresh = with_fresh_high_actor(frozen_agent, 0, OBS_DIM)
+    fresh = with_fresh_high_actor(frozen_agent, 0)
     spec = HighBatchSpec.from_agent_config(fresh.config)
     trained, info = train_chunk(fresh, data, jax.random.PRNGKey(0), 3, spec)
     for name in FROZEN_MODULES:
@@ -90,7 +89,7 @@ def test_training_updates_only_pi_h(frozen_agent, data):
 
 
 def test_train_logs_one_row_per_interval(frozen_agent, data, tmp_path):
-    fresh = with_fresh_high_actor(frozen_agent, 0, OBS_DIM)
+    fresh = with_fresh_high_actor(frozen_agent, 0)
     train(
         fresh,
         data,
@@ -106,7 +105,7 @@ def test_train_logs_one_row_per_interval(frozen_agent, data, tmp_path):
 
 
 def test_train_rejects_partial_log_interval(frozen_agent, data, tmp_path):
-    fresh = with_fresh_high_actor(frozen_agent, 0, OBS_DIM)
+    fresh = with_fresh_high_actor(frozen_agent, 0)
     with pytest.raises(ValueError):
         train(
             fresh,
@@ -119,10 +118,8 @@ def test_train_rejects_partial_log_interval(frozen_agent, data, tmp_path):
         )
 
 
-def test_checkpoint_config_is_the_upstream_pi_h_recipe():
-    if not (frozen.checkpoint_dir(MEDIUM) / "params.pkl").exists():
-        pytest.skip("medium checkpoint absent: run `uv run python -m fbplan.frozen`")
-    config = frozen.load_model(MEDIUM).agent.config
+def test_checkpoint_config_is_the_upstream_pi_h_recipe(medium_model):
+    config = medium_model.agent.config
     assert HighBatchSpec.from_agent_config(config) == HighBatchSpec(
         batch_size=1024, discount=0.99, actor_geom_sample=False, actor_p_randomgoal=0.0
     )
