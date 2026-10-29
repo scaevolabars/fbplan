@@ -46,10 +46,10 @@ import pandas as pd
 
 from fbplan import train_high
 from fbplan.contracts import Controller, EpisodeRecord, FBModel, TaskSpec
-from fbplan.controllers import resolve_controller
-from fbplan.controllers.oracle import Cell, MazeGeometry
-from fbplan.frozen import load_dataset, load_model, make_env, upstream_module
+from fbplan.controllers import ALIASES, resolve_controller
+from fbplan.frozen import ENV_NAMES, load_dataset, load_model, make_env, upstream_module
 from fbplan.learned import train_b
+from fbplan.maze import Cell, MazeGeometry
 from fbplan.stats import CHECKPOINT_DEFAULTS, summary_table
 
 EnvFactory = Callable[[str], gym.Env]
@@ -285,9 +285,13 @@ def make_tasks(
     ]
 
 
-def _reset(env: gym.Env, task: TaskSpec, seed: int) -> np.ndarray:
-    # OGBench draws the start-position noise (and teleport exits) from the global NumPy RNG and
-    # the settling actions from the action-space RNG. Seed both, or the start state is random.
+def reset_env(env: gym.Env, task: TaskSpec, seed: int) -> np.ndarray:
+    """Reset the env to the start of `task` for reset seed `seed` (docs/design.md §5).
+
+    OGBench draws the start-position noise (and teleport exits) from the global NumPy RNG; the
+    action-space RNG drives the settling steps, which change only the goal observation. Both
+    are seeded, so the same seed gives the same start and goal observations.
+    """
     options: dict[str, object] = {"task_id": task.task_id}
     if task.task_id > HELDOUT_OFFSET:
         goal = _heldout_table(task.env_name)[task.task_id]
@@ -313,12 +317,12 @@ def run_episode(
     task: TaskSpec,
     eval_seed: int,
     episode: int,
-    config_hash: str,
+    chash: str,
 ) -> EpisodeRecord:
-    """Run one episode until the goal or the env time limit."""
+    """Run one episode until the goal or the env time limit. chash: the record's config_hash."""
     start = time.perf_counter()
     seed = reset_seed(eval_seed, task.task_id, episode)
-    obs = _reset(env, task, seed)
+    obs = reset_env(env, task, seed)
     _check_goal(env, task)
     controller.reset(task, seed)
     steps, done, info = 0, False, {}
@@ -330,7 +334,7 @@ def run_episode(
         done = terminated or truncated
     return EpisodeRecord(
         method=controller.name,
-        config_hash=config_hash,
+        config_hash=chash,
         env_name=task.env_name,
         task_id=task.task_id,
         eval_seed=eval_seed,
@@ -340,6 +344,26 @@ def run_episode(
         final_goal_dist=float(np.linalg.norm(env.unwrapped.get_xy() - task.goal_xy)),
         wall_time_s=time.perf_counter() - start,
     )
+
+
+class RecordingController:
+    """Passes every call to `inner` and keeps the observations of the current episode."""
+
+    def __init__(self, inner: Controller) -> None:
+        self.inner = inner
+        self.name = inner.name
+        self.observations: list[np.ndarray] = []
+
+    def reset(self, task: TaskSpec, seed: int) -> None:
+        self.observations = []
+        self.inner.reset(task, seed)
+
+    def act(self, obs: np.ndarray) -> np.ndarray:
+        self.observations.append(obs.copy())
+        return self.inner.act(obs)
+
+    def step_info(self) -> dict[str, float | int | str]:
+        return self.inner.step_info()
 
 
 def _run_job(
@@ -463,10 +487,14 @@ def build_controller(
 
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate one controller on OGBench tasks.")
-    parser.add_argument("--method", required=True, help="baseline, nonhier, oracle or module:attr")
-    parser.add_argument("--env", default="antmaze-medium-navigate-v0")
+    parser.add_argument(
+        "--method", required=True, help=f"{', '.join(sorted(ALIASES))} or package.module:attr"
+    )
+    parser.add_argument("--env", default="antmaze-medium-navigate-v0", choices=ENV_NAMES)
     parser.add_argument("--tasks", type=int, nargs="+", default=[1, 2, 3, 4, 5])
-    parser.add_argument("--seeds", type=int, nargs="+", default=[0], help="eval seeds")
+    parser.add_argument(
+        "--seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4], help="eval seeds (protocol: 5)"
+    )
     parser.add_argument("--episodes", type=int, default=50, help="per task and eval seed")
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--opt", nargs="*", default=[], help="controller options key=value")

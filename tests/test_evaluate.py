@@ -3,7 +3,6 @@ import itertools
 
 import gymnasium as gym
 import numpy as np
-import ogbench
 import pandas as pd
 import pytest
 from gymnasium.spaces import Box
@@ -12,7 +11,6 @@ from gymnasium.wrappers import TimeLimit
 from fbplan import evaluate, frozen, train_high
 from fbplan.contracts import TaskSpec
 from fbplan.controllers import resolve_controller
-from fbplan.controllers.oracle import MazeGeometry
 from fbplan.evaluate import (
     HELDOUT_OFFSET,
     Checkpoint,
@@ -31,6 +29,7 @@ from fbplan.evaluate import (
     write_csv,
 )
 from fbplan.learned import train_b
+from fbplan.maze import MazeGeometry
 from fbplan.stats import CHECKPOINT_DEFAULTS, load_results
 
 ENV_NAME = "point-test-v0"
@@ -263,20 +262,13 @@ def test_make_tasks_reads_goal_from_env_and_latent_from_callable():
     np.testing.assert_array_equal(tasks[0].z_r, np.full(4, 2))
 
 
-def _ogbench_eval_env(env_name: str) -> gym.Env:
-    """The eval env as upstream main.py builds it. Replace with frozen.make_env after a-frozen."""
-    env = ogbench.make_env_and_datasets(env_name, env_only=True)
-    env.unwrapped._add_noise_to_goal = False
-    return env
-
-
 def test_real_antmaze_env_gives_paired_start_states_and_full_length_failures():
     env_name = "antmaze-medium-navigate-v0"
-    tasks = make_tasks(env_name, [1, 4], lambda _: np.zeros(128), _ogbench_eval_env)
+    tasks = make_tasks(env_name, [1, 4], lambda _: np.zeros(128))
     runs = []
     for _ in range(2):
         controller = _StillController(act_dim=8)
-        records = run_episodes(controller, tasks, [0], 1, env_factory=_ogbench_eval_env)
+        records = run_episodes(controller, tasks, [0], 1)
         runs.append(controller.first_obs)
         assert [(r.success, r.steps) for r in records] == [(False, 1000)] * 2
     np.testing.assert_array_equal(np.stack(runs[0]), np.stack(runs[1]))
@@ -359,7 +351,7 @@ def test_builtin_controllers_run_an_episode_on_the_real_model(medium_model, meth
 
 
 def test_raw_baseline_equals_baseline_for_a_task_latent_of_norm_sqrt_d(medium_model):
-    obs = frozen.load_dataset(MEDIUM, "val")["observations"][:: 50_000][:4]
+    obs = frozen.load_dataset(MEDIUM, "val")["observations"][:: 25_000]
     z = np.random.default_rng(0).normal(size=medium_model.latent_dim)
     task = TaskSpec(MEDIUM, 1, z / np.linalg.norm(z) * np.sqrt(z.size), np.zeros(2))
     baseline, raw = (resolve_controller(m)(medium_model) for m in ("baseline", "baseline_raw"))
@@ -386,13 +378,14 @@ def test_cli_runs_a_heldout_goal_with_a_retrained_checkpoint(medium_model, tmp_p
     out = tmp_path / "retrained.csv"
     task_id = HELDOUT_OFFSET + 1
     argv = ["--method", "baseline", "--checkpoint", "retrained:0", "--tasks", str(task_id)]
-    main([*argv, "--episodes", "1", "--out", str(out)])
+    main([*argv, "--seeds", "0", "--episodes", "1", "--out", str(out)])
     df = load_results([out])
     assert df[["task_id", *CHECKPOINT_DEFAULTS]].values.tolist() == [[task_id, "retrained", "", 0]]
 
 
 def test_cli_writes_one_record_per_episode(medium_model, tmp_path):
     out = tmp_path / "nonhier.csv"
-    main(["--method", "nonhier", "--tasks", "2", "--episodes", "2", "--out", str(out)])
+    main(["--method", "nonhier", "--tasks", "2", "--seeds", "0", "--episodes", "2",
+          "--out", str(out)])
     df = pd.read_csv(out)
     assert df[["task_id", "eval_seed", "episode"]].values.tolist() == [[2, 0, 0], [2, 0, 1]]
