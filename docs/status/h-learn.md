@@ -18,10 +18,14 @@
   B critic, H6 HIQL value), predictions P1–P3 for the 2× experiment (written at 23:45 MSK, before
   its result), a decision table by 2× outcome, and 11 rejected ideas.
 
+- Coordinator decision (2026-10-29, after 23:45 MSK): H1 is the attribution control of the 2×
+  experiment. e-learner trains it in the same overnight batch after the 2× families, and it is
+  evaluated with them. H2–H6 wait for the shortlist after h-exec and h-repr.
+
 ## Next
 
-- When the 2× results arrive: compare them with P1–P3; run the cheap tests of H1 and H4 (CPU,
-  about 2–5 minutes each) with the 2× calibration file.
+- Stopped on the coordinator's instruction. When asked: compare the 2× results with P1–P3; run
+  the cheap tests of H1 and H4 (CPU, about 2–5 minutes each) with the 2× calibration file.
 
 ## Blockers
 
@@ -29,7 +33,7 @@
 
 ## Requests to the coordinator
 
-1. The 2× experiment matches the std of `α·A`, not the effective sharpness. My offline estimate:
+1. Answered (H1 added). The 2× experiment matches the std of `α·A`, not the effective sharpness. My offline estimate:
    goal-latent ESS about 0.03 for B at 2× against 0.35 for the baseline at 2× (h-learn.md §0 C,
    P3). So "B at 2× beats the baseline at 2×" would not show a gain of chaining by itself. I propose
    H1 (B with `V_H = V_1` at the same temperature, one GPU batch) as the attribution control.
