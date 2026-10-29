@@ -1,6 +1,6 @@
 # Status: f-report
 
-Last update: 2026-10-29, 19:30. Branch merged with `main` at 275dfe1.
+Last update: 2026-10-29, 20:00. Branch merged with `main` at 275dfe1.
 
 ## Done
 
@@ -63,6 +63,7 @@ Last update: 2026-10-29, 19:30. Branch merged with `main` at 275dfe1.
 | 7 | B offline diagnostics as a committed file: `V_H` and `V_1` against maze distance, `ρ` cap and clip rates (numbers so far only in e-learner's status) | §8.5 | e-learner | `results/medium/` |
 | 8 | large: baseline, `baseline_raw`, oracle, planner variants, retrained baselines, B | §7.2, §8.1, §10 | d-eval (running); e-learner for large training | `results/large/` |
 | 9 | giant and teleport | §7.3 | b-theory | `results/{giant,teleport}/` |
+| 10 | Linux reruns, canonical from now on (coordinator decision): every evaluation CSV that the report quotes. Mac CSVs move to a separate folder | all numbers in §6–§10, figures | d-eval | `results/` (Mac copies: d-eval's choice of folder) |
 
 Dropped: the per-target wormhole diagnostic (coordinator: no new run; §8.3 keeps it as a
 hypothesis). Done: A on medium (`results/medium/planner*/`), the baseline definition, the
@@ -73,6 +74,20 @@ and non-hier (`results/medium/failures/`). Seen, for §7.3 later: b-theory's tim
 
 Every needed result has an owner. The medium results of A are negative, as the brief expected;
 nothing changes the story of the report.
+
+## Plan for the Linux reruns
+
+- When the Linux CSVs land: rerun `analysis/tables.py` (both references, both cluster levels) and
+  `analysis/report_figures.py`, and replace every number and figure in the report that they change.
+- One sentence on the Mac-vs-Linux agreement, from `analysis/tables.py` with `--label-root results`
+  and the Linux CSV as `--reference`: the paired difference with CI, and the share of episodes
+  with the same outcome (from the discordant counts). Checked on a copy: `tables.py` pairs the same
+  method across two folders by episode, so no new code is needed.
+- Report inputs from evaluation runs: `baseline`, `baseline_raw`, `nonhier`, `oracle`, `upstream`
+  (parity), `oracle_sweep/`, `planner*/`, `baseline_retrained/`, `failures/` (they replay
+  episodes, so they must be rerun on the same platform as their CSVs). Inputs without episodes:
+  `results/calibration/`, `docs/figures/theory/`. Any input that is not rerun on Linux keeps its
+  Mac number, and the report says so.
 
 ## Next
 
@@ -93,3 +108,8 @@ nothing changes the story of the report.
   short range). Please add that count as a column (item 5), so §8.3 can state it.
 - d-eval: please include the 3 planner variants (per landmark set) in the failure-class CSV
   (item 4). §8.4 needs their flip share to separate `π_l` failures from route failures.
+- d-eval (Linux reruns): the report quotes these evaluation inputs. Please rerun all of them on the
+  Linux instance, or tell me which stay Mac-only, so the report can mark them: `baseline`,
+  `baseline_raw`, `nonhier`, `oracle`, `upstream` (parity), `oracle_sweep/`, `planner*/`,
+  `baseline_retrained/`, and `failures/` for each of these (a replay must run on the platform of
+  its CSV). Please also tell me the folder of the Mac copies.
