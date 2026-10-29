@@ -4,7 +4,11 @@ import pytest
 
 from fbplan.contracts import TaskSpec
 from fbplan.controllers import resolve_controller
-from fbplan.controllers.baseline import BaselineController, NonHierController
+from fbplan.controllers.baseline import (
+    BaselineController,
+    NonHierController,
+    RawBaselineController,
+)
 from fbplan.controllers.oracle import (
     MazeGeometry,
     OracleConfig,
@@ -74,6 +78,31 @@ def test_nonhier_feeds_the_task_latent_to_pi_l():
     controller.reset(_task([0, 0], z_r), seed=0)
     controller.act(_obs_at([5.0, 1.0]))
     np.testing.assert_allclose(model.low_latents[-1], z_r)
+
+
+class _FakeUpstreamAgent:
+    """Records the calls of upstream FBpiSwitchAgent.sample_actions."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[np.ndarray, np.ndarray, float]] = []
+
+    def sample_actions(self, observations, latents=None, seed=None, temperature=1.0):
+        self.calls.append((np.array(observations), np.array(latents), temperature))
+        return np.tanh(latents[:2] - observations[:2])
+
+
+def test_raw_baseline_passes_the_task_latent_unnormalized_to_upstream_sample_actions():
+    model, z_r = _FakeFB(), np.array([0.1, 0.2, 0.3, 0.4])  # norm far from sqrt(d)
+    model.agent = _FakeUpstreamAgent()
+    controller = RawBaselineController(model)
+    controller.reset(_task([0, 0], z_r), seed=0)
+    obs = _obs_at([5.0, 1.0])
+    action = controller.act(obs)
+    ((obs_in, z_in, temperature),) = model.agent.calls
+    np.testing.assert_array_equal(obs_in, obs)
+    np.testing.assert_array_equal(z_in, z_r)
+    assert temperature == 0.0
+    np.testing.assert_allclose(action, np.tanh(z_r[:2] - obs[:2]))
 
 
 def test_maze_geometry_matches_ogbench_cell_conversions():

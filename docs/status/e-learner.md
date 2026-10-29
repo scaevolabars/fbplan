@@ -28,10 +28,8 @@
   goals), a retrained `π_h` reloads through `load_baseline_model(env, seed)` (for d-eval), and
   a file with changed `F`/`B`/`π_l` is refused. 117 tests pass. CLI smoke run on CPU (10 steps,
   medium train split): loads, trains, logs, saves.
-- `docs/plans/approach-b.md`: draft plan for approach B, waiting for the user's approval
-  (8 decisions in its §10). Revised after the merge: `R = 0` for goal latents as A, region
-  latents (d-eval's oracle result), `ρ` cap vs. design's `[0, γ]`, small headroom on medium.
-
+- `docs/plans/approach-b.md`: approved by the user (2026-10-29) with one change: B-clean keeps
+  single-state latents; region latents are the variant B-region. B2 waits for a B1 gain.
 - GPU job 1 (user approved, 2026-10-29): medium seeds 0-4 on vast.ai instance 58234389
   (RTX 3090, US, $0.209/h, label `fbplan-gpu`), code at commit 9557a55. Started 14:10 MSK.
   Speed: 5 ms/step per run with 4 runs in parallel, so about 45 min per run. Seed 2 crashed at
@@ -49,14 +47,57 @@
     keeps the JAX default, as upstream `main.py` does.
   - XLA sizes thread pools to the host's 80 cores (about 500 threads per run); the container
     allows 2304. `train_baselines.sh` now pins each run to 2 cores (39 threads per run).
+- Medium baseline done (15:05 MSK, 55 min of GPU; cost in the GPU log below). 5 retrained `π_h` in
+  `~/.cache/fbplan/baselines/medium/seed{0..4}/`, loadable with `load_baseline_model`; curves in
+  `runs/train_high/medium/seed*/train.csv`, plot `runs/train_high/medium/curves.png`.
+  Checks: train actor loss 791 -> 780 in every seed, no NaN; validation MSE 0.73 -> 0.72 (train
+  0.711), no divergence. Cosine of each seed's `π_h` output with the provided `π_h` on 2000
+  validation states x the 5 eval tasks: 0.955 (p10 0.90-0.92); between seeds also 0.955. So the
+  provided `π_h` behaves like one more seed of our recipe. Ready for d-eval.
 - At `create`, the vast.ai API answered "SSH key already associated with instance": the key may
   already be registered for the user in the team account, not only on our instance.
 
+- B1 implemented (plan approved 2026-10-29 with B-clean on single-state latents):
+  - `fbplan/learned/option_targets.py`: per-sample `ρ`, `R`, `V_1` in JAX, same formulas and head
+    convention as `fbplan/option_model.py`; tested equal to it on a noisy fake FB and to
+    b-theory's exact option tables; the residual form reaches the graph value-iteration fixed point
+    with chaining gains on a low-rank fake.
+  - `value.py` (stage 1: `V_H = V_1 + softplus(gain)`, expectile 0.9, `ρ ≤ 0.9`, `R = 0` for goal
+    latents, EMA target), `high_policy.py` (stage 2: upstream AWR with the switch advantage),
+    `train_b.py` (CLI; variants clean, wide, region; `load_b_model` for d-eval), `loop.py`
+    (logged loop shared with `train_high`).
+  - AWR temperature: chosen so that the spread of `α·A` equals upstream's (`0.1 × std` of the
+    upstream advantage on the same data), so that B-clean changes only the critic.
+  - CPU smoke run of both stages on the real medium checkpoint; 271 tests pass.
+- Measured on medium (validation split, 4096 in-trajectory pairs): `ρ` median 0.78, raw `ρ ≥ 1`
+  on 9.7 %, `ρ > 0.9` on 33 %. Correction to the plan (§5.1 said the cap "changes few targets"):
+  the cap binds on a third of the pairs, mostly short hops. Kept as approved; the ablation
+  `ρ_max ∈ {0.9, 1.0}` tests it. Exact `R` is noisy (10–90 %: −8.8 to +29), which supports
+  `R = 0` for goals. One-hop gain with `R = 0` is positive on 26 % of pairs.
+
+## GPU time and cost
+
+vast.ai, a shared team account, label `fbplan-gpu`. Times in MSK, 2026-10-29.
+
+| Instance | GPU, place | $/h (with disk) | Start | End | Hours | Cost |
+|---|---|---|---|---|---|---|
+| 58234389 | RTX 3090, US | 0.209 | 13:16 | running | | |
+
+What ran on 58234389:
+
+| From | To | What |
+|---|---|---|
+| 13:16 | 14:10 | setup: 2 pushes broke on the direct SSH port, 1 setup stopped at the MuJoCo renderer (fixed) |
+| 14:10 | 15:05 | medium baseline seeds 0-4 (GPU 100 %) |
+| 15:05 | 15:20 | pull, curve checks, user question |
+| 15:20 | 15:41 | push of B1 code, 271 tests on the instance (2 GPU-only failures, below) |
+| 15:45 | | push of the self-loop fix, tests; then stage 1 |
+
 ## Next
 
-- Medium: pull results, check the 5 training curves, destroy the instance or ask the user
-  about large (the user wants a question before large).
-- After approval: implement B1 (option targets in JAX, `V_H`, AWR `π_h`, CLI, tests).
+- Ask the user about the next GPU jobs (large baselines, B1 medium) or destroy instance 58234389.
+- B1 GPU runs on medium (ask the user first): `value --latents single` seeds 0-4, then
+  `policy --variant clean` and `wide`, then the region pair.
 
 ## Blockers
 
@@ -69,10 +110,14 @@ For a-frozen (`fbplan/frozen.py`). Updated after reading a-frozen's work in prog
 1. Done without a change in a-frozen: `train_high` uses `load_model(env).agent`, and
    `fbplan.train_high.load_baseline_model(env, seed)` gives d-eval an `FBModel` with a retrained
    `π_h`. This needs `FrozenFBModel` and `load_numpy_pickle` to stay public.
-2. Make `_upstream(module)` public (for example `upstream`), so my tests do not add
-   `third_party/ssm` to `sys.path` themselves (marked TODO in two test files).
+2. Done on main: `upstream_module`. My tests use it; no `sys.path` changes left.
 3. `load_dataset(...)["terminals"]` = 1 at the last state of each trajectory (non-compact OGBench
    layout), as upstream `GCDataset` expects. (Checked on medium: 1000 trajectories of 1000 steps, every end marked.)
+
+For the coordinator: on the GPU (full float32 precision) c-planner's
+`test_planner_with_region_latents_solves_every_task_of_the_exact_tabular_maze` solved 13 of 15
+tasks instead of 15 (269 of 271 tests passed; the other failure was mine, fixed in a189a49).
+Small float differences change planner choices; on CPU it passes.
 
 For the coordinator: a-frozen's tests assume CPU float32. On an Ampere GPU two of them fail
 (TF32, see Done). Options: set `jax_default_matmul_precision` to `highest` in those tests, or

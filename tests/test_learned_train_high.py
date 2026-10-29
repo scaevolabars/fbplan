@@ -1,6 +1,4 @@
 import pickle
-import sys
-from pathlib import Path
 
 import flax
 import jax
@@ -20,16 +18,14 @@ from fbplan.train_high import (
     with_fresh_high_actor,
 )
 
-# TODO(e-learner): use the a-frozen import helper once it is on main.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "third_party" / "ssm"))
-from agents.fbpiswitch import FBpiSwitchAgent, get_config  # noqa: E402
+fbpiswitch = frozen.upstream_module("agents.fbpiswitch")
 
 OBS_DIM, ACT_DIM = 5, 2
 
 
 def tiny_config() -> dict:
     """Upstream fbpiswitch config with small networks, as flags.json would give it (lists)."""
-    config = get_config().to_dict()
+    config = fbpiswitch.get_config().to_dict()
     config |= {
         "actor_hidden_dims": [16, 16],
         "forward_repr_hidden_dims": [16, 16],
@@ -49,7 +45,7 @@ def example_batch() -> dict[str, np.ndarray]:
 def frozen_agent():
     """Stands in for the restored checkpoint: a full agent with its own pi_h."""
     config = tiny_config()
-    agent = FBpiSwitchAgent.create(123, example_batch(), config)
+    agent = fbpiswitch.FBpiSwitchAgent.create(123, example_batch(), config)
     # As fbplan.frozen restores it: the stored config may hold lists from flags.json.
     return agent.replace(config=config)
 

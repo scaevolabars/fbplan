@@ -20,7 +20,6 @@ import json
 import os
 import pickle
 import subprocess
-import time
 from collections.abc import Mapping, Sequence
 from functools import partial
 from pathlib import Path
@@ -30,9 +29,9 @@ import flax
 import jax
 import jax.numpy as jnp
 import numpy as np
-import pandas as pd
 
 from fbplan import frozen
+from fbplan.learned.loop import run_logged
 from fbplan.learned.sampling import (
     HighBatchSpec,
     TrajectoryData,
@@ -106,26 +105,17 @@ def train(
     log_path: Path,
 ) -> Agent:
     """Train for `steps` updates. After every `log_every` updates, rewrite the CSV at log_path."""
-    if steps % log_every != 0:
-        raise ValueError(f"steps={steps} is not a multiple of log_every={log_every}")
     spec = HighBatchSpec.from_agent_config(agent.config)
-    rows: list[dict[str, float]] = []
-    start = time.time()
-    for chunk in range(1, steps // log_every + 1):
-        key, train_key, val_key = jax.random.split(key, 3)
-        agent, train_info = train_chunk(agent, train_data, train_key, log_every, spec)
-        val_info = validation_metrics(agent, val_data, val_key, spec)
-        row = {"step": chunk * log_every, "time_s": time.time() - start}
-        row |= {f"training/{k}": float(v) for k, v in train_info.items()}
-        row |= {f"validation/{k}": float(v) for k, v in val_info.items()}
-        rows.append(row)
-        pd.DataFrame(rows).to_csv(log_path, index=False)
-        print(
-            f"step {row['step']:>7d}  loss {row['training/high_actor/actor_loss']:.4f}"
-            f"  val {row['validation/high_actor/actor_loss']:.4f}  {row['time_s']:.0f}s",
-            flush=True,
-        )
-    return agent
+    return run_logged(
+        agent,
+        chunk=lambda agent, key, n: train_chunk(agent, train_data, key, n, spec),
+        validate=lambda agent, key: validation_metrics(agent, val_data, key, spec),
+        steps=steps,
+        log_every=log_every,
+        key=key,
+        log_path=log_path,
+        progress_key="high_actor/actor_loss",
+    )
 
 
 def save_checkpoint(agent: Agent, flags: dict[str, Any], out_dir: Path) -> None:
@@ -141,21 +131,26 @@ def save_checkpoint(agent: Agent, flags: dict[str, Any], out_dir: Path) -> None:
     (out_dir / "flags.json").write_text(json.dumps(flags, indent=2))
 
 
-def load_baseline_model(env_name: str, seed: int) -> frozen.FrozenFBModel:
-    """The frozen model with the pi_h that `seed` retrained: a baseline row for d-eval.
+def load_retrained_model(env_name: str, ckpt_dir: Path) -> frozen.FrozenFBModel:
+    """The frozen model with the pi_h saved in ckpt_dir by save_checkpoint, for evaluation.
 
     Raises if the saved F, B or pi_l differ from the provided checkpoint, because then the file
     belongs to another env or to modified modules.
     """
     provided = frozen.load_model(env_name).agent
-    state = frozen.load_numpy_pickle(baseline_dir(env_name, seed) / "params.pkl")["agent"]
+    state = frozen.load_numpy_pickle(ckpt_dir / "params.pkl")["agent"]
     agent = flax.serialization.from_state_dict(provided, state)
     for name in FROZEN_MODULES:
         saved = jax.tree_util.tree_leaves(agent.network.params[name])
         expected = jax.tree_util.tree_leaves(provided.network.params[name])
         if not all(np.array_equal(a, b) for a, b in zip(saved, expected, strict=True)):
-            raise ValueError(f"{name} in {baseline_dir(env_name, seed)} is not the provided one")
+            raise ValueError(f"{name} in {ckpt_dir} is not the provided one")
     return frozen.FrozenFBModel(env_name, jax.device_put(agent))
+
+
+def load_baseline_model(env_name: str, seed: int) -> frozen.FrozenFBModel:
+    """The frozen model with the pi_h that `seed` retrained: a baseline row for d-eval."""
+    return load_retrained_model(env_name, baseline_dir(env_name, seed))
 
 
 def git_commit() -> str:

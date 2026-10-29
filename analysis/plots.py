@@ -1,9 +1,11 @@
 """Success-rate figure per env from evaluation CSVs.
 
-    uv run python analysis/plots.py results/*.csv [--out-dir results/figures]
+    uv run python analysis/plots.py results/medium/*.csv results/medium/planner*/*.csv \
+        [--label-root results/medium] [--cluster config_hash] [--out-dir results/figures]
 
 One PNG per env: success (%) per task and overall, one dot per method with its 95 %
 stratified bootstrap CI as a whisker. Each method keeps the same color in every figure.
+--label-root and --cluster name and pool rows as in analysis/tables.py.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
 
-from fbplan.stats import load_results, summary_table  # noqa: E402
+from fbplan.stats import load_results, pool_label, summary_table  # noqa: E402
 
 # Fixed color per method (reference categorical order). The privileged oracle is neutral gray.
 METHOD_COLORS = {"baseline": "#2a78d6", "nonhier": "#eb6834", "oracle": "#7a7974"}
@@ -66,11 +68,16 @@ def plot_env(table: pd.DataFrame, env_name: str, path: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("csv", nargs="+", type=Path)
+    parser.add_argument("--label-root", type=Path, help="name rows by CSV path below this folder")
+    parser.add_argument("--cluster", help="column of a shared random factor, e.g. config_hash")
     parser.add_argument("--out-dir", type=Path, default=Path("results/figures"))
     args = parser.parse_args()
-    for env_name, env_df in load_results(args.csv).groupby("env_name"):
+    df = load_results(args.csv, label_root=args.label_root)
+    if args.cluster == "config_hash":
+        df = df.assign(method=df["method"].map(pool_label))
+    for env_name, env_df in df.groupby("env_name"):
         path = args.out_dir / f"success_{env_name}.png"
-        plot_env(summary_table(env_df), env_name, path)
+        plot_env(summary_table(env_df, cluster=args.cluster), env_name, path)
         print(path)
 
 
