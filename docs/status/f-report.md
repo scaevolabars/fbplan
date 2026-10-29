@@ -43,6 +43,8 @@ Last update: 2026-10-29, 19:30. Branch merged with `main` at 275dfe1.
   - §8.2: failure classes from `results/medium/failures/`: 71 % flips with a high level; the oracle
     flips less (142 against 198 episodes); non-hier fails task 4 by getting lost, not by flipping.
   - §9, §10 and the appendix follow.
+  - §8.4 correction: the test "plan with single-state latents, act with region latents" was run
+    as a 100-episode probe by c-planner (no gain, not committed); §10 lowers that next step.
 - Private defense sheet for the reviewer call (coordinator request): written outside the
   repository, not committed.
 - Every number in the report names a committed file. Recomputed with `analysis/tables.py`

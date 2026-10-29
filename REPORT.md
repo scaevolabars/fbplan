@@ -582,7 +582,10 @@ planner worse and slower. The oracle takes its route from the true maze and uses
 act. The planner uses the same latent for `ρ̂`, the planning signal, and for the action. A region
 latent makes `ρ̂` higher and flatter between near and far landmarks (§4; ablation pending), so the
 route gets worse even if each hop is easier to execute. Test: plan with single-state `ρ̂` and act
-with region latents *(not run)*.
+with region latents. A 100-episode probe of this split by c-planner (held-out start states, not
+committed) showed no gain over single-state latents, so the hypothesis is weak. A possible reason:
+the oracle's waypoints are 2 cells (about 8 xy units) ahead, the planner's at most 6 xy units, and
+the planner switches at 3.
 
 ### 8.5 What the learned `V_H` gains over the one-switch value *(pending)*
 
@@ -620,10 +623,10 @@ Limitations:
 
 Next steps that the evidence suggests:
 
-- Separate the planning latent from the acting latent: single-state `ρ̂` for the route, region
-  latents for the action (§8.4).
-- A target-side wormhole guard (§8.3, hypothesis).
 - Larger mazes, where FB loses distance information at long range (§8.3) *(pending: large)*.
+- A target-side wormhole guard (§8.3, hypothesis).
+- Separate the planning latent from the acting latent (§8.4). A first probe showed no gain, so this
+  test has a low priority.
 
 ## 11. Reproduction
 
