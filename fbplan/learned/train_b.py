@@ -278,6 +278,11 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         p.add_argument("--run-dir", type=Path, help="default: runs/train_b/<maze>/<name>/seed<k>")
     value = sub.choices["value"]
     value.add_argument("--latents", choices=("single", "region"), default="single")
+    value.add_argument(
+        "--name",
+        help="output folder name below approach_b/<maze>/; default value-<latents>. "
+        "Give ablations their own name, so they do not replace the V_H that policies load",
+    )
     value.add_argument("--expectile", type=float, default=ValueConfig.expectile)
     value.add_argument("--rho-max", type=float, default=OptionConfig.rho_max)
     value.add_argument(
@@ -286,8 +291,15 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     value.add_argument("--hop-cost", type=float, default=ValueConfig.hop_cost)
     policy = sub.choices["policy"]
     policy.add_argument("--variant", choices=tuple(VARIANTS), required=True)
+    policy.add_argument("--name", help="output folder name; default the variant")
+    policy.add_argument("--value-name", help="V_H folder to load; default value-<latents>")
     policy.add_argument("--alpha", type=float, help="default: matched to upstream's spread")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.name is None:
+        args.name = f"value-{args.latents}" if args.stage == "value" else args.variant
+    if args.stage == "policy" and args.value_name is None:
+        args.value_name = f"value-{VARIANTS[args.variant][0]}"
+    return args
 
 
 def base_flags(env_name: str, seed: int, steps: int) -> dict[str, Any]:
@@ -329,7 +341,7 @@ def train_value(args: argparse.Namespace, model: frozen.FrozenFBModel, run_dir: 
         "value_config": dataclasses.asdict(config),
         "value_spec": dataclasses.asdict(spec),
     }
-    out_dir = approach_b_dir(args.env, f"value-{args.latents}", args.seed)
+    out_dir = approach_b_dir(args.env, args.name, args.seed)
     save_value(value, flags, out_dir)
     print(f"saved {out_dir}")
 
@@ -338,7 +350,7 @@ def train_policy(args: argparse.Namespace, model: frozen.FrozenFBModel, run_dir:
     latents, random_goals = VARIANTS[args.variant]
     train_split, val_split = (Split.load(model, s, latents) for s in ("train", "val"))
     obs_dim = train_split.data.observations.shape[-1]
-    value_dir = approach_b_dir(args.env, f"value-{latents}", args.seed)
+    value_dir = approach_b_dir(args.env, args.value_name, args.seed)
     value, config = load_value(value_dir, obs_dim, model.latent_dim)
     agent = with_fresh_high_actor(model.agent, args.seed, example_batch(model.agent, obs_dim))
     spec = dataclasses.replace(
@@ -388,16 +400,15 @@ def train_policy(args: argparse.Namespace, model: frozen.FrozenFBModel, run_dir:
             "alpha_used": alpha,
         },
     }
-    out_dir = approach_b_dir(args.env, args.variant, args.seed)
+    out_dir = approach_b_dir(args.env, args.name, args.seed)
     save_checkpoint(agent, flags, out_dir)
     print(f"saved {out_dir}")
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
-    name = f"value-{args.latents}" if args.stage == "value" else args.variant
     maze = args.env.split("-")[1]
-    run_dir = args.run_dir or Path("runs/train_b") / maze / name / f"seed{args.seed}"
+    run_dir = args.run_dir or Path("runs/train_b") / maze / args.name / f"seed{args.seed}"
     run_dir.mkdir(parents=True, exist_ok=True)
     model = frozen.load_model(args.env)
     (train_value if args.stage == "value" else train_policy)(args, model, run_dir)
