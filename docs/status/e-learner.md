@@ -324,6 +324,22 @@ The allocator setting changes memory handling only. It did not lower the 2.5 GB,
 - Evaluation of the B variants by `fbplan.evaluate --checkpoint` (d-eval).
 - Switch to the shared helpers when they are public (requests 2 and 4).
 
+## Questions for the coordinator
+
+- T2 (log-ratio baseline `pi_h`, h-learn H2, design.md §8 wave 1), asked 2026-10-30 ~00:35 MSK.
+  H2 fixes the advantage for goal latents, `A = log max(F(s,z_w)^T z + rho~ F(w,z)^T z, 1) -
+  log max(F(s,z)^T z, 1)` (normalized z, rho~ = clip(rho, 0, 0.99), mean over heads), and the
+  upstream proxy for Gaussian latents. Three choices are open:
+  (a) temperature of the log-ratio part: recommend 2.45, h-learn's ESS match to upstream at 0.1
+      (ESS/N 0.177 against 0.168, §0 C); alternatives 2.5, or the H2 grid {1.25, 2.5, 5} (3 GPU h);
+  (b) temperature of the Gaussian-latent part (upstream proxy, linear units): recommend upstream's
+      0.1; one alpha near 2.5 for both would put almost every Gaussian sample at the clip;
+  (c) heads: recommend rho_h = F_h(s,z_w)^T B(w) / F_h(w,z_w)^T B(w) per head, clipped to
+      [0, 0.99], then the head mean of `F_h(s,z_w)^T z + rho~_h F_h(w,z)^T z` and of
+      `F_h(s,z)^T z` before the log; or h-learn's scratchpad script as the reference.
+  Code plan after the answer: `train_high --advantage logratio --goal-alpha A` (upstream loss
+  and batches, only the advantage of goal latents changes), folder `baselines/medium/logratio`.
+
 ## Blockers
 
 - None.
