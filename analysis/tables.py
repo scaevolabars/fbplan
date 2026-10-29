@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from fbplan.stats import load_results, paired_table, summary_table
+from fbplan.stats import load_results, paired_table, pool_label, summary_table
 
 PRIVILEGED = {"oracle"}  # methods that read privileged information
 
@@ -35,11 +35,6 @@ def label_configs(df: pd.DataFrame) -> pd.Series:
     """Method name, plus "@config_hash" for methods that have more than one config."""
     n_configs = df.groupby("method")["config_hash"].transform("nunique")
     return df["method"].where(n_configs == 1, df["method"] + "@" + df["config_hash"])
-
-
-def pool_name(label: str) -> str:
-    """The pooled method of a row label: "planner/l0" -> "planner", "name@hash" -> "name"."""
-    return label.split("/")[0].split("@")[0]
 
 
 def success_markdown(table: pd.DataFrame) -> str:
@@ -73,7 +68,7 @@ def paired_markdown(table: pd.DataFrame) -> str:
 
 def pooled_paired_markdown(table: pd.DataFrame) -> str:
     """Mean and range of the per-config paired differences, for methods with several configs."""
-    diffs = table.groupby(table["method"].map(pool_name), sort=False)["diff"].agg(
+    diffs = table.groupby(table["method"].map(pool_label), sort=False)["diff"].agg(
         ["size", "mean", "min", "max"]
     )
     diffs = diffs[diffs["size"] > 1]
@@ -102,7 +97,7 @@ def main() -> None:
         df = df.assign(method=label_configs(df))
     pooled = args.cluster == "config_hash"
     for env_name, env_df in df.groupby("env_name"):
-        shown = env_df.assign(method=env_df["method"].map(pool_name)) if pooled else env_df
+        shown = env_df.assign(method=env_df["method"].map(pool_label)) if pooled else env_df
         kind = f"cluster bootstrap over {args.cluster}" if args.cluster else "stratified bootstrap"
         print(f"## {env_name}\n\nSuccess (%), 95 % {kind} CI\n")
         print(success_markdown(summary_table(shown, cluster=args.cluster)))

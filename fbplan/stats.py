@@ -72,6 +72,12 @@ def load_results(paths: Iterable[Path], label_root: Path | None = None) -> pd.Da
     return df.astype({"success": bool})
 
 
+def pool_label(label: str) -> str:
+    """The method that a row label belongs to: "planner/l0" (label_root) -> "planner",
+    "name@hash" (one config of several) -> "name"."""
+    return label.split("/")[0].split("@")[0]
+
+
 def _quantiles(draws: np.ndarray, level: float) -> tuple[float, float]:
     low, high = np.quantile(draws, [(1 - level) / 2, (1 + level) / 2])
     return float(low), float(high)
