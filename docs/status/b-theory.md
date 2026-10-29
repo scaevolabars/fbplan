@@ -1,8 +1,8 @@
 # Status: b-theory
 
-Last update: 2026-10-29. Branch merged with `main` 1903bf2. Item 15 (bonus mazes): code, theory
-and preliminary Mac runs done; final runs handed to d-eval (Linux), commands below. First-pass
-review items B1–B15, X2, X13, X7 (my part) and K2 done.
+Last update: 2026-10-29. Branch merged with `main` 3e36461. Item 15 (bonus mazes): code, theory
+and preliminary Mac runs done; final runs wait in d-eval's Linux queue (group d), commands
+below. Review: first pass (B1–B15, X2, X13, X7 my part, K2) and second pass (B16–B21) done.
 
 ## Done
 
@@ -61,6 +61,35 @@ review items B1–B15, X2, X13, X7 (my part) and K2 done.
   rows: 3× faster, byte-identical study output (quick run compared).
 - K2: `temperature` and `seed` dropped from `fake_fb.py` (and the test fakes) after a-frozen's
   protocol change.
+
+## Review (g-release, second pass)
+
+- B16: `time_limit` creates its output folder first; `--out` → `--out-dir` with help; test.
+- B17: theory.md §11 exists (commit fc62526, after the review's snapshot) and holds the
+  time-limit results (walk thresholds 0.9977–0.9993, success ≤ 1/2).
+- B18: `make_plan` calls `graph.best_options` (the planner's tie rules). theory.md §8 now says
+  that the study shares the plan code, not the execution (reach radius, look-ahead, commit
+  timeout). Study rerun: only exact-model ties change (see theory.md §9.4).
+- B19: done in 8f58343 (after the review's snapshot).
+- B20: new pin tests in `tests/test_tabular_time_limit.py`: on every cell and teleport task the
+  oracle's `reach_plan` has the same hitting-time distribution as `walk_policy` and never
+  jumps; `discounted_plan` reaches the tabular optimum (γ 0.67 and 0.99). I kept the oracle's
+  own code instead of rebuilding it on `GridMaze`: the Linux queue runs the oracle at commit
+  84a8127, and the pins show the plans are equivalent. The neighbour helper stays: it takes the
+  map as an argument (the oracle needs it on the map with the entries walled), and
+  `MazeGeometry._free_neighbours` is private and bound to its own map.
+- B21: this status has review responses for both passes; run_study's time is "about 14 min with
+  4 workers"; test count below.
+- N: test maps now come from `GridMaze` (no copies; `SAFE_WALK_CELLS` stays once, in the
+  time-limit tests, as the hand count); `discounted_values` has `max_iters` and raises (test);
+  `PlannerKind` is the single source of the kinds (`get_args`); redundant `noqa: E402` removed
+  (the per-file ignore covers them); the proxy-gap test asserts 0.561 / 0.355, the values in
+  theory.md. Not mine: the `oracle_teleport` alias and the privileged set in `tables.py` /
+  `plots.py` (d-eval, coordinator).
+- X11 adopted: `run_study --out-dir` (done before), `study_plots [csv_dir] [--out-dir DIR]`
+  (positional input folder), `time_limit --out-dir`; all three use
+  `ArgumentDefaultsHelpFormatter` (request to g-release below).
+- Tests: all pass (`uv run pytest`), ruff clean.
 
 ## Results (preliminary, Mac, MuJoCo 3.1.6, planner code of f1ae57d)
 
@@ -133,7 +162,10 @@ Docs figures and tables (Mac, light):
 
 ## Requests to the coordinator
 
-- Please assign `tests/test_oracle_teleport.py` to b-theory (design.md §6).
+- Please assign `tests/test_oracle_teleport.py` to b-theory (design.md §6), if not done.
+- g-release (X11 flag renames, merge together with this branch): `scripts/reproduce.sh:268-269`
+  becomes `py -m fbplan.tabular.study_plots "$theory_dir"` and
+  `py -m fbplan.tabular.time_limit --out-dir "$theory_dir"`.
 - d-eval: `MazeGeometry.geodesic_distances` lets a point pass between two walls that touch only
   at a corner (giant 4 places, medium 2, teleport 2). The ant cannot pass there, so some
   calibration pairs look closer than they are (giant task 5: 21 xy units, walk 17 cells).
