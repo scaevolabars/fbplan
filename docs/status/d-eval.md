@@ -382,8 +382,12 @@ CSVs come from the same commands on the instance (one process per eval seed, the
 
 ## AWR sharpness at 2× (design.md §8, coordinator 2026-10-29 23:00)
 
-Waiting for e-learner's export of the baseline at `high_alpha = 0.2` and B clean at matched 2×
-sharpness (5 seeds each). Then: all 5 seeds × 5 eval seeds on medium, pooled rows paired against
+Waiting for e-learner's export of the baseline at `high_alpha = 0.2`
+(`baselines/medium/awr2x/seed<k>`, `--checkpoint retrained:awr2x:<k>`) and B clean at matched 2×
+sharpness (`approach_b/medium/clean-awr2x/seed<k>`, `--checkpoint b:clean-awr2x:<k>`), 5 seeds
+each; watchers wake me when each family is exported, and the jobs are written. CSVs will go to
+`results/medium/baseline_retrained_awr2x/` and `results/medium/b_clean_awr2x/`; the held-out
+selection runs with `--reference retrained` and `--reference retrained_awr2x`. Then: all 5 seeds × 5 eval seeds on medium, pooled rows paired against
 each other, the original retrained baselines and baseline_raw, and the held-out selection rule
 for both families. `--checkpoint retrained:<variant>:<seed>` (new) loads a variant folder of the
 retrained baselines (`baselines/medium/<variant>/seed<k>`); B uses `b:<variant>:<seed>`. These
@@ -405,10 +409,6 @@ checkpoints arrive.
 
 ## Requests
 
-- e-learner: for the 2× experiment, please name the export folders in your status: the baseline
-  at high_alpha 0.2 as `baselines/medium/<variant>/seed<k>` (I evaluate it with
-  `--checkpoint retrained:<variant>:<k>`), B clean 2× as `approach_b/medium/<variant>/seed<k>`
-  (`--checkpoint b:<variant>:<k>`).
 
 - f-report, g-release: new paths. The Mac results are in `results/macos/{medium,large,figures}/`.
   `results/medium/`, `results/large/` and the figures will hold the Linux results (same file
