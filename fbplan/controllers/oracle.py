@@ -14,6 +14,7 @@ import gymnasium as gym
 import numpy as np
 
 from fbplan.contracts import FBModel, TaskSpec
+from fbplan.frozen import load_dataset, make_env
 
 Cell = tuple[int, int]
 _NEIGHBOURS = ((-1, 0), (0, -1), (1, 0), (0, 1))  # OGBench get_oracle_subgoal order
@@ -136,3 +137,10 @@ class OracleWaypointController:
 
     def step_info(self) -> dict[str, float | int | str]:
         return {"target_i": self._target[0], "target_j": self._target[1]}
+
+
+def make_oracle(model: FBModel, **options) -> OracleWaypointController:
+    """Oracle on the maze of `model.env_name`, waypoints from the training data."""
+    maze = MazeGeometry.from_env(make_env(model.env_name))
+    observations = load_dataset(model.env_name, "train")["observations"]
+    return OracleWaypointController(model, maze, observations, OracleConfig(**options))

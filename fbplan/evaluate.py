@@ -6,12 +6,20 @@ Every method goes through this loop, so all numbers are comparable:
   start each episode from the same state (paired design, docs/design.md §5).
 - Success is OGBench's `info["success"]` at the last step, as in upstream
   `utils/evaluation.evaluate`. The env ends an episode at the goal or at its time limit.
+
+CLI (writes one CSV of EpisodeRecords, prints the success table and the throughput):
+
+    uv run python -m fbplan.evaluate --method baseline --env antmaze-medium-navigate-v0 \
+        --tasks 1 2 3 4 5 --seeds 0 --episodes 50 --workers 8 [--opt key=value ...]
 """
 
 from __future__ import annotations
 
+import argparse
+import ast
 import csv
 import dataclasses
+import functools
 import hashlib
 import json
 import multiprocessing
@@ -22,9 +30,12 @@ from pathlib import Path
 
 import gymnasium as gym
 import numpy as np
+import pandas as pd
 
 from fbplan.contracts import Controller, EpisodeRecord, TaskSpec
-from fbplan.frozen import make_env
+from fbplan.controllers import resolve_controller
+from fbplan.frozen import load_model, make_env
+from fbplan.stats import summary_table
 
 EnvFactory = Callable[[str], gym.Env]
 
@@ -204,3 +215,63 @@ def write_csv(records: Sequence[EpisodeRecord], path: Path) -> None:
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
         writer.writerows(dataclasses.asdict(record) for record in records)
+
+
+def parse_options(items: Sequence[str]) -> dict[str, object]:
+    """Controller options from "key=value" items. A value is a Python literal or a bare string."""
+    options: dict[str, object] = {}
+    for item in items:
+        key, sep, raw = item.partition("=")
+        if not sep:
+            raise ValueError(f"option {item!r} is not key=value")
+        try:
+            options[key] = ast.literal_eval(raw)
+        except (ValueError, SyntaxError):
+            options[key] = raw
+    return options
+
+
+def build_controller(spec: str, env_name: str, options: dict[str, object]) -> Controller:
+    """Load the frozen model and build the controller. Runs once in each worker process."""
+    return resolve_controller(spec)(load_model(env_name), **options)
+
+
+def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Evaluate one controller on OGBench tasks.")
+    parser.add_argument("--method", required=True, help="baseline, nonhier, oracle or module:attr")
+    parser.add_argument("--env", default="antmaze-medium-navigate-v0")
+    parser.add_argument("--tasks", type=int, nargs="+", default=[1, 2, 3, 4, 5])
+    parser.add_argument("--seeds", type=int, nargs="+", default=[0], help="eval seeds")
+    parser.add_argument("--episodes", type=int, default=50, help="per task and eval seed")
+    parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--opt", nargs="*", default=[], help="controller options key=value")
+    parser.add_argument("--out", type=Path, help="CSV path (default: runs/<env>_<method>_...)")
+    return parser.parse_args(argv)
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    args = _parse_args(argv)
+    factory = functools.partial(build_controller, args.method, args.env, parse_options(args.opt))
+    tasks = make_tasks(args.env, args.tasks, load_model(args.env).infer_task_latent)
+    start = time.perf_counter()
+    if args.workers == 1:
+        records = run_episodes(factory(), tasks, args.seeds, args.episodes)
+    else:
+        records = run_parallel(factory, tasks, args.seeds, args.episodes, args.workers)
+    elapsed = time.perf_counter() - start
+
+    first = records[0]
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    out = args.out or Path("runs") / f"{args.env}_{first.method}_{first.config_hash}_{stamp}.csv"
+    write_csv(records, out)
+    print(summary_table(pd.DataFrame([dataclasses.asdict(r) for r in records])).to_string())
+    steps = sum(r.steps for r in records)
+    per_worker = steps / sum(r.wall_time_s for r in records)
+    print(
+        f"{len(records)} episodes, {steps} steps in {elapsed:.0f} s: "
+        f"{steps / elapsed:.0f} steps/s overall, {per_worker:.0f} steps/s per worker. CSV: {out}"
+    )
+
+
+if __name__ == "__main__":
+    main()

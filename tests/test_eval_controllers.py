@@ -3,11 +3,13 @@ import ogbench
 import pytest
 
 from fbplan.contracts import TaskSpec
+from fbplan.controllers import resolve_controller
 from fbplan.controllers.baseline import BaselineController, NonHierController
 from fbplan.controllers.oracle import (
     MazeGeometry,
     OracleConfig,
     OracleWaypointController,
+    make_oracle,
     nearest_observations,
 )
 
@@ -129,3 +131,14 @@ def test_oracle_lookahead_stops_at_the_goal_cell():
     oracle.reset(_task(MEDIUM.centre((6, 6))), seed=0)
     oracle.act(_obs_at(MEDIUM.centre((5, 6))))
     np.testing.assert_allclose(model.low_latents[-1][:2], MEDIUM.centre((6, 6)) + 0.1)
+
+
+def test_resolve_controller_accepts_aliases_and_module_paths():
+    assert resolve_controller("baseline") is BaselineController
+    assert resolve_controller("oracle") is make_oracle
+    assert resolve_controller("fbplan.controllers.baseline:NonHierController") is NonHierController
+
+
+def test_resolve_controller_rejects_unknown_names():
+    with pytest.raises(ValueError, match="unknown controller"):
+        resolve_controller("planner-that-does-not-exist")

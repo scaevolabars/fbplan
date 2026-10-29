@@ -13,6 +13,7 @@ from fbplan.contracts import TaskSpec
 from fbplan.evaluate import (
     config_hash,
     make_tasks,
+    parse_options,
     reset_seed,
     run_episode,
     run_episodes,
@@ -221,3 +222,13 @@ def test_real_antmaze_env_gives_paired_start_states_and_full_length_failures():
         assert [(r.success, r.steps) for r in records] == [(False, 1000)] * 2
     np.testing.assert_array_equal(np.stack(runs[0]), np.stack(runs[1]))
     np.testing.assert_allclose(tasks[0].goal_xy, [20.0, 20.0])
+
+
+def test_parse_options_reads_python_literals_and_bare_strings():
+    options = parse_options(["lookahead=2", "rho_min=0.1", "agg=min", "label='a=b'"])
+    assert options == {"lookahead": 2, "rho_min": 0.1, "agg": "min", "label": "a=b"}
+
+
+def test_parse_options_rejects_items_without_equals_sign():
+    with pytest.raises(ValueError, match="key=value"):
+        parse_options(["lookahead"])
