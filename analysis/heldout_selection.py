@@ -3,7 +3,8 @@
     uv run python analysis/heldout_selection.py [--results results/medium]
         [--reference retrained] [--out results/medium/heldout_selection.csv]
 
-For each family with several training seeds (retrained baseline, B clean, B wide, B region):
+For each family with several training seeds (retrained baseline, B clean, B wide, B region,
+the 2x families, T2's log-ratio baseline):
 the held-out success of every seed (results/medium/heldout/<family>/seed<k>.csv, 10 held-out
 goals, eval seeds 0 1 2, 20 episodes), the selected seed (highest held-out success, ties to the
 lower seed id), and on the 5 eval tasks the selected seed paired against the selected seed of the
@@ -35,6 +36,7 @@ FAMILIES = {
     "b_region": "b_region",
     "retrained_awr2x": "baseline_retrained_awr2x",
     "b_clean_awr2x": "b_clean_awr2x",
+    "retrained_logratio": "baseline_retrained_logratio",
 }
 SEEDS = range(5)
 
