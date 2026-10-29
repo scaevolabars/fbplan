@@ -1,7 +1,9 @@
 import numpy as np
 import pytest
+from planner_fakes import GridFB
 
 from fbplan.graph import GraphSolution, extract_route, q_values, trusted_edges, value_iteration
+from fbplan.landmarks import LandmarkConfig, farthest_point_sampling, select_landmarks
 
 NEG = -np.inf
 
@@ -118,3 +120,50 @@ def test_value_iteration_rejects_mismatched_shapes():
     rho, mask, direct = chain()
     with pytest.raises(ValueError):
         value_iteration(rho, None, direct[:2], mask)
+
+
+# Landmarks are the graph nodes; their selection is tested here.
+
+
+def test_farthest_point_sampling_spreads_points_on_a_line():
+    points = np.arange(10.0)[:, None]
+    np.testing.assert_array_equal(farthest_point_sampling(points, 3, first=0), [0, 9, 4])
+
+
+def test_farthest_point_sampling_never_repeats_a_duplicated_point():
+    points = np.zeros((5, 2))
+    assert len(set(farthest_point_sampling(points, 5).tolist())) == 5
+
+
+def test_farthest_point_sampling_rejects_more_landmarks_than_points():
+    with pytest.raises(ValueError):
+        farthest_point_sampling(np.zeros((3, 2)), 4)
+
+
+def dataset_obs(fb: GridFB, repeats: int = 5) -> np.ndarray:
+    """Every maze cell several times, with two extra observation dims that are not xy."""
+    xy = np.tile(np.stack([fb.obs(c) for c in fb.cells]), (repeats, 1))
+    extra = np.arange(len(xy) * 2, dtype=np.float32).reshape(-1, 2)
+    return np.concatenate([xy, extra], axis=1)
+
+
+@pytest.mark.parametrize("space", ["xy", "backward"])
+def test_select_landmarks_covers_every_cell_and_keeps_full_observations(space):
+    fb = GridFB()
+    obs = dataset_obs(fb)
+    marks = select_landmarks(obs, LandmarkConfig(count=fb.latent_dim, space=space), fb)
+    assert len(set(fb.cell_ids(marks.observations).tolist())) == fb.latent_dim
+    np.testing.assert_array_equal(marks.observations, obs[marks.dataset_index])
+
+
+def test_select_landmarks_is_reproducible_for_a_seed():
+    obs = dataset_obs(GridFB())
+    cfg = LandmarkConfig(count=4, pool_size=20, seed=3)
+    np.testing.assert_array_equal(
+        select_landmarks(obs, cfg).dataset_index, select_landmarks(obs, cfg).dataset_index
+    )
+
+
+def test_select_landmarks_in_backward_space_needs_a_model():
+    with pytest.raises(ValueError):
+        select_landmarks(dataset_obs(GridFB()), LandmarkConfig(count=3, space="backward"))
