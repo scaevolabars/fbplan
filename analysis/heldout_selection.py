@@ -1,14 +1,15 @@
 """Seed selection on held-out goals (docs/design.md §8, plan B decision 8).
 
     uv run python analysis/heldout_selection.py [--results results/medium]
-        [--out results/medium/heldout_selection.csv]
+        [--reference retrained] [--out results/medium/heldout_selection.csv]
 
 For each family with several training seeds (retrained baseline, B clean, B wide, B region):
 the held-out success of every seed (results/medium/heldout/<family>/seed<k>.csv, 10 held-out
 goals, eval seeds 0 1 2, 20 episodes), the selected seed (highest held-out success, ties to the
-lower seed id), and on the 5 eval tasks the selected seed paired against the selected retrained
-baseline and against baseline_raw. Families without 5 held-out CSVs are skipped. Nothing else
-is tuned on the held-out goals; the pooled rows stay in analysis/tables.py.
+lower seed id), and on the 5 eval tasks the selected seed paired against the selected seed of the
+reference family (default: the retrained baseline; `retrained_awr2x` for the 2x sharpness
+experiment of design.md §8) and against baseline_raw. Families without 5 held-out CSVs are
+skipped. Nothing else is tuned on the held-out goals; the pooled rows stay in analysis/tables.py.
 """
 
 from __future__ import annotations
@@ -32,6 +33,8 @@ FAMILIES = {
     "b_clean": "b_clean",
     "b_wide": "b_wide",
     "b_region": "b_region",
+    "retrained_awr2x": "baseline_retrained_awr2x",
+    "b_clean_awr2x": "b_clean_awr2x",
 }
 SEEDS = range(5)
 
@@ -49,6 +52,7 @@ def _diff(df: pd.DataFrame, method: str, reference: str) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--results", type=Path, default=Path("results/medium"))
+    parser.add_argument("--reference", default="retrained", choices=sorted(FAMILIES))
     parser.add_argument("--out", type=Path, default=Path("results/medium/heldout_selection.csv"))
     args = parser.parse_args()
 
@@ -61,17 +65,17 @@ def main() -> None:
         selected[family] = f"{folder}/seed{select_seed(heldout)}"
         rows.append({"family": family, **{f"heldout_seed{k}": v for k, v in heldout.items()},
                      "selected_seed": select_seed(heldout)})
-    if "retrained" not in selected:
-        raise SystemExit("the retrained baseline's held-out CSVs are missing")
+    if args.reference not in selected:
+        raise SystemExit(f"the held-out CSVs of {args.reference} are missing")
 
     eval_paths = [args.results / "baseline_raw.csv"]
     eval_paths += [args.results / f"{label}.csv" for label in selected.values()]
     df = labelled_results(eval_paths, label_root=args.results)
-    reference = selected["retrained"]
+    reference = selected[args.reference]
     for row in rows:
         label = selected[row["family"]]
         row["eval_success"] = success_ci(df[df["method"] == label]).mean
-        row["vs_selected_retrained"] = (
+        row[f"vs_selected_{args.reference}"] = (
             "–" if label == reference else _diff(df, label, reference)
         )
         row["vs_baseline_raw"] = _diff(df, label, "baseline_raw")
