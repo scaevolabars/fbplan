@@ -247,6 +247,14 @@ Shared contracts: `fbplan/contracts.py` (`FBModel`, `Controller`, `TaskSpec`, `E
     beats both baseline rows (paired, significant); chaining if it also beats the retrained
     ensemble through the raw path. Robustness check, no selection: the T1 and T4 ensembles on the
     10 medium held-out goals. All T4 rows are reported, whatever they show.
+  - **Gate G0 and wave 2** (h-papers, `docs/hypotheses/h-papers.md` §2; applied on 2026-10-30
+    at 02:35 MSK). Medium: the 10-seed oracle is +1.0 pp [−1.2, +3.2] over `baseline_raw`, so
+    by the fixed reading (≤ +1 pp) no route method can pass on medium: H1–H3 are dropped there.
+    Large, fixed now before any result: run the oracle, `baseline` and `baseline_raw` on large
+    eval seeds 5–9; the bar is the stronger of the two baseline rows on 10 seeds; apply the same
+    table (≤ +1 pp: stop; +1 to +3 not significant: H1's held-out check first; significant:
+    H1 is the first test). The 2× gate (10 seeds): baseline 2× − retrained +2.2 pp [+0.0, +4.4];
+    B clean 2× − baseline 2× −0.6 pp: a `π_h` tuning effect, no gain of chaining.
   - Not in wave 1: an unfrozen `π_l` (h-exec H2, H5: low chance of a high-level gain, and every
     row would need it); the `z_r` norm knob (h-repr: c = 1 is best on medium); new critics
     (h-learn H5, H6) wait for the 2× result.
