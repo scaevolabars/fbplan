@@ -231,7 +231,10 @@ Shared contracts: `fbplan/contracts.py` (`FBModel`, `Controller`, `TaskSpec`, `E
     a gain of chaining only if the B ensemble also beats the retrained ensemble.
   - **T2, log-ratio advantage** (h-learn H2): retrain the baseline `π_h` (5 seeds) with the
     log-ratio proxy advantage of h-learn H2, upstream recipe otherwise. Reading: a pass is a `π_h`
-    training improvement, not a gain of chaining.
+    training improvement, not a gain of chaining. Choices (00:40 MSK, before any result):
+    temperature 2.45 for the log-ratio part (matches upstream's effective sample size at 0.1, so
+    only the shape of the advantage changes); upstream's 0.1 for the Gaussian-latent part;
+    `ρ` per head clipped to [0, 0.99], head mean taken before the log. No temperature grid.
   - **T3, time-aware trap avoidance on teleport** (h-exec H1): penalise the data-detected trap in
     the intention only where the remaining time fits a walk; radius and weight chosen on teleport
     held-out goals only. Reading: a pass is a gain of a sequence-aware high level over the
