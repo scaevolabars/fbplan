@@ -185,13 +185,20 @@ Shared contracts: `fbplan/contracts.py` (`FBModel`, `Controller`, `TaskSpec`, `E
 
 ## 8. Open items
 
-- Baseline definition (open, user decision): `π_h` with the normalized `z_r` (our contract) or with
-  the raw upstream `z_r`. On large the normalized one scored 14 points higher (one eval seed); on
-  medium the difference is not significant. Proposal: normalized as the main baseline, raw upstream
-  as a reference row.
+- None.
 
 Closed:
 
+- Baseline definition (2026-10-29, decided by the coordinator on the user's delegation): the main
+  baseline gives `π_h` the normalized `z_r`, the same input path as every other method, including
+  approach B and the retrained baselines. `baseline_raw` (upstream `sample_actions` with the raw
+  `z_r`) is a reference row. Evidence, 5 eval seeds, paired: medium raw − normalized = +2.6 pp
+  [−0.5, +5.8], p = 0.11; large 38.1 % against 38.0 %. The earlier 14-point gap on large came from
+  one eval seed on the old MuJoCo. Rule for the report: a gain counts only if it also holds
+  paired against `baseline_raw`.
+- Held-out goals (d-eval proposal H, accepted): `task_id` 101..110 identify held-out goals; only
+  the `TaskSpec` docstring changes. Checkpoint fields in `EpisodeRecord` (proposal C): rejected;
+  one CSV holds one checkpoint, and `write_csv` adds its columns.
 - Environment (a-frozen, 2026-10-29): keep JAX 0.10.2, flax 0.12.8, distrax 0.1.9 and the locked
   `tfp-nightly` build. The restore is exact, PyPI keeps all tfp-nightly builds, and an older stack
   gives no benefit because the pickles hold numpy arrays only. MuJoCo is pinned to 3.1.6 (§2).

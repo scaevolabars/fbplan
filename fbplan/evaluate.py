@@ -7,10 +7,17 @@ Every method goes through this loop, so all numbers are comparable:
 - Success is OGBench's `info["success"]` at the last step, as in upstream
   `utils/evaluation.evaluate`. The env ends an episode at the goal or at its time limit.
 
+- `--checkpoint` selects the pi_h of the frozen model (F, B and pi_l never change): the
+  provided one, a retrained baseline seed or an approach B model. Every CSV row records it in
+  the columns of `fbplan.stats.CHECKPOINT_DEFAULTS`, so that stats can pool training seeds.
+- Held-out goals (task ids above HELDOUT_OFFSET, listed in results/heldout_goals/) are custom
+  OGBench tasks for hyperparameter selection, so that tuning never sees the 5 eval tasks.
+
 CLI (writes one CSV of EpisodeRecords, prints the success table and the throughput):
 
     uv run python -m fbplan.evaluate --method baseline --env antmaze-medium-navigate-v0 \
-        --tasks 1 2 3 4 5 --seeds 0 --episodes 50 --workers 8 [--opt key=value ...]
+        --tasks 1 2 3 4 5 --seeds 0 --episodes 50 --workers 8 [--opt key=value ...] \
+        [--checkpoint provided | retrained:<seed> | b:<variant>:<seed>] [--heldout]
 
 With many workers on one CPU, `XLA_FLAGS="--xla_cpu_multi_thread_eigen=false
 intra_op_parallelism_threads=1"` gives each worker one XLA thread (about +15 % steps/s with
@@ -31,17 +38,192 @@ import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
+from typing import Any, Literal
 
 import gymnasium as gym
 import numpy as np
 import pandas as pd
 
-from fbplan.contracts import Controller, EpisodeRecord, TaskSpec
+from fbplan import train_high
+from fbplan.contracts import Controller, EpisodeRecord, FBModel, TaskSpec
 from fbplan.controllers import resolve_controller
-from fbplan.frozen import load_model, make_env
-from fbplan.stats import summary_table
+from fbplan.controllers.oracle import Cell, MazeGeometry
+from fbplan.frozen import load_dataset, load_model, make_env, upstream_module
+from fbplan.learned import train_b
+from fbplan.stats import CHECKPOINT_DEFAULTS, summary_table
 
 EnvFactory = Callable[[str], gym.Env]
+CheckpointKind = Literal["provided", "retrained", "b"]
+
+# Held-out goal k (1, 2, ...) has task_id HELDOUT_OFFSET + k; ids 1..5 are the OGBench eval tasks.
+HELDOUT_OFFSET = 100
+HELDOUT_DIR = Path(__file__).resolve().parents[1] / "results" / "heldout_goals"
+
+
+@dataclasses.dataclass(frozen=True)
+class Checkpoint:
+    """Which pi_h the frozen model carries. F, B and pi_l are always the provided modules.
+
+    provided: the paper's checkpoint (fbplan.frozen.load_model).
+    retrained: pi_h retrained with the upstream recipe from training seed `seed`
+        (fbplan.train_high.load_baseline_model).
+    b: approach B pi_h of `variant` from training seed `seed` (fbplan.learned.train_b).
+    """
+
+    kind: CheckpointKind = "provided"
+    variant: str = ""
+    seed: int = -1
+
+    def __post_init__(self) -> None:
+        valid = {
+            "provided": self.variant == "" and self.seed == -1,
+            "retrained": self.variant == "" and self.seed >= 0,
+            "b": self.variant != "" and self.seed >= 0,
+        }
+        if not valid.get(self.kind, False):
+            raise ValueError(f"invalid checkpoint {self}")
+
+    @classmethod
+    def parse(cls, spec: str) -> Checkpoint:
+        """A checkpoint from "provided", "retrained:<seed>" or "b:<variant>:<seed>"."""
+        kind, *rest = spec.split(":")
+        try:
+            if kind == "provided" and not rest:
+                return cls()
+            if kind == "retrained" and len(rest) == 1:
+                return cls("retrained", "", int(rest[0]))
+            if kind == "b" and len(rest) == 2:
+                return cls("b", rest[0], int(rest[1]))
+        except ValueError:
+            pass
+        raise ValueError(
+            f"checkpoint {spec!r} is not provided, retrained:<seed> or b:<variant>:<seed>"
+        )
+
+    def load(self, env_name: str) -> FBModel:
+        """The frozen model with this pi_h."""
+        if self.kind == "retrained":
+            return train_high.load_baseline_model(env_name, self.seed)
+        if self.kind == "b":
+            return train_b.load_b_model(env_name, self.variant, self.seed)
+        return load_model(env_name)
+
+    def columns(self) -> dict[str, object]:
+        """The CSV columns of this checkpoint (keys of fbplan.stats.CHECKPOINT_DEFAULTS)."""
+        return dict(zip(CHECKPOINT_DEFAULTS, (self.kind, self.variant, self.seed), strict=True))
+
+
+PROVIDED = Checkpoint()
+
+
+@dataclasses.dataclass(frozen=True)
+class HeldoutGoal:
+    """A custom OGBench task: start cell, goal cell and goal xy (the goal cell's centre)."""
+
+    task_id: int
+    init_ij: Cell
+    goal_ij: Cell
+    goal_xy: tuple[float, float]
+
+
+def select_heldout_goals(
+    env: gym.Env, count: int = 10, min_cells: int = 2, seed: int = 0
+) -> list[HeldoutGoal]:
+    """Goals far from the 5 eval goals, with start cells as far from them as the eval tasks'.
+
+    A start cell of a goal is a free cell whose distance to the goal (maze moves between
+    4-connected cells) lies in the range of the eval tasks' start-to-goal distances. Goal cells:
+    `count` free cells, drawn without replacement (seeded) from those at least `min_cells` moves
+    from every eval goal that have a start cell. Start cell of each goal: a seeded draw. The goal
+    is the cell centre, as in OGBench's own tasks, and success uses OGBench's goal radius.
+    """
+    maze, infos = MazeGeometry.from_env(env), env.unwrapped.task_infos
+    to_eval_goals = [maze.bfs_steps(tuple(info["goal_ij"])) for info in infos]
+    lengths = [
+        steps[tuple(info["init_ij"])] for steps, info in zip(to_eval_goals, infos, strict=True)
+    ]
+    free = maze.free_cells()
+
+    def starts(goal_ij: Cell) -> list[Cell]:
+        steps = maze.bfs_steps(goal_ij)
+        return [c for c in free if min(lengths) <= steps[c] <= max(lengths)]
+
+    candidates = [
+        c for c in free if min(steps[c] for steps in to_eval_goals) >= min_cells and starts(c)
+    ]
+    if not candidates:
+        raise ValueError("no free cell is far enough from the eval goals")
+    rng = np.random.default_rng(seed)
+    picked = rng.choice(len(candidates), size=min(count, len(candidates)), replace=False)
+    goals = []
+    for k, index in enumerate(picked, start=1):
+        goal_ij = candidates[index]
+        options = starts(goal_ij)
+        x, y = env.unwrapped.ij_to_xy(goal_ij)
+        init_ij = options[rng.integers(len(options))]
+        goals.append(HeldoutGoal(HELDOUT_OFFSET + k, init_ij, goal_ij, (float(x), float(y))))
+    return goals
+
+
+def heldout_goals_path(env_name: str) -> Path:
+    return HELDOUT_DIR / f"{env_name}.csv"
+
+
+def write_heldout_goals(goals: Sequence[HeldoutGoal], path: Path) -> None:
+    rows = [
+        {"task_id": g.task_id, "init_i": g.init_ij[0], "init_j": g.init_ij[1],
+         "goal_i": g.goal_ij[0], "goal_j": g.goal_ij[1], "goal_x": g.goal_xy[0],
+         "goal_y": g.goal_xy[1]}
+        for g in goals
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(path, index=False)
+
+
+def load_heldout_goals(env_name: str) -> list[HeldoutGoal]:
+    """The saved held-out goals of an env (written by analysis/heldout_goals.py)."""
+    df = pd.read_csv(heldout_goals_path(env_name))
+    return [
+        HeldoutGoal(int(r.task_id), (int(r.init_i), int(r.init_j)), (int(r.goal_i), int(r.goal_j)),
+                    (float(r.goal_x), float(r.goal_y)))
+        for r in df.itertuples()
+    ]
+
+
+@functools.cache
+def _heldout_table(env_name: str) -> dict[int, HeldoutGoal]:
+    return {goal.task_id: goal for goal in load_heldout_goals(env_name)}
+
+
+@functools.cache
+def _val_dataset(env_name: str) -> Any:
+    return upstream_module("utils.datasets").Dataset.create(**load_dataset(env_name, "val"))
+
+
+def goal_latent(model: FBModel, goal_ij: Cell) -> np.ndarray:
+    """z of the goal at the centre of cell goal_ij, computed as FrozenFBModel.infer_task_latent
+    computes z_r: upstream relabels the validation split with OGBench's goal radius (reward 1
+    inside, else 0) and averages r * B(s) over its first num_zero_shot_samples rows.
+    It needs the upstream agent, so it works with fbplan.frozen.FrozenFBModel only.
+    """
+    env = make_env(model.env_name)
+    env.reset(options={"task_info": {"init_ij": goal_ij, "goal_ij": goal_ij}})
+    relabel = upstream_module("utils.env_utils").relabel_dataset
+    relabeled = relabel(f"ogbench-{model.env_name}", env, _val_dataset(model.env_name))
+    agent: Any = model.agent  # type: ignore[attr-defined]
+    n = agent.config["num_zero_shot_samples"]
+    rewards = relabeled["rewards"][:n]
+    if not rewards.any():
+        raise ValueError(f"no validation state within the goal radius of cell {goal_ij}")
+    return np.asarray(agent.infer_latent({"observations": relabeled["observations"][:n],
+                                          "rewards": rewards}))
+
+
+def task_latent(model: FBModel, task_id: int) -> np.ndarray:
+    """z of an eval task (FBModel.infer_task_latent) or of a held-out goal (goal_latent)."""
+    if task_id > HELDOUT_OFFSET:
+        return goal_latent(model, _heldout_table(model.env_name)[task_id].goal_ij)
+    return model.infer_task_latent(task_id)
 
 
 def reset_seed(eval_seed: int, task_id: int, episode: int) -> int:
@@ -65,26 +247,37 @@ def make_tasks(
 ) -> list[TaskSpec]:
     """TaskSpecs with z_r from `task_latent` (usually FBModel.infer_task_latent).
 
-    The goal is the noise-free goal of the OGBench task (the eval env adds no goal noise).
+    The goal is the noise-free goal of the OGBench task (the eval env adds no goal noise), or
+    the saved goal of a held-out task id.
     """
     task_infos = env_factory(env_name).unwrapped.task_infos
+
+    def goal_xy(task_id: int) -> np.ndarray:
+        if task_id > HELDOUT_OFFSET:
+            return np.asarray(_heldout_table(env_name)[task_id].goal_xy, dtype=float)
+        return np.asarray(task_infos[task_id - 1]["goal_xy"], dtype=float)
+
     return [
         TaskSpec(
             env_name=env_name,
             task_id=task_id,
             z_r=np.asarray(task_latent(task_id)),
-            goal_xy=np.asarray(task_infos[task_id - 1]["goal_xy"], dtype=float),
+            goal_xy=goal_xy(task_id),
         )
         for task_id in task_ids
     ]
 
 
-def _reset(env: gym.Env, task_id: int, seed: int) -> np.ndarray:
+def _reset(env: gym.Env, task: TaskSpec, seed: int) -> np.ndarray:
     # OGBench draws the start-position noise (and teleport exits) from the global NumPy RNG and
     # the settling actions from the action-space RNG. Seed both, or the start state is random.
+    options: dict[str, object] = {"task_id": task.task_id}
+    if task.task_id > HELDOUT_OFFSET:
+        goal = _heldout_table(task.env_name)[task.task_id]
+        options = {"task_info": {"init_ij": goal.init_ij, "goal_ij": goal.goal_ij}}
     np.random.seed(seed)
     env.action_space.seed(seed)
-    obs, _ = env.reset(seed=seed, options={"task_id": task_id})
+    obs, _ = env.reset(seed=seed, options=options)
     return obs
 
 
@@ -108,7 +301,7 @@ def run_episode(
     """Run one episode until the goal or the env time limit."""
     start = time.perf_counter()
     seed = reset_seed(eval_seed, task.task_id, episode)
-    obs = _reset(env, task.task_id, seed)
+    obs = _reset(env, task, seed)
     _check_goal(env, task)
     controller.reset(task, seed)
     steps, done, info = 0, False, {}
@@ -214,14 +407,20 @@ def run_parallel(
         return [record for chunk in chunks for record in chunk]
 
 
-def write_csv(records: Sequence[EpisodeRecord], path: Path) -> None:
-    """Write records with one column per EpisodeRecord field. Creates parent folders."""
+def write_csv(
+    records: Sequence[EpisodeRecord], path: Path, checkpoint: Checkpoint = PROVIDED
+) -> None:
+    """Write records with one column per EpisodeRecord field, plus the checkpoint columns.
+
+    Creates parent folders.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
+    columns = checkpoint.columns()
     with path.open("w", newline="") as f:
         fields = [field.name for field in dataclasses.fields(EpisodeRecord)]
-        writer = csv.DictWriter(f, fieldnames=fields)
+        writer = csv.DictWriter(f, fieldnames=[*fields, *columns])
         writer.writeheader()
-        writer.writerows(dataclasses.asdict(record) for record in records)
+        writer.writerows({**dataclasses.asdict(record), **columns} for record in records)
 
 
 def parse_options(items: Sequence[str]) -> dict[str, object]:
@@ -238,9 +437,11 @@ def parse_options(items: Sequence[str]) -> dict[str, object]:
     return options
 
 
-def build_controller(spec: str, env_name: str, options: dict[str, object]) -> Controller:
+def build_controller(
+    spec: str, env_name: str, options: dict[str, object], checkpoint: Checkpoint = PROVIDED
+) -> Controller:
     """Load the frozen model and build the controller. Runs once in each worker process."""
-    return resolve_controller(spec)(load_model(env_name), **options)
+    return resolve_controller(spec)(checkpoint.load(env_name), **options)
 
 
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
@@ -252,14 +453,23 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--episodes", type=int, default=50, help="per task and eval seed")
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--opt", nargs="*", default=[], help="controller options key=value")
+    parser.add_argument(
+        "--checkpoint", default="provided", help="provided, retrained:<seed> or b:<variant>:<seed>"
+    )
+    parser.add_argument("--heldout", action="store_true", help="all held-out goals, not --tasks")
     parser.add_argument("--out", type=Path, help="CSV path (default: runs/<env>_<method>_...)")
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = _parse_args(argv)
-    factory = functools.partial(build_controller, args.method, args.env, parse_options(args.opt))
-    tasks = make_tasks(args.env, args.tasks, load_model(args.env).infer_task_latent)
+    checkpoint = Checkpoint.parse(args.checkpoint)
+    options = parse_options(args.opt)
+    factory = functools.partial(build_controller, args.method, args.env, options, checkpoint)
+    task_ids = [g.task_id for g in load_heldout_goals(args.env)] if args.heldout else args.tasks
+    # B is the same in every checkpoint (load_retrained_model checks it), and so is z.
+    model = load_model(args.env)
+    tasks = make_tasks(args.env, task_ids, functools.partial(task_latent, model))
     start = time.perf_counter()
     if args.workers == 1:
         records = run_episodes(factory(), tasks, args.seeds, args.episodes)
@@ -270,7 +480,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     first = records[0]
     stamp = time.strftime("%Y%m%d-%H%M%S")
     out = args.out or Path("runs") / f"{args.env}_{first.method}_{first.config_hash}_{stamp}.csv"
-    write_csv(records, out)
+    write_csv(records, out, checkpoint)
     print(summary_table(pd.DataFrame([dataclasses.asdict(r) for r in records])).to_string())
     steps = sum(r.steps for r in records)
     per_worker = steps / sum(r.wall_time_s for r in records)

@@ -5,7 +5,7 @@
 
 One PNG per env: success (%) per task and overall, one dot per method with its 95 %
 stratified bootstrap CI as a whisker. Each method keeps the same color in every figure.
---label-root and --cluster name and pool rows as in analysis/tables.py.
+Rows are named and pooled as in analysis/tables.py (--label-root, --cluster).
 """
 
 from __future__ import annotations
@@ -19,11 +19,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
 
-from fbplan.stats import load_results, pool_label, summary_table  # noqa: E402
+from fbplan.stats import load_results, pool_label, row_labels, summary_table  # noqa: E402
 
 # Fixed color per method (reference categorical order). The privileged oracle is neutral gray.
-METHOD_COLORS = {"baseline": "#2a78d6", "nonhier": "#eb6834", "oracle": "#7a7974"}
-OTHER_COLORS = ["#1baf7a", "#6250d6", "#e87ba4", "#008300", "#e34948", "#eda100"]
+METHOD_COLORS = {
+    "baseline": "#2a78d6", "nonhier": "#eb6834", "oracle": "#7a7974", "baseline_raw": "#1baf7a",
+    "planner": "#6250d6", "planner_high": "#e87ba4", "planner_region": "#eda100",
+}
+OTHER_COLORS = ["#008300", "#e34948"]
 INK, MUTED, GRID = "#0b0b0b", "#52514e", "#e4e3df"
 
 
@@ -73,7 +76,9 @@ def main() -> None:
     parser.add_argument("--out-dir", type=Path, default=Path("results/figures"))
     args = parser.parse_args()
     df = load_results(args.csv, label_root=args.label_root)
-    if args.cluster == "config_hash":
+    if args.label_root is None:
+        df = df.assign(method=row_labels(df))
+    if args.cluster is not None:
         df = df.assign(method=df["method"].map(pool_label))
     for env_name, env_df in df.groupby("env_name"):
         path = args.out_dir / f"success_{env_name}.png"

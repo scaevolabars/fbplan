@@ -26,10 +26,15 @@ def normalize_z(z: Array, latent_dim: int) -> Array:
 
 @dataclass(frozen=True)
 class TaskSpec:
-    """One evaluation task of an OGBench environment."""
+    """One evaluation task of an OGBench environment.
+
+    `task_id` 1..5 are the OGBench eval tasks. Ids above `fbplan.evaluate.HELDOUT_OFFSET` (100)
+    are held-out goals for hyperparameter selection: goal k = task_id - 100 of
+    `results/heldout_goals/<env>.csv`. Strata, pairing keys and reset seeds use `task_id` as is.
+    """
 
     env_name: str  # e.g. "antmaze-medium-navigate-v0"
-    task_id: int  # 1..5
+    task_id: int  # 1..5 eval tasks; 101.. held-out goals
     z_r: np.ndarray  # [d] raw task embedding from FBModel.infer_task_latent
     goal_xy: np.ndarray  # [2] privileged: only oracle controllers and diagnostics may read it
 
@@ -99,7 +104,7 @@ class EpisodeRecord:
     method: str  # Controller.name
     config_hash: str  # short hash of the controller config
     env_name: str
-    task_id: int
+    task_id: int  # see TaskSpec.task_id
     eval_seed: int  # outer seed; reset seed = f(eval_seed, task_id, episode)
     episode: int
     success: bool
