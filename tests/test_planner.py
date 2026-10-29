@@ -332,3 +332,11 @@ def test_lookahead_moves_on_only_along_trusted_edges():
     cells, waypoints = rollout(fb, short_hop_planner(fb, lookahead=True, rho_min=0.72), steps=4)
     assert cells[1:3] == [(1, 3), (1, 2)]
     assert [SHORT_HOPS[w] for w in waypoints[:3]] == [(1, 1), (1, 1), (3, 1)]
+
+
+def test_replan_every_step_rescores_all_landmarks_at_each_step():
+    fb = GridFB(horizon=4)
+    ctrl = planner(fb, replace(HORIZON_CFG, replan_every_step=True))
+    cells, _ = rollout(fb, ctrl, steps=12)
+    assert cells.index(GOAL) == 10
+    assert ctrl.step_info()["replans"] == 12

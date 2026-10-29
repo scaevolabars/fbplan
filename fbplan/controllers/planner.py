@@ -62,6 +62,9 @@ class PlannerConfig:
         states for all) 79/100 successes, against 56/100 for reached_xy = 1.5 without it and
         62/100 for reached_xy = 3 without it (baseline pi_h: 84/100).
     commit_timeout: replan after this many steps on one waypoint or on the task policy.
+    replan_every_step: rescore all landmarks at every step instead of committing to w*
+        (design.md §4.A). With exact values this is never worse (option interruption);
+        commitment guards against noisy values.
     """
 
     landmarks: LandmarkConfig = field(default_factory=LandmarkConfig)
@@ -76,6 +79,7 @@ class PlannerConfig:
     rho_reached: float = 0.9
     lookahead: bool = True
     commit_timeout: int = 100
+    replan_every_step: bool = False
     vi_max_iters: int = 1000
     vi_tol: float = 1e-8
 
@@ -189,7 +193,10 @@ class GraphPlannerController:
         return TaskPlan(z_r, reward, direct, solution)
 
     def _needs_replan(self, obs: np.ndarray) -> bool:
-        if self._waypoint is None or self._steps_on_waypoint >= self.config.commit_timeout:
+        cfg = self.config
+        if cfg.replan_every_step or self._waypoint is None:
+            return True
+        if self._steps_on_waypoint >= cfg.commit_timeout:
             return True
         if self._waypoint == DIRECT:
             return False
