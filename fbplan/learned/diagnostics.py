@@ -13,6 +13,8 @@ most at long range, where FB values are noisy.
 from __future__ import annotations
 
 import argparse
+import json
+from collections.abc import Sequence
 from pathlib import Path
 
 import jax
@@ -25,11 +27,12 @@ import numpy as np  # noqa: E402
 from fbplan import frozen  # noqa: E402
 from fbplan.contracts import normalize_z  # noqa: E402
 from fbplan.controllers.oracle import MazeGeometry  # noqa: E402
-from fbplan.learned.checkpoint import Agent  # noqa: E402
+from fbplan.learned.checkpoint import Agent, trained_key  # noqa: E402
 from fbplan.learned.train_b import Split  # noqa: E402
 from fbplan.learned.value import ValueState, load_value, multi_switch_value  # noqa: E402
 
-BIN_WIDTH = 2.0  # xy units
+PLOT_BIN = 2.0  # xy units per point of the plot
+TABLE_BIN = 4.0  # xy units per row of the table
 
 
 pair_values = jax.jit(multi_switch_value)
@@ -61,20 +64,21 @@ def summary_rows(geodesic: np.ndarray, v1: np.ndarray, vh: np.ndarray) -> list[s
         "| geodesic | pairs | median V_1 | median V_H | V_H > V_1 + 1 |",
         "|---|---|---|---|---|",
     ]
-    for lo in np.arange(0.0, geodesic.max(), BIN_WIDTH * 2):
-        m = (geodesic >= lo) & (geodesic < lo + BIN_WIDTH * 2)
+    for lo in np.arange(0.0, geodesic.max(), TABLE_BIN):
+        m = (geodesic >= lo) & (geodesic < lo + TABLE_BIN)
         if m.sum() < 20:
             continue
         rows.append(
-            f"| {lo:.0f}-{lo + 2 * BIN_WIDTH:.0f} | {m.sum()} | {np.median(v1[m]):.1f} | "
+            f"| {lo:.0f}-{lo + TABLE_BIN:.0f} | {m.sum()} | {np.median(v1[m]):.1f} | "
             f"{np.median(vh[m]):.1f} | {np.mean(vh[m] > v1[m] + 1):.2f} |"
         )
     return rows
 
 
 def plot(geodesic: np.ndarray, v1: np.ndarray, vh: np.ndarray, title: str, path: Path) -> None:
-    edges = np.arange(0.0, geodesic.max() + BIN_WIDTH, BIN_WIDTH)
-    centres = edges[:-1] + BIN_WIDTH / 2
+    """Median and 25-75 % band of V_1 and V_H per distance bin, saved to path."""
+    edges = np.arange(0.0, geodesic.max() + PLOT_BIN, PLOT_BIN)
+    centres = edges[:-1] + PLOT_BIN / 2
     fig, ax = plt.subplots(figsize=(7, 4))
     for values, label, color in ((v1, "V_1 (never switch)", "#888888"), (vh, "V_H", "#1f6fb2")):
         q = np.array(
@@ -97,17 +101,43 @@ def plot(geodesic: np.ndarray, v1: np.ndarray, vh: np.ndarray, title: str, path:
     plt.close(fig)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--env", default="antmaze-medium-navigate-v0")
-    parser.add_argument("--value", default="value-single", choices=["value-single", "value-region"])
-    parser.add_argument("--seeds", type=int, nargs="+", default=[0])
-    parser.add_argument("--n", type=int, default=300, help="states and goals sampled each")
-    parser.add_argument("--out-dir", type=Path, default=Path("runs/train_b/diagnostics"))
-    args = parser.parse_args()
+def per_goal_correlations(values: np.ndarray, geodesic: np.ndarray) -> np.ndarray:
+    """Rank correlation of values[:, j] with geodesic[:, j] per goal j, finite pairs only. [n_g]."""
+    out = []
+    for j in range(values.shape[1]):
+        m = np.isfinite(geodesic[:, j])
+        out.append(rank_correlation(values[m, j], geodesic[m, j]))
+    return np.array(out)
 
+
+def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
+    """Command line of the diagnostic (see the module docstring)."""
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--env", default="antmaze-medium-navigate-v0", choices=frozen.ENV_NAMES)
+    parser.add_argument(
+        "--value", default="value-single", help="V_H folder below approach_b/<maze>/, any name"
+    )
+    parser.add_argument("--seeds", type=int, nargs="+", default=[0], help="V_H training seeds")
+    parser.add_argument("--n", type=int, default=300, help="states and goals sampled each")
+    parser.add_argument(
+        "--out-dir", type=Path, default=Path("runs/diagnostics"), help="folder for the plot"
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    args = parse_args(argv)
     model = frozen.load_model(args.env)
-    split = Split.load(model, "val", args.value.removeprefix("value-"))
+    obs_dim = frozen.example_batch(model.agent.network.params)["observations"].shape[1]
+    values = {
+        seed: load_value(args.env, args.value, seed, obs_dim, model.latent_dim)[0]
+        for seed in args.seeds
+    }
+    flags_path = (
+        frozen.trained_dir(trained_key("approach_b", args.env, args.seeds[0], args.value))
+        / "flags.json"
+    )
+    split = Split.load(model, "val", json.loads(flags_path.read_text())["latents"])
     obs = np.asarray(split.data.observations)
     rng = np.random.default_rng(0)
     s_idx, g_idx = (rng.choice(len(obs), args.n, replace=False) for _ in range(2))
@@ -119,24 +149,25 @@ def main() -> None:
     far = finite & (geodesic > np.median(geodesic[finite]))
 
     print(f"{args.env}, {args.value}, {args.n} x {args.n} validation pairs")
-    print("| seed | rank corr V_1 vs dist | V_H | far half: V_1 | V_H |")
-    print("|---|---|---|---|---|")
+    print("Rank correlation of the value with the geodesic distance (more negative is better).")
+    print(
+        "| seed | pooled V_1 | V_H | far half V_1 | V_H | per goal V_1 | V_H | goals V_H better |"
+    )
+    print("|---|---|---|---|---|---|---|---|")
     maze = frozen.maze_name(args.env)
-    for seed in args.seeds:
-        value, _ = load_value(args.env, args.value, seed, obs.shape[1], model.latent_dim)
+    for seed, value in values.items():
         v1, vh = value_grid(model.agent, value, obs[s_idx], z_goals)
-        corr = [rank_correlation(v[m], geodesic[m]) for m in (finite, far) for v in (v1, vh)]
-        print(f"| {seed} | {corr[0]:.3f} | {corr[1]:.3f} | {corr[2]:.3f} | {corr[3]:.3f} |")
+        pooled = [rank_correlation(v[m], geodesic[m]) for m in (finite, far) for v in (v1, vh)]
+        g1, gh = per_goal_correlations(v1, geodesic), per_goal_correlations(vh, geodesic)
+        print(
+            f"| {seed} | {pooled[0]:.3f} | {pooled[1]:.3f} | {pooled[2]:.3f} | {pooled[3]:.3f} "
+            f"| {g1.mean():.3f} | {gh.mean():.3f} | {np.mean(gh < g1):.2f} |"
+        )
         if seed == args.seeds[0]:
             table = summary_rows(geodesic[finite], v1[finite], vh[finite])
             title = f"{maze} {args.value} seed {seed}: value vs. distance to the goal"
-            plot(
-                geodesic[finite],
-                v1[finite],
-                vh[finite],
-                title,
-                args.out_dir / f"{maze}-{args.value}-seed{seed}.png",
-            )
+            path = args.out_dir / f"{maze}-{args.value}-seed{seed}.png"
+            plot(geodesic[finite], v1[finite], vh[finite], title, path)
     print("\n" + "\n".join(table))
 
 

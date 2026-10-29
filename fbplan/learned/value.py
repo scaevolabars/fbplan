@@ -25,12 +25,11 @@ import jax
 import jax.numpy as jnp
 import optax
 
-from fbplan.frozen import forward, save_numpy_pickle, upstream_module
+from fbplan.frozen import forward, save_numpy_pickle, trained_dir, upstream_module
 from fbplan.learned.checkpoint import (
     Agent,
     load_trained_file,
     save_flags,
-    trained_dir,
     trained_key,
 )
 from fbplan.learned.option_targets import OptionConfig, OptionTerms, direct_value, option_terms
@@ -56,6 +55,11 @@ class ValueConfig:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ValueConfig:
         """Inverse of dataclasses.asdict, for the config stored in flags.json."""
+        if "rho_max" in d["option"]:
+            raise ValueError(
+                "this flags.json is from code before the rho_max -> rho_cap rename; convert its "
+                "folder with `python -m fbplan.learned.checkpoint export <folder>`"
+            )
         nested = {"option": OptionConfig(**d["option"]), "hidden_dims": tuple(d["hidden_dims"])}
         return cls(**(d | nested))
 
@@ -80,6 +84,7 @@ class ValueState(flax.struct.PyTreeNode):
     def create(
         cls, key: jax.Array, obs_dim: int, latent_dim: int, config: ValueConfig
     ) -> ValueState:
+        """A new delta network from `key`; its target copy starts equal to it."""
         net = delta_network(config.hidden_dims)
         params = net.init(key, jnp.zeros((1, obs_dim)), jnp.zeros((1, latent_dim)))["params"]
         tx = optax.adam(config.lr)
@@ -180,7 +185,7 @@ def load_value(
     """The V_H saved by save_value in approach_b/<maze>/<name>/seed<k>, and its config."""
     key = trained_key("approach_b", env_name, seed, name)
     state = load_trained_file(key, "value.pkl")
-    folder = trained_dir("approach_b", env_name, seed, name)
+    folder = trained_dir(key)
     config = ValueConfig.from_dict(json.loads((folder / "flags.json").read_text())["value_config"])
     template = ValueState.create(jax.random.PRNGKey(0), obs_dim, latent_dim, config)
     value = template.replace(

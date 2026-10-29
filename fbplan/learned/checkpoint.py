@@ -43,11 +43,12 @@ def trained_key(kind: Kind, env_name: str, seed: int, name: str | None = None) -
 
 
 def trained_dir(kind: Kind, env_name: str, seed: int, name: str | None = None) -> Path:
-    """Local folder of trained_key(...): frozen.trained_dir, which the cache variables move."""
+    """frozen.trained_dir(trained_key(...)). Kept for tests/test_evaluate.py until it calls that."""
     return frozen.trained_dir(trained_key(kind, env_name, seed, name))
 
 
 def save_flags(flags: Mapping[str, Any], out_dir: Path) -> None:
+    """Write out_dir/flags.json (indented), creating the folder."""
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "flags.json").write_text(json.dumps(flags, indent=2))
 
@@ -94,6 +95,12 @@ def with_fresh_high_actor(frozen_agent: Agent, seed: int) -> Agent:
     for name in FROZEN_MODULES:
         params[name] = flax.core.unfreeze(frozen_agent.network.params[name])
     return agent.replace(network=agent.network.replace(params=params))
+
+
+def run_flags(env_name: str, seed: int, steps: int) -> dict[str, Any]:
+    """flags.json of a training run: the provided checkpoint's flags, with seed, steps, commit."""
+    flags = json.loads((frozen.checkpoint_dir(env_name) / "flags.json").read_text())
+    return flags | {"seed": seed, "train_steps": steps, "commit": git_commit()}
 
 
 def git_commit() -> str:

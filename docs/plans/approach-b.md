@@ -28,7 +28,7 @@ Option "follow `π_{z_w}` until `w` is hit", with `z_w = B(w)`, per `F` head `h`
 (the same formulas and conventions as c-planner's `fbplan/option_model.py`):
 
 ```
-ρ(s,w)   = agg_h F_h(s,z_w)ᵀB(w) / F_h(w,z_w)ᵀB(w)     clipped to [0, ρ_max]
+ρ(s,w)   = agg_h F_h(s,z_w)ᵀB(w) / F_h(w,z_w)ᵀB(w)     clipped to [0, ρ_cap]
 R(s,w;z) = agg_h [F_h(s,z_w)ᵀz − ρ_h(s,w)·F_h(w,z_w)ᵀz]
 V_1(s,z) = agg_h F_h(s,z)ᵀz                              never switch again
 ```
@@ -68,7 +68,10 @@ L_V      = Σ_j E[ |τ − 1(u_j < 0)| · u_j² ],   u_j = y − V_1(s,z) − so
 - For a Gaussian latent (a general reward), the reward before `w` is not small, so `R = 0` would
   make `V_H` wrong there.
 
-Default: `R = 0` for goal latents, exact `R` for Gaussian latents. The eval tasks have goal
+Default: `R = 0` for goal latents, exact `R` for Gaussian latents (code: `edge_reward="goal_zero"`;
+`"exact"` and `"paper"` are the ablations). The name differs from A's `zero` mode on purpose: A
+plans for one goal at a time, so `zero` applies to every edge; B trains on goal and Gaussian
+latents in one batch, and `goal_zero` sets `R = 0` only for the goal latents. The eval tasks have goal
 latents, so for them B uses the same estimator as A. Ablations: exact `R` for all latents; the
 proxy. b-theory's exact maze measures all three.
 
@@ -94,6 +97,10 @@ look latents up; no `B` call per step.
 | **B-clean** | `B(·)` of one state, as upstream | upstream | only the critic changes: the gain from chaining |
 | **B-wide** | as B-clean | + 30 % random goals | training on goals across trajectories |
 | **B-region** | region latents | as B-clean | the latent type |
+
+In the code the latent kinds are `--latents single` (one state's `B`) and `--latents region`
+(the window below). c-planner calls the first kind `state`; the B names stay, because they are part
+of the trained folder names (`value-single`, `value-region`), which are the release keys.
 
 The region latent of a state is the mean of `B` over the states within ±5 steps of it on its
 trajectory (cumulative sums over the `B` table make this cheap). Reasons to try it: d-eval's
@@ -130,7 +137,7 @@ loads a retrained baseline.
 
 ## 5. Guards against error growth over hops
 
-1. **Contraction.** `ρ ≤ ρ_max = 0.9`. Then the hop-level Bellman operator is a contraction
+1. **Contraction.** `ρ ≤ ρ_cap = 0.9` (code: `OptionConfig.rho_cap`, CLI `--rho-cap`). Then the hop-level Bellman operator is a contraction
    with factor 0.9, so a per-target error ε grows at most to ε/(1 − 0.9) = 10ε. Design §3 clips
    `ρ̂` to `[0, γ]` for A, which gives γ-contraction and allows ε/(1 − γ) = 100ε, the same as
    one-step TD. FB `ρ̂` near a waypoint peaks at about 0.9 on medium (design §4), so the tighter
@@ -187,7 +194,7 @@ Evaluation (d-eval, design.md §5): B-clean, B-wide and B-region against the 5 r
 seeds (paired), A, and the oracle ceiling, on medium and large.
 Diagnostic controller **B-argmax**: A's controller with `V_H` in place of graph value iteration
 (`w* = argmax_{w∈L} R + ρ·V_H(w)`). It separates "critic quality" from "actor distillation".
-Ablations: exact vs. proxy `R`; `ρ_max ∈ {0.9, 1.0}`; `τ ∈ {0.7, 0.9}`; residual vs. plain `V_H`;
+Ablations: exact vs. proxy `R`; `ρ_cap ∈ {0.9, 1.0}`; `τ ∈ {0.7, 0.9}`; residual vs. plain `V_H`;
 with and without distillation (B2 only).
 
 **Hyperparameter selection** uses held-out goals (dataset states far from the 5 eval goals,

@@ -30,9 +30,8 @@ from fbplan import frozen
 from fbplan.learned.checkpoint import (
     SAMPLER_STREAM,
     Agent,
-    git_commit,
-    load_baseline_model,  # noqa: F401  fbplan.evaluate imports it from here (until it switches)
-    trained_dir,
+    run_flags,
+    trained_key,
     with_fresh_high_actor,
 )
 from fbplan.learned.loop import run_logged, scan_updates
@@ -42,12 +41,6 @@ from fbplan.learned.sampling import (
     make_trajectory_data,
     sample_high_batch,
 )
-
-
-def baseline_dir(env_name: str, seed: int) -> Path:
-    """Folder of a retrained pi_h. tests/test_evaluate.py calls it from here (until it switches
-    to fbplan.learned.checkpoint.trained_dir)."""
-    return trained_dir("baselines", env_name, seed)
 
 
 @partial(jax.jit, static_argnames=("n_steps", "spec"))
@@ -93,12 +86,17 @@ def train(
 
 
 def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
+    """Command line of train_high (see the module docstring)."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--env", required=True, choices=frozen.ENV_NAMES)
+    parser.add_argument("--env", required=True, choices=frozen.ENV_NAMES, help="OGBench env")
     parser.add_argument("--seed", type=int, required=True, help="pi_h init and batch sampling")
     parser.add_argument("--steps", type=int, default=500_000, help="number of updates")
     parser.add_argument("--log-every", type=int, default=5_000, help="updates per CSV row")
-    parser.add_argument("--out-dir", type=Path, help="default: <cache>/baselines/<maze>/seed<k>")
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        help="default: ~/.cache/fbplan/baselines/<maze>/seed<k> (FBPLAN_BASELINE_DIR moves it)",
+    )
     parser.add_argument("--run-dir", type=Path, help="default: runs/train_high/<maze>/seed<k>")
     return parser.parse_args(argv)
 
@@ -106,7 +104,7 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     maze = frozen.maze_name(args.env)
-    out_dir = args.out_dir or trained_dir("baselines", args.env, args.seed)
+    out_dir = args.out_dir or frozen.trained_dir(trained_key("baselines", args.env, args.seed))
     run_dir = args.run_dir or Path("runs/train_high") / maze / f"seed{args.seed}"
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -125,12 +123,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         log_path=run_dir / "train.csv",
     )
 
-    flags = json.loads((frozen.checkpoint_dir(args.env) / "flags.json").read_text())
-    flags |= {
-        "seed": args.seed,
-        "train_steps": args.steps,
+    flags = run_flags(args.env, args.seed, args.steps) | {
         "agent": dict(agent.config),
-        "retrained_high_actor": {"from": f"checkpoints/{maze}", "commit": git_commit()},
+        "retrained_high_actor": {"from": f"checkpoints/{maze}"},
     }
     frozen.save_trained_checkpoint(agent, flags, out_dir)
     print(f"saved {out_dir}")

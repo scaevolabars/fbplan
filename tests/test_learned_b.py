@@ -14,11 +14,11 @@ from fbplan.learned import train_b
 from fbplan.learned.checkpoint import (
     FROZEN_MODULES,
     load_b_model,
-    trained_dir,
+    trained_key,
     with_fresh_high_actor,
 )
 from fbplan.learned.high_policy import masked_mean_std, policy_update, switch_advantage
-from fbplan.learned.option_targets import OptionConfig, direct_value
+from fbplan.learned.option_targets import OptionConfig, direct_value, option_terms
 from fbplan.learned.sampling import (
     HighBatchSpec,
     SwitchBatch,
@@ -41,11 +41,11 @@ from fbplan.learned.value import (
     expectile_loss,
     load_value,
     save_value,
+    switch_targets,
     value_update,
 )
 
-fbpiswitch = frozen.upstream_module("agents.fbpiswitch")
-OBS_DIM, LATENT_DIM = 5, 4
+OBS_DIM, LATENT_DIM = 5, 4  # sizes of the shared tiny_agent (tests/conftest.py)
 TINY_VALUE = ValueConfig(hidden_dims=(16, 16))
 SPEC = HighBatchSpec(batch_size=64, discount=0.9, actor_geom_sample=False, actor_p_randomgoal=0.3)
 STAGE = Stage(SPEC, 0.5, TINY_VALUE)
@@ -54,25 +54,14 @@ MEDIUM = "antmaze-medium-navigate-v0"
 
 
 @pytest.fixture(scope="module")
-def agent():
-    """Upstream agent with small networks; its F, B and pi_l stand in for the frozen ones.
+def agent(tiny_agent):
+    """The shared small agent, with head 1 of F copied from head 0.
 
-    Head 1 of F copies head 0. With random weights the sign of F(w, z_w)^T z_w is random per
-    head, and a head with negative self-measures makes every edge invalid; a trained F has
-    positive ones. With equal heads about 40 % of the sampled edges are valid.
+    With random weights the sign of F(w, z_w)^T z_w is random per head, and a head with negative
+    self-measures makes every edge invalid; a trained F has positive ones. With equal heads about
+    40 % of the sampled edges are valid.
     """
-    config = fbpiswitch.get_config().to_dict() | {
-        "actor_hidden_dims": (16, 16),
-        "forward_repr_hidden_dims": (16, 16),
-        "backward_repr_hidden_dims": (16, 16),
-        "latent_dim": LATENT_DIM,
-        "batch_size": 32,
-    }
-    batch = {
-        "observations": np.zeros((1, OBS_DIM), np.float32),
-        "actions": np.zeros((1, 2), np.float32),
-    }
-    agent = fbpiswitch.FBpiSwitchAgent.create(123, batch, config)
+    agent = tiny_agent.agent
     params = flax.core.unfreeze(agent.network.params)
     params["modules_forward_repr"] = jax.tree_util.tree_map(
         lambda x: x.at[1].set(x[0]), params["modules_forward_repr"]
@@ -162,6 +151,28 @@ def test_value_update_moves_params_and_the_target_by_ema(agent, value, split):
         )
 
 
+def test_switch_targets_assemble_the_option_terms_of_s_and_w(agent, value, split):
+    """y = R(s, w) + rho(s, w) V_H(w) - hop_cost, with s and w in their places."""
+    config = dataclasses.replace(TINY_VALUE, hop_cost=0.1)
+    batch = split.batch(jax.random.PRNGKey(6), STAGE)
+    y, v1_s, terms = switch_targets(agent, value, value.params, batch, config)
+    s, w, z_w, z = batch.observations, batch.subgoals, batch.subgoal_latents, batch.task_latents
+    distinct = jnp.any(s != w, axis=-1)
+    expected = option_terms(
+        forward(agent, s, z_w),
+        forward(agent, w, z_w),
+        z_w,
+        z,
+        batch.is_goal,
+        distinct,
+        config.option,
+    )
+    v_w = value.value(direct_value(forward(agent, w, z), z), w, z)
+    np.testing.assert_allclose(y, expected.reward + expected.rho * v_w - 0.1, rtol=1e-5, atol=1e-5)
+    np.testing.assert_allclose(v1_s, direct_value(forward(agent, s, z), z), rtol=1e-6)
+    np.testing.assert_array_equal(terms.valid, expected.valid)
+
+
 def test_expectile_loss_weights_errors_above_more():
     diff = jnp.array([1.0, -1.0])
     np.testing.assert_allclose(expectile_loss(diff, 0.9), [0.9, 0.1])
@@ -174,7 +185,12 @@ def test_value_config_round_trips_through_its_json_dict():
 
 def test_value_round_trip_through_its_folder(value, tmp_path, monkeypatch):
     monkeypatch.setenv("FBPLAN_APPROACH_B_DIR", str(tmp_path))
-    save_value(value, TINY_VALUE, {"seed": 0}, trained_dir("approach_b", MEDIUM, 0, "v"))
+    save_value(
+        value,
+        TINY_VALUE,
+        {"seed": 0},
+        frozen.trained_dir(trained_key("approach_b", MEDIUM, 0, "v")),
+    )
     loaded, config = load_value(MEDIUM, "v", 0, OBS_DIM, LATENT_DIM)
     assert config == TINY_VALUE
     assert same(loaded.params, value.params) and same(loaded.target_params, value.target_params)
@@ -267,7 +283,9 @@ def test_both_stages_run_on_the_real_checkpoint_and_reload(medium, tmp_path, mon
 
     monkeypatch.setenv("FBPLAN_APPROACH_B_DIR", str(tmp_path))
     flags = {"env_name": f"ogbench-{MEDIUM}"}
-    frozen.save_trained_checkpoint(trained, flags, trained_dir("approach_b", MEDIUM, 0, "clean"))
+    frozen.save_trained_checkpoint(
+        trained, flags, frozen.trained_dir(trained_key("approach_b", MEDIUM, 0, "clean"))
+    )
     loaded = load_b_model(MEDIUM, "clean", 0)
     obs = split.data.observations[:3]
     z = jnp.ones((3, model.latent_dim))
