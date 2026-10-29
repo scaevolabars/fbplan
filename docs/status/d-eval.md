@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-29, 20:55. Branch merged with `main` at 3e36461.
+Last update: 2026-10-29, 21:15. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -111,6 +111,30 @@ vast.ai log (team account, label `fbplan-gpu-eval`):
 
 Selection rule now (coordinator): CPU model AMD EPYC Zen 2/3/4 or Xeon Gold/Platinum, ≥ 64
 effective cores, ≥ 128 GB RAM, reliability ≥ 0.99, ≤ $1/h; destroy after 15 min without SSH.
+
+## Medium (Linux, `results/medium/`, 5 eval seeds × 5 tasks × 50 episodes)
+
+Planner rows pool landmark sets 0–2 (cluster config_hash); retrained rows pool 5 training seeds
+(cluster checkpoint_seed). Paired on the same 1,250 episodes.
+
+| method | success [95 % CI] | vs baseline (pp) | vs baseline_raw (pp) |
+|---|---|---|---|
+| baseline | 77.0 [74.7, 79.3] | – | −3.8 [−6.8, −0.7] |
+| baseline_raw | 80.8 [78.6, 82.9] | +3.8 [+0.7, +6.8] | – |
+| baseline_retrained (5 seeds) | 78.3 [76.9, 79.7] | +1.2 [−1.5, +4.1] | −2.5 [−5.2, +0.2] |
+| non-hier | 65.4 [63.4, 67.5] | −11.6 [−14.7, −8.5] | −15.4 [−18.3, −12.4] |
+| oracle (privileged) | 81.3 [79.1, 83.4] | +4.2 [+1.1, +7.5] | +0.5 [−2.6, +3.5] |
+| planner | 68.4 [66.2, 70.5] | −8.6 [−12.0, −5.3] | −12.4 [−15.8, −9.2] |
+| planner_high | 72.5 [70.7, 74.3] | −4.5 [−7.7, −1.4] | −8.3 [−11.3, −5.2] |
+| planner_region | 64.9 [59.0, 71.9] | −12.1 [−18.8, −5.1] | −15.9 [−22.5, −8.9] |
+
+- On Linux, baseline_raw beats the normalized baseline (+3.8 pp, CI excludes 0; Mac: +2.6, p 0.11).
+- The oracle gains against the baseline but not against baseline_raw (+0.5 pp): by the rule of
+  design.md §8 even the privileged oracle has no gain on medium.
+- Per landmark set: planner 68.8 / 69.9 / 66.5 %, planner_high 73.8 / 71.4 / 72.2 %,
+  planner_region 58.7 / 72.2 / 63.8 %. Retrained seeds 0–4: 79.1, 79.7, 77.5, 76.6, 78.4 %.
+- Large failure classes (Linux, `runs/linux/large/failures/`): baseline 72.0 % other, 27.7 %
+  flipped; oracle 70.4 % other, 29.6 % flipped. Unlike medium, large failures are mostly not flips.
 
 ## Large (Linux, `results/large/`, 5 eval seeds × 5 tasks × 50 episodes)
 
