@@ -34,7 +34,7 @@ from fbplan.graph import (
     q_values,
     value_iteration,
 )
-from fbplan.landmarks import LandmarkConfig, select_landmarks
+from fbplan.landmarks import LandmarkConfig, RegionField, select_landmarks
 from fbplan.option_model import OptionModel, OptionModelConfig, OptionTable
 
 
@@ -76,6 +76,15 @@ class PlannerConfig:
         near the goal the max over many landmark values beats the one task value, and
         between two ways around a loop small FB errors flip the choice at each reach.
         inf: always follow the plan between timeouts.
+    act_ahead_xy: act on the route instead of on the waypoint: pi_l gets the region-mean
+        latent (fbplan.landmarks.RegionField, radius act_region_xy) of the point act_ahead_xy
+        xy units ahead along the planned route (the agent, the waypoint w*, then best_next
+        stops), and z_r once that point lies past the last landmark of the route. Planning
+        still uses the landmark latents. None: act with z_w*. d-eval's privileged oracle beats
+        the baseline with region latents 1-2 cells (4-8 xy) ahead on the true path, and fails
+        with single-state latents; this mode gives the planner's own route the same executor.
+    act_region_xy: radius of the act regions (0.5: the goal radius of the task reward that
+        defines z_r).
     commit_timeout: replan after this many steps on one waypoint or on the task policy.
     replan_every_step: rescore all landmarks at every step instead of committing to w*
         (design.md §4.A). With exact values this is never worse (option interruption);
@@ -95,6 +104,8 @@ class PlannerConfig:
     rho_reached: float = 0.9
     lookahead: bool = True
     switch_steps: float | None = None
+    act_ahead_xy: float | None = None
+    act_region_xy: float = 0.5
     commit_timeout: int = 100
     replan_every_step: bool = False
     vi_max_iters: int = 1000
@@ -103,6 +114,8 @@ class PlannerConfig:
     def __post_init__(self) -> None:
         if self.switch_steps is not None and self.switch_steps < 0:
             raise ValueError("switch_steps must be >= 0 or None")
+        if self.act_ahead_xy is not None and self.act_ahead_xy <= 0:
+            raise ValueError("act_ahead_xy must be > 0 or None")
 
 
 def trusted_edges(
@@ -147,11 +160,15 @@ class GraphPlannerController:
         landmarks: np.ndarray,
         config: PlannerConfig | None = None,
         latents: np.ndarray | None = None,
+        region_field: RegionField | None = None,
     ) -> None:
         """landmarks: observations [N, obs_dim]; latents: their option latents z_w [N, d]
-        (default: B of each landmark state)."""
+        (default: B of each landmark state); region_field: the act latents of act_ahead_xy."""
         self.fb = fb
         self.config = config or PlannerConfig()
+        if self.config.act_ahead_xy is not None and region_field is None:
+            raise ValueError("act_ahead_xy needs a region_field")
+        self.region_field = region_field
         self.options = OptionModel(fb, self.config.options)
         self.landmarks = landmarks
         self.targets = self.options.targets(landmarks, latents)
@@ -171,7 +188,13 @@ class GraphPlannerController:
         """Select landmarks and their latents from dataset observations (config.landmarks)."""
         config = config or PlannerConfig()
         marks = select_landmarks(observations, config.landmarks, fb)
-        return cls(fb, marks.observations, config, marks.latents)
+        field = None
+        if config.act_ahead_xy is not None:
+            pool = config.landmarks
+            field = RegionField.from_data(
+                fb, observations, config.act_region_xy, pool.pool_size, pool.seed
+            )
+        return cls(fb, marks.observations, config, marks.latents, field)
 
     @property
     def edges(self) -> OptionTable:
@@ -209,8 +232,7 @@ class GraphPlannerController:
         elif self.config.lookahead:
             self._advance(obs)
         self._steps_on_waypoint += 1
-        z = self.plan.z_r if self._waypoint == DIRECT else self.targets.z[self._waypoint]
-        return self._action(obs, z)
+        return self._action(obs, self._act_latent(obs))
 
     def step_info(self) -> dict[str, float | int | str]:
         return {
@@ -222,6 +244,31 @@ class GraphPlannerController:
 
     def _action(self, obs: np.ndarray, z: np.ndarray) -> np.ndarray:
         return np.asarray(self.fb.low_action(obs[None], z[None]))[0]
+
+    def _act_latent(self, obs: np.ndarray) -> np.ndarray:
+        """z_r on the task policy; else z_w* of the waypoint, or with act_ahead_xy the region
+        latent of the route point ahead (z_r past the end of the route)."""
+        if self._waypoint == DIRECT:
+            return self.plan.z_r
+        if self.config.act_ahead_xy is None:
+            return self.targets.z[self._waypoint]
+        point = self._route_point(obs, self.config.act_ahead_xy)
+        return self.plan.z_r if point is None else self.region_field.at(point)
+
+    def _route_point(self, obs: np.ndarray, distance: float) -> np.ndarray | None:
+        """The xy point `distance` along the planned route from obs (straight lines through the
+        waypoint and its next stops). None past the last landmark when the route ends with the
+        task policy; the last landmark when it ends otherwise (a loop on ties)."""
+        route = extract_route(self.plan.solution, self._waypoint)
+        points = np.vstack([obs[None, :2], self.landmarks[route, :2]])
+        lengths = np.linalg.norm(np.diff(points, axis=0), axis=1)
+        ends = np.cumsum(lengths)
+        k = int(np.searchsorted(ends, distance))
+        if k == len(lengths):
+            ends_direct = self.plan.solution.best_next[route[-1]] == DIRECT
+            return None if ends_direct else points[-1]
+        t = (distance - (ends[k] - lengths[k])) / lengths[k]
+        return points[k] + t * (points[k + 1] - points[k])
 
     def _solve(self, z_r: np.ndarray) -> TaskPlan:
         cfg = self.config
