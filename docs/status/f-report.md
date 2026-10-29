@@ -1,6 +1,6 @@
 # Status: f-report
 
-Last update: 2026-10-29. Branch merged with `main` at f1ae57d.
+Last update: 2026-10-29, 19:30. Branch merged with `main` at 275dfe1.
 
 ## Done
 
@@ -33,6 +33,18 @@ Last update: 2026-10-29. Branch merged with `main` at f1ae57d.
   - §8.3 from `results/calibration/*.csv`: wormholes per `ρ_min` (a higher `ρ_min` keeps 88 % of
     them on medium), what the xy cap leaves (1,965 of 3,385 on medium, 1,420 of 3,992 on large),
     head min against head mean. §4 guard table: the xy cap removes 42 % (medium) and 64 % (large).
+- After the merge of 275dfe1 (retrained baselines, failure classes, b-theory's rerun study):
+  - §3.1 and §4: tabular numbers from the rerun `docs/figures/theory/study_*.csv` (single switch
+    0.24, chained `R̂ = 0` 0.37, commitment 0.37 → 0.50); "cost per hop" is now the hop discount
+    (0.37 → 0.11–0.13).
+  - §7.1: the retrained baseline row (78.3 % [76.9, 79.8], 5 seeds pooled) and its paired rows
+    against `baseline` (mean +0.5 pp) and `baseline_raw` (mean −2.2 pp).
+  - §8.1: the `π_h` training seed is ruled out as the cause of the gap to the paper (76.9–80.6 %).
+  - §8.2: failure classes from `results/medium/failures/`: 71 % flips with a high level; the oracle
+    flips less (142 against 198 episodes); non-hier fails task 4 by getting lost, not by flipping.
+  - §9, §10 and the appendix follow.
+- Private defense sheet for the reviewer call (coordinator request): written outside the
+  repository, not committed.
 - Every number in the report names a committed file. Recomputed with `analysis/tables.py`
   (`--reference baseline` and `--reference baseline_raw`, `--cluster config_hash`) and
   `analysis/report_figures.py`. The paired `upstream` row of `tables.py` is not used.
@@ -41,19 +53,20 @@ Last update: 2026-10-29. Branch merged with `main` at f1ae57d.
 
 | # | Result | Report section | Owner | Expected place |
 |---|---|---|---|---|
-| 1 | retrained baseline `π_h` seeds 0–4 on medium, 5 eval seeds each | §7.1, §8.1, §10 | d-eval (after large) | `results/medium/` |
 | 2 | A guard and execution ablations on medium: `R̂` exact and paper against zero, raw `ρ̂ ≥ 1` trusted, no xy cap, `two_way`, `reached_xy` 1.5 and the `ρ` rule, no look-ahead, `replan_every_step`; the `ρ̂` statistics of region latents | §4 (evidence column), §8.4, §9 | c-planner (assigned) | `results/medium/planner_ablations/` |
 | 3 | route plots of A on medium and large, committed | §8.4 | c-planner (`analysis/planner_routes.py` writes to `runs/`) | `docs/figures/report/` or c-planner's results |
-| 4 | failure classes as a CSV: baseline, `baseline_raw`, oracle, non-hier, and the 3 planner variants; later B | §8.2, §8.4, §10 | d-eval (assigned) | `results/medium/` |
+| 4 | failure classes of the 3 planner variants (per landmark set), later B | §8.4, §10 | d-eval (assigned) | `results/medium/failures/` |
 | 5 | whether the wormholes that the xy cap leaves cross a wall (a column of the calibration CSV) | §8.3, §4 | d-eval | `results/calibration/` |
 | 6 | B1 on medium: `V_H`, then B-clean, B-wide, B-region, 5 eval seeds | §7.1, §8.5, §9 | e-learner (GPU training), d-eval (evaluation) | `results/medium/` |
-| 7 | B offline diagnostics: `V_H` and `V_1` against maze distance; `ρ` cap and clip rates | §8.5 | e-learner | `results/medium/` |
+| 7 | B offline diagnostics as a committed file: `V_H` and `V_1` against maze distance, `ρ` cap and clip rates (numbers so far only in e-learner's status) | §8.5 | e-learner | `results/medium/` |
 | 8 | large: baseline, `baseline_raw`, oracle, planner variants, retrained baselines, B | §7.2, §8.1, §10 | d-eval (running); e-learner for large training | `results/large/` |
 | 9 | giant and teleport | §7.3 | b-theory | `results/{giant,teleport}/` |
 
 Dropped: the per-target wormhole diagnostic (coordinator: no new run; §8.3 keeps it as a
 hypothesis). Done: A on medium (`results/medium/planner*/`), the baseline definition, the
-calibration tables (`results/calibration/`). Seen, for §7.3 later: b-theory's time-limit study
+calibration tables (`results/calibration/`), the retrained medium baselines
+(`results/medium/baseline_retrained/`), the failure classes of baseline, `baseline_raw`, oracle
+and non-hier (`results/medium/failures/`). Seen, for §7.3 later: b-theory's time-limit study
 (`docs/figures/theory/time_limit*`).
 
 Every needed result has an owner. The medium results of A are negative, as the brief expected;
