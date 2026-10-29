@@ -112,10 +112,13 @@ cmd_train() {
 }
 
 # run <instance-id> <session> <command ...>: start a command in a detached tmux session.
+# The command is escaped twice: once as tmux's command string, once for the remote shell, so
+# an argument with spaces (a seed list) stays one argument.
 cmd_run() {
-  local id=$1 session=$2
+  local id=$1 session=$2 command
   shift 2
-  remote "$id" "cd $REMOTE_DIR && tmux new-session -d -s '$session' '$*'"
+  command=$(printf '%q ' "$@")
+  remote "$id" "cd $REMOTE_DIR && tmux new-session -d -s $(printf %q "$session") $(printf %q "$command")"
   echo "started $session; follow with: $0 status $id"
 }
 
