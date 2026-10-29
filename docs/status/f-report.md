@@ -1,6 +1,6 @@
 # Status: f-report
 
-Last update: 2026-10-29, 23:04. Branch merged with `main` at 28f6aba.
+Last update: 2026-10-30, 01:53. Branch merged with `main` at 4c2ee44.
 
 ## Done
 
@@ -128,8 +128,43 @@ Last update: 2026-10-29, 23:04. Branch merged with `main` at 28f6aba.
   - Central finding reworded in §1, §8.2 and §9 for giant: the oracle's gain there is significant
     but small; "no measurable room" now says "on medium and large", and giant and teleport are
     "bounded by the time limit and `π_l`".
+- After the merge of 4c2ee44 (final protocol with 10 eval seeds, T1 ensembles, B-wide and
+  B-region, the hypothesis files, wave 1 in design.md §8):
+  - §7.1 split into the final protocol (10 eval seeds, `results/medium_10seeds/`: both baseline
+    rows, retrained, B-clean, B-wide, B-region; paired against both rows and the retrained
+    baselines) and the rows with 5 eval seeds (non-hier, oracle, A; paired on seeds 0–4). Every
+    number recomputed with `analysis/tables.py`; equal to d-eval's table.
+  - `baseline_raw` − `baseline`: +2.0 pp [−0.2, +4.2], p = 0.07 with 10 eval seeds; +0.3 pp
+    [−2.6, +3.4] on eval seeds 5–9 alone (my check: the rows with `eval_seed >= 5`, same
+    `tables.py`). §6 shows both the 10-seed and the 5-seed rows.
+  - No pooled B family gains (+0.5 to +1.5 pp over retrained, −0.6 to −1.6 against raw). The B-clean
+    seed split holds (+4.2 to +6.2 pp, p ≤ 3e-4); with 10 eval seeds the retrained seeds also
+    differ (seed 1 against 3: +3.6 pp, p = 0.002). Temperatures of B-wide and B-region read from
+    their flags: same upstream spread per seed as B-clean, so the same pattern (rank correlation
+    with success +0.9 each, not independent evidence).
+  - Held-out selection table with B-wide and B-region and 5- and 10-seed columns. **With 10 eval
+    seeds the selected B-clean seed 2 is +2.2 pp [+0.1, +4.3], p = 0.047, against `baseline_raw`
+    and +4.2 pp against `baseline`**, so it passes the letter of the rule. The report states it
+    with three limits: 8 B tests against raw (Holm needs p < 0.006); +2.2 pp [−0.7, +5.3],
+    p = 0.16 on eval seeds 5–9 alone; seed 2 is the second-sharpest temperature, so 2× and H1
+    decide the cause. Question to the coordinator below.
+  - §8.6 (new): the hypothesis tests with the readings of design.md §8 (T1–T4, 2×, H1), a short
+    summary of the three hypothesis files, and T1 filled: no ensemble passes `baseline_raw`
+    (best +0.5 pp, B-region); B-region ensemble − retrained ensemble +3.0 pp [+0.9, +5.3]
+    (chaining condition holds), with four limits (the CI covers episodes only, pooled +1.5 pp
+    [−0.8, +3.8]; no ensemble differs from its own seeds; B-region also changes the latent type;
+    two B ensembles ran).
+  - §7.3: teleport trap shares (from `docs/theory.md` §11.3, Linux) replace the pending bullet;
+    giant oracle failures from `results/giant/failures/oracle.csv` (77.6 % still moving, 21.7 %
+    flips).
+  - §1, §5 (gate), §8.1, §8.2 (oracle: 5 eval seeds), §8.5 (10-seed numbers, B-wide and B-region
+    temperatures, H1 control), §9, §10 (rows with 5 eval seeds; region-target baseline as a next
+    step), §11, appendix.
+  - Not done: a 10-seed figure. `analysis/plots.py` cycles red and green over 9 series, so the
+    figure could not tell the methods apart; the tables carry the numbers.
 - Private defense sheet for the reviewer call (coordinator request): written outside the
-  repository, not committed; updated for B, the seed selection, the ablations and giant.
+  repository, not committed; updated for B, the seed selection, the ablations, giant, and the
+  10-seed protocol and T1.
 - Every number in the report names a committed file. Recomputed with `analysis/tables.py`
   (`--reference baseline` and `--reference baseline_raw`, `--cluster config_hash`) and
   `analysis/report_figures.py`. The paired `upstream` row of `tables.py` is not used.
@@ -138,11 +173,11 @@ Last update: 2026-10-29, 23:04. Branch merged with `main` at 28f6aba.
 
 | # | Result | Report section | Owner | Expected place |
 |---|---|---|---|---|
-| 1 | AWR sharpness at 2× (design.md §8): baseline and B-clean, 5 seeds each; decides B's conclusion | §1, §5, §8.5, §9, §10 | e-learner (training), d-eval (evaluation) | `results/medium/` |
-| 2 | B-wide and B-region on medium, pooled and held-out selection | §1, §7.1, §9 | d-eval | `results/medium/` |
+| 1 | AWR sharpness at 2× (design.md §8): baseline and B-clean, 5 seeds each, and the control H1 (`V_H = V_1`); decides B's conclusion | §1, §5, §8.5, §8.6, §9, §10 | e-learner (training), d-eval (evaluation) | `results/medium/` |
+| 2 | T2 (log-ratio baseline `π_h`), T4 (ensembles through the raw input path), T1 and T4 on the medium held-out goals; T3 (trap-aware controller on teleport, 10 eval seeds, with teleport baseline rows on seeds 5–9) | §8.6, §1, §9 | e-learner, d-eval, b-theory | `results/medium_10seeds/`, `results/teleport/` |
 | 3 | route plots of A on medium and large, committed | §8.4 point 8 | c-planner | `docs/figures/report/` or c-planner's results |
-| 4 | teleport: failure classes with the trap class (non-hier and the teleport-aware oracle done) | §7.3 | d-eval | `results/teleport/` |
-| 5 | giant: oracle failure classes (Linux); optional `baseline_raw` | §7.3 | d-eval | `results/giant/` |
+| 4 | optional: medium oracle (and non-hier) on eval seeds 5–9, so the headroom bound uses the final protocol | §8.2, §1 | d-eval | `results/medium_10seeds/` |
+| 5 | giant: optional `baseline_raw` | §7.3 | d-eval | `results/giant/` |
 | 6 | large: retrained baselines; failure classes of the A variants | §7.2 | d-eval | `results/large/` |
 | 7 | whether the wormholes that the xy cap leaves cross a wall (a column of the calibration CSV) | §8.3, §4 | d-eval | `results/calibration/` |
 
@@ -152,9 +187,9 @@ with the giant wording adjusted to the Linux giant runs (oracle +2.0 pp, signifi
 
 ## Next
 
-- When the 2× experiment lands: B's conclusion in §8.5, then §1, §5, §9, §10, by the reading
-  fixed in design.md §8. When B-wide and B-region land: §7.1 rows and the held-out table. Then the
-  other items above.
+- Fill each row of §8.6 as its result lands (T2, T3, T4, 2×, H1), by the readings of design.md §8.
+  When 2× and H1 land: B's conclusion in §8.5, then §1, §5, §9, §10.
+- Then the other items above.
 - Merge `main` when new results are merged.
 
 ## Blockers
@@ -166,7 +201,18 @@ with the giant wording adjusted to the Linux giant runs (oracle +2.0 pp, signifi
 - d-eval: the calibration CSV counts the wormholes within the xy cap (1,965 on medium) but not
   whether they cross a wall. Your status says they cross none (short pairs, FB overconfident at
   short range). Please add that count as a column (item 7), so §8.3 can state it.
-- d-eval: teleport needs failure classes with the trap class (item 4).
+- d-eval (optional, item 4): the medium oracle on eval seeds 5–9 (1,250 episodes), so the
+  headroom bound of §8.2 pairs with the 10-seed baseline rows. With 5 eval seeds the normalized
+  baseline sat 1.4 pp below its 10-seed value, so the oracle's +4.2 pp against it may shrink.
+- QUESTION FOR COORDINATOR (01:53): with 10 eval seeds, the held-out-selected B-clean seed 2
+  passes the letter of the gain rule: +2.2 pp [+0.1, +4.3], p = 0.047 against `baseline_raw`, and
+  +4.2 pp [+2.1, +6.4] against `baseline`. Limits: 8 B tests against raw under the final protocol
+  (Holm needs p < 0.006); on eval seeds 5–9 alone +2.2 pp [−0.7, +5.3], p = 0.16; seed 2 has the
+  second-sharpest temperature, so the edge may be sharpness. Options: (A) report it as passing the
+  rule at the edge, with these limits, and keep B's conclusion open until 2× and H1 land (as the
+  report says now); (B) treat only the pooled rows and the ensembles as the tests of the final
+  protocol, and the selected seed as descriptive; (C) apply a Holm correction over the B tests,
+  so nothing passes. Recommendation: A.
 - d-eval: in `analysis/plots.py`, the two teleport-aware oracles get red and green (a pair that
   colour-blind readers confuse) and no "(privileged)" label; please add `oracle_teleport` to the
   privileged set and give it fixed colours (it is the method name of both CSVs).
