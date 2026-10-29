@@ -18,9 +18,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
-from matplotlib.patches import Rectangle  # noqa: E402
 
-from fbplan.controllers.oracle import MazeGeometry  # noqa: E402
 from fbplan.evaluate import (  # noqa: E402
     HeldoutGoal,
     heldout_goals_path,
@@ -28,6 +26,7 @@ from fbplan.evaluate import (  # noqa: E402
     write_heldout_goals,
 )
 from fbplan.frozen import load_dataset, make_env  # noqa: E402
+from fbplan.maze import MazeGeometry, draw_walls  # noqa: E402
 
 ENVS = ["antmaze-medium-navigate-v0", "antmaze-large-navigate-v0", "antmaze-giant-navigate-v0"]
 INK, MUTED, WALL, EVAL, HELDOUT = "#0b0b0b", "#52514e", "#e4e3df", "#7a7974", "#2a78d6"
@@ -38,9 +37,7 @@ def plot_goals(
 ) -> None:
     rows, cols = maze.maze_map.shape
     fig, ax = plt.subplots(figsize=(1.0 + 0.45 * cols, 1.0 + 0.45 * rows), dpi=150)
-    for i, j in np.argwhere(maze.maze_map == 1):
-        x, y = maze.centre((i, j)) - maze.unit / 2
-        ax.add_patch(Rectangle((x, y), maze.unit, maze.unit, color=WALL, lw=0))
+    draw_walls(ax, maze, WALL)
     for goal in goals:
         start = maze.centre(goal.init_ij)
         ax.plot(*np.stack([start, goal.goal_xy]).T, color=HELDOUT, lw=0.8, alpha=0.35)
@@ -49,12 +46,6 @@ def plot_goals(
         ax.annotate(str(goal.task_id), goal.goal_xy, xytext=(5, 5), textcoords="offset points",
                     fontsize=7, color=INK)
     ax.scatter(eval_goals[:, 0], eval_goals[:, 1], s=70, marker="s", color=EVAL, zorder=4)
-    lo = maze.centre((0, 0)) - maze.unit / 2
-    hi = maze.centre((rows - 1, cols - 1)) + maze.unit / 2
-    ax.set_xlim(lo[0], hi[0])
-    ax.set_ylim(lo[1], hi[1])
-    ax.set_aspect("equal")
-    ax.axis("off")
     ax.set_title(title, color=INK, fontsize=9, loc="left")
     handles = [
         plt.Line2D([], [], marker="s", ls="", color=EVAL, label="eval goal"),
