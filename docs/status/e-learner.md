@@ -47,6 +47,13 @@
     keeps the JAX default, as upstream `main.py` does.
   - XLA sizes thread pools to the host's 80 cores (about 500 threads per run); the container
     allows 2304. `train_baselines.sh` now pins each run to 2 cores (39 threads per run).
+- Medium baseline done (15:05 MSK, 55 min of GPU, about $0.20 incl. setup). 5 retrained `π_h` in
+  `~/.cache/fbplan/baselines/medium/seed{0..4}/`, loadable with `load_baseline_model`; curves in
+  `runs/train_high/medium/seed*/train.csv`, plot `runs/train_high/medium/curves.png`.
+  Checks: train actor loss 791 -> 780 in every seed, no NaN; validation MSE 0.73 -> 0.72 (train
+  0.711), no divergence. Cosine of each seed's `π_h` output with the provided `π_h` on 2000
+  validation states x the 5 eval tasks: 0.955 (p10 0.90-0.92); between seeds also 0.955. So the
+  provided `π_h` behaves like one more seed of our recipe. Ready for d-eval.
 - At `create`, the vast.ai API answered "SSH key already associated with instance": the key may
   already be registered for the user in the team account, not only on our instance.
 
@@ -70,8 +77,7 @@
 
 ## Next
 
-- Medium: pull results, check the 5 training curves, destroy the instance or ask the user
-  about large (the user wants a question before large).
+- Ask the user about the next GPU jobs (large baselines, B1 medium) or destroy instance 58234389.
 - B1 GPU runs on medium (ask the user first): `value --latents single` seeds 0-4, then
   `policy --variant clean` and `wide`, then the region pair.
 
