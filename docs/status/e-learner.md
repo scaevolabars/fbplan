@@ -99,6 +99,22 @@
   `uv run python -m fbplan.learned.diagnostics --env antmaze-medium-navigate-v0 --value value-single --seeds 0 1 2 3 4`;
   the per-goal numbers came from the same functions in a scratch script (not committed).
 
+- value expectile 0.7 seeds 0-4 trained (instance 58234389, 19:24-20:32 MSK, code a189a49 with
+  `FBPLAN_APPROACH_B_DIR=.../ablations/expectile0.7`), pulled, moved to
+  `approach_b/medium/value-single-expectile0.7/`, exported. Geodesic check (5 seeds, 300 x 300
+  validation pairs; V_1: pooled -0.587, per goal -0.611):
+
+  | critic | pooled V_H | far half V_H | per goal V_H | goals V_H orders better | median V_H at 20-24 (V_1 7.7) |
+  |---|---|---|---|---|---|
+  | expectile 0.9 (`value-single`) | -0.543 to -0.555 | -0.341 to -0.361 | -0.555 to -0.572 | 13-17 % | 16.3 |
+  | expectile 0.7 | -0.573 to -0.579 | -0.349 to -0.357 | -0.590 to -0.601 | 17-24 % | 10.6 |
+
+  The lower expectile shrinks the long-range gain and moves the ordering towards V_1, but V_H
+  orders states no better than V_1 in any seed. So it does not meet "orders states clearly
+  better"; I do not propose a policy run on it. Commands:
+  `uv run python -m fbplan.learned.diagnostics --env antmaze-medium-navigate-v0 --value value-single --seeds 0 1 2 3 4`
+  and the same with `--value value-single-expectile0.7` (table above from commit 36c18d8 on).
+
 ## Review findings, first pass (E1-E14, X3, X9, X12)
 
 | Item | What I did |
@@ -165,7 +181,9 @@ What ran on 58234389:
 | 15:45 | 16:11 | push of the self-loop fix (code a189a49), 271 of 272 tests pass (c-planner's GPU one fails) |
 | 16:11 | 16:18 | stage 1 as 15 runs: large baselines + value-single + value-region. GPU out of memory: a B run holds 2.5 GB (large baseline 0.86 GB), 15 runs need 29.6 GB of 24. 5 value runs crashed; I stopped all 10 value runs, kept the large ones, moved the logs to `runs/oom-attempt-1611/` |
 | 16:20 | 18:10 | large baselines (16:11-17:55) + value-single seeds 0-4 (10 runs, 17 GB). Queue `queue-b1` then runs, one group of 5 at a time: value-region, policy clean, wide, region (two B groups need 25.2 GB) |
-| 18:10 | | value-region seeds 0-4 (queue-b1) |
+| 18:10 | 19:23 | value-region seeds 0-4 (queue-b1) |
+| 19:24 | 20:32 | value expectile 0.7 seeds 0-4 |
+| 20:32 | | policy clean seeds 0-4 (queue-b1 resumed), then wide, region, then value rho cap 1.0 |
 | 18:58 | | ablations approved (coordinator for the user): queue `runs/queue-ablations.sh` (below) holds queue-b1, then runs value expectile 0.7, resumes queue-b1 (policy clean, wide, region), then value rho cap 1.0 |
 
 The ablation queue. The instance runs code a189a49, which has no `--name`; each ablation writes
