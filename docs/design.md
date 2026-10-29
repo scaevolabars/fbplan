@@ -239,6 +239,14 @@ Shared contracts: `fbplan/contracts.py` (`FBModel`, `Controller`, `TaskSpec`, `E
     the intention only where the remaining time fits a walk; radius and weight chosen on teleport
     held-out goals only. Reading: a pass is a gain of a sequence-aware high level over the
     single-switch baseline on teleport.
+  - **T4, both input paths for every family** (fixed on 2026-10-30 at 01:20 MSK, after T1 and
+    before any T4 result). T1 used the normalized `z_r` for the families; `baseline_raw` uses the
+    raw upstream `z_r` (upstream `sample_actions`). T4 completes the 2×2 design (family × input
+    path): the T1 ensembles of the retrained, B clean and B region families, evaluated through
+    the raw input path, eval seeds 0–9. Reading: a gain if a B ensemble through the raw path
+    beats both baseline rows (paired, significant); chaining if it also beats the retrained
+    ensemble through the raw path. Robustness check, no selection: the T1 and T4 ensembles on the
+    10 medium held-out goals. All T4 rows are reported, whatever they show.
   - Not in wave 1: an unfrozen `π_l` (h-exec H2, H5: low chance of a high-level gain, and every
     row would need it); the `z_r` norm knob (h-repr: c = 1 is best on medium); new critics
     (h-learn H5, H6) wait for the 2× result.
