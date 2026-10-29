@@ -96,7 +96,109 @@ _DRIVE_URL = "https://drive.usercontent.google.com/download?id={}&export=downloa
 # GitHub releases of the public repo. Key: as in trained_dir, for example
 # "baselines/medium/seed0". Per file: (release tag, sha256 of the content).
 # The asset name is the key with "/" replaced by "-", then "-" and the file name.
-_TRAINED_FILES: dict[str, dict[str, tuple[str, str]]] = {}
+# Release baselines-v1: the retrained baseline pi_h (fbplan.train_high), medium and large.
+_TRAINED_FILES: dict[str, dict[str, tuple[str, str]]] = {
+    "baselines/medium/seed0": {
+        "flags.json": (
+            "baselines-v1",
+            "6e7fa4de8942c6b7f20e708458455ce782d39fb63f5ea2423abd5a984868280a",
+        ),
+        "high_actor.pkl": (
+            "baselines-v1",
+            "bcca90f5fae93bf1afddc4b169db4a669ea1037dbe27aa39067d272ad9a06dfe",
+        ),
+    },
+    "baselines/medium/seed1": {
+        "flags.json": (
+            "baselines-v1",
+            "16657f4d6a776181e1c1a6d13a1be44d395837ae47666803a809d3f17a671a1c",
+        ),
+        "high_actor.pkl": (
+            "baselines-v1",
+            "4454869d65df8235164c30c1ea03db3efb7a81d5f7b156a2afff9453ea11442a",
+        ),
+    },
+    "baselines/medium/seed2": {
+        "flags.json": (
+            "baselines-v1",
+            "c95747dc8e828407c956c799ab3faf03fe634a0a771085c346e121ceb29f8ee1",
+        ),
+        "high_actor.pkl": (
+            "baselines-v1",
+            "4e4bd0418d71c40dbe375c5da01b21434eff4ed8a81528cc2e172b65092e86e0",
+        ),
+    },
+    "baselines/medium/seed3": {
+        "flags.json": (
+            "baselines-v1",
+            "daa46b9710fc91e978ed171a67165be83adadec39e13275205fb4d3ec3540171",
+        ),
+        "high_actor.pkl": (
+            "baselines-v1",
+            "650d7d2bcd1ea7d0bba2b25e9cf8d1683d2239284fc462c66b384e08414327a2",
+        ),
+    },
+    "baselines/medium/seed4": {
+        "flags.json": (
+            "baselines-v1",
+            "a5896f84f4290dc36301c7de460d6b91118f803cebfb833dcd6a59307cf7427f",
+        ),
+        "high_actor.pkl": (
+            "baselines-v1",
+            "60e9eb3be00d40704ff278e9823e2ac955938f9025e0cb3de4fbdb33fcf287ab",
+        ),
+    },
+    "baselines/large/seed0": {
+        "flags.json": (
+            "baselines-v1",
+            "4a2527032eb7cb474165c6a772fd6123b3166946a0211cad481f3edee9eff32c",
+        ),
+        "high_actor.pkl": (
+            "baselines-v1",
+            "dca1bf2047af0ade301f97dec585620593bceb072d8cb88872cdd26be155892b",
+        ),
+    },
+    "baselines/large/seed1": {
+        "flags.json": (
+            "baselines-v1",
+            "cae25803c91f774fe4126bf7e1c915930e8d3d5e372962de4e8c46bc258f619b",
+        ),
+        "high_actor.pkl": (
+            "baselines-v1",
+            "578a7e69411734c52577f8187a924c61e546f9814c2c3c74d9dd93f52934666c",
+        ),
+    },
+    "baselines/large/seed2": {
+        "flags.json": (
+            "baselines-v1",
+            "0c0230acb5e5081bee2c891da332dc765dc96169c9a4d6c1d309991f4c00826a",
+        ),
+        "high_actor.pkl": (
+            "baselines-v1",
+            "af959953ee8da04d29ad959a4f93647138c11f8f15149d6bccea71602d39d13c",
+        ),
+    },
+    "baselines/large/seed3": {
+        "flags.json": (
+            "baselines-v1",
+            "b02d710c652e7b18990218d176a3104819d5aab1f70c07d17a7667e1e4c9da68",
+        ),
+        "high_actor.pkl": (
+            "baselines-v1",
+            "345b07403b31b6195c038ab57b305d84d4f14ad088e41cdec1e4504a40cabe25",
+        ),
+    },
+    "baselines/large/seed4": {
+        "flags.json": (
+            "baselines-v1",
+            "c9fbaf9512eab129ef38c8fb83b2743f22f9808fbd4ecce00b95e53153c698fc",
+        ),
+        "high_actor.pkl": (
+            "baselines-v1",
+            "d592d75708c918fc7d080872e94d0af925c690fe98c8701510df6eaa5b53f6d6",
+        ),
+    },
+}
 _RELEASE_URL = "https://github.com/scaevolabars/fbplan/releases/download/{tag}/{asset}"
 
 # Shared folders below ~/.cache/fbplan, one per kind of file. The env variable of a kind moves
