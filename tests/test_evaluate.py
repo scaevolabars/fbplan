@@ -9,9 +9,12 @@ import pytest
 from gymnasium.spaces import Box
 from gymnasium.wrappers import TimeLimit
 
+from fbplan import frozen
 from fbplan.contracts import TaskSpec
+from fbplan.controllers import resolve_controller
 from fbplan.evaluate import (
     config_hash,
+    main,
     make_tasks,
     parse_options,
     reset_seed,
@@ -242,3 +245,31 @@ def test_parse_options_reads_python_literals_and_bare_strings():
 def test_parse_options_rejects_items_without_equals_sign():
     with pytest.raises(ValueError, match="key=value"):
         parse_options(["lookahead"])
+
+
+MEDIUM = "antmaze-medium-navigate-v0"
+
+
+@pytest.fixture(scope="module")
+def medium_model() -> frozen.FrozenFBModel:
+    if not (frozen.checkpoint_dir(MEDIUM) / "params.pkl").exists():
+        pytest.skip("medium checkpoint absent: run `uv run python -m fbplan.frozen`")
+    if not frozen.dataset_path(MEDIUM, "val").exists():
+        pytest.skip("medium val split absent: call fbplan.frozen.load_dataset once")
+    return frozen.load_model(MEDIUM)
+
+
+@pytest.mark.parametrize("method", ["baseline", "nonhier", "oracle"])
+def test_builtin_controllers_run_an_episode_on_the_real_model(medium_model, method):
+    controller = resolve_controller(method)(medium_model)
+    tasks = make_tasks(MEDIUM, [2], medium_model.infer_task_latent)
+    (record,) = run_episodes(controller, tasks, [0], 1)
+    assert (record.method, record.env_name, record.task_id) == (method, MEDIUM, 2)
+    assert 1 <= record.steps <= 1000
+
+
+def test_cli_writes_one_record_per_episode(medium_model, tmp_path):
+    out = tmp_path / "nonhier.csv"
+    main(["--method", "nonhier", "--tasks", "2", "--episodes", "2", "--out", str(out)])
+    df = pd.read_csv(out)
+    assert df[["task_id", "eval_seed", "episode"]].values.tolist() == [[2, 0, 0], [2, 0, 1]]
