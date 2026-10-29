@@ -161,6 +161,16 @@
   2x: **0.2099** (`runs/train_b/medium/clean-awr2x/calibration.json`: median upstream spread 16.49 at
   0.2, median switch spread 15.72, 200 batches, critics value-single 0-4). B clean 2x seeds 0-4 at
   step 65k of 500k, GPU 100 %, 12.6 GB; end about 03:00 MSK.
+- **AWR 2x ready for d-eval (01:50 MSK, 2026-10-30):** pulled and exported (code 97d9200).
+  - Baseline `high_alpha 0.2` seeds 0-4: `baselines/medium/awr2x/seed<k>`, d-eval name
+    `retrained:awr2x:<k>`. Command per seed k: `uv run python -m fbplan.train_high --env antmaze-medium-navigate-v0 --seed k --name awr2x --high-alpha 0.2`.
+    Final train MSE 0.734, validation MSE 0.722-0.751.
+  - B clean at the shared temperature 0.2099, seeds 0-4: `approach_b/medium/clean-awr2x/seed<k>`,
+    d-eval name `b:clean-awr2x:<k>`. Commands: `uv run python -m fbplan.learned.train_b calibrate --env antmaze-medium-navigate-v0 --upstream-alpha 0.2 --out runs/train_b/medium/clean-awr2x/calibration.json`,
+    then per seed k `uv run python -m fbplan.learned.train_b policy --env antmaze-medium-navigate-v0 --seed k --variant clean --alpha-from runs/train_b/medium/clean-awr2x/calibration.json --name clean-awr2x`.
+    Final train MSE 0.728, validation MSE 0.724-0.742.
+  - Checks on all 10: load with `load_baseline_model` / `load_b_model`; F, B, pi_l equal the
+    provided ones; pi_h new; no NaN.
 - **Night plan (coordinator, 00:55 MSK):** no relaunch of awr2x. When B clean 2x ends: pull and
   export the 2x baseline and B clean 2x for d-eval; push once (H1 + T2 code); start H1 (tmux `h1`,
   `bash scripts/gpu/awr2x_v1.sh > runs/awr2x_v1.log`); when its 5 runs step, start T2 next to it
@@ -317,6 +327,9 @@ What ran on 58234389:
 | 23:51 | 23:53 | push of 97d9200 without tests (no job ran) |
 | 23:53 | | awr2x.sh: baseline high_alpha 0.2, calibration, B clean 2x; then the V_1 control |
 | 23:54 | 00:02 | baseline 2x seeds 0, 2, 4 crashed at start: `INTERNAL: Autotuning failed for HLO` (XLA GPU autotuning while 5 processes compiled; awr2x.sh sets the platform allocator for all its runs, the earlier baseline runs had none). Seeds 1, 3 ran on. Retried seeds 0, 2, 4 at 00:02 in tmux `awr2x-retry` without the platform allocator, as the earlier baseline runs: `bash scripts/gpu/run_seeds.sh runs/train_high/medium/awr2x "0 2 4" fbplan.train_high --env antmaze-medium-navigate-v0 --name awr2x --high-alpha 0.2`; all 3 step at 00:05. Crash logs kept as `stdout.crash1.log` |
+| 00:41 | 01:48 | calibration (00:38-00:41), B clean 2x seeds 0-4 (00:41-01:48); baseline 2x retry ended about 01:05 |
+| 01:49 | 01:51 | pull + export of awr2x and clean-awr2x; push of 34b17a5 without tests (no job ran) |
+| 01:51 | | H1 (tmux `h1`), then T2 next to it (tmux `t2`, cores 10-19) |
 | 18:58 | | ablations approved (coordinator for the user): queue `runs/queue-ablations.sh` (below) holds queue-b1, then runs value expectile 0.7, resumes queue-b1 (policy clean, wide, region), then value rho cap 1.0 |
 
 The ablation queue. The instance runs code a189a49, which has no `--name`; each ablation writes
