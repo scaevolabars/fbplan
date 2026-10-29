@@ -336,6 +336,72 @@ def test_lookahead_moves_on_only_along_trusted_edges():
     assert [SHORT_HOPS[w] for w in waypoints[:3]] == [(1, 1), (1, 1), (3, 1)]
 
 
+# Route following at a reach (switch_steps). Edges of at most 3 steps are trusted
+# (rho_min 0.72 > gamma^4) and a waypoint counts as reached one cell before it.
+FOLLOW_CFG = replace(HORIZON_CFG, reached_xy=1.0, rho_min=0.72)
+# From (1, 1) the waypoint (2, 1) counts as reached, but its next stop (5, 1) is 4 steps away
+# and not trusted from there.
+STALL_LANDMARKS = [(1, 3), (2, 1), (5, 1)]
+# The plan at (5, 1) hands over to the task policy. FB underestimates the task value at (4, 1)
+# on one head (rho 0.3 instead of gamma^4): 9 instead of 19.7. Going back to (2, 1) is worth
+# Q = 12.7 from there, 12.7 / 9 = gamma^-3.3.
+DIP = {(0, (4, 1), GOAL): 0.3}
+NEAR_GOAL_LANDMARKS = [(2, 1), (5, 1)]
+
+
+def landmark_planner(fb: GridFB, cells: list[tuple[int, int]], cfg: PlannerConfig):
+    ctrl = GraphPlannerController(fb, np.stack([fb.obs(c) for c in cells]), cfg)
+    ctrl.reset(task(fb), seed=0)
+    return ctrl
+
+
+def test_full_replans_at_a_reach_can_stall_between_two_cells():
+    fb = GridFB(horizon=4)
+    ctrl = landmark_planner(fb, STALL_LANDMARKS, FOLLOW_CFG)
+    cells, _ = rollout(fb, ctrl, steps=30, start=(1, 2))
+    assert set(cells) == {(1, 1), (1, 2)}  # back to (1, 3), forward to (2, 1), back...
+
+
+@pytest.mark.parametrize("switch_steps", [0.0, np.inf])
+def test_route_following_keeps_a_reached_waypoint_until_its_next_stop_is_trusted(switch_steps):
+    fb = GridFB(horizon=4)
+    cfg = replace(FOLLOW_CFG, switch_steps=switch_steps)
+    ctrl = landmark_planner(fb, STALL_LANDMARKS, cfg)
+    cells, waypoints = rollout(fb, ctrl, steps=10, start=(1, 2))
+    assert cells.index(GOAL) == 8
+    assert STALL_LANDMARKS[waypoints[1]] == (2, 1)  # kept at (1, 1), where it counts as reached
+
+
+def test_full_replans_near_the_goal_circle_between_landmarks():
+    fb = GridFB(horizon=4, wormholes=DIP)
+    ctrl = landmark_planner(fb, NEAR_GOAL_LANDMARKS, FOLLOW_CFG)
+    cells, _ = rollout(fb, ctrl, steps=30, start=(3, 1))
+    assert set(cells) == {(3, 1), (4, 1)}
+
+
+def test_route_following_hands_over_to_the_task_policy_where_the_plan_does():
+    fb = GridFB(horizon=4, wormholes=DIP)
+    cfg = replace(FOLLOW_CFG, switch_steps=4.0)
+    ctrl = landmark_planner(fb, NEAR_GOAL_LANDMARKS, cfg)
+    cells, waypoints = rollout(fb, ctrl, steps=5, start=(3, 1))
+    assert cells.index(GOAL) == 5
+    assert waypoints[1:] == [-1] * 4
+
+
+@pytest.mark.parametrize(("switch_steps", "goes_back"), [(3.0, True), (4.0, False)])
+def test_a_switch_away_from_the_plan_must_save_more_than_switch_steps(switch_steps, goes_back):
+    fb = GridFB(horizon=4, wormholes=DIP)
+    cfg = replace(FOLLOW_CFG, switch_steps=switch_steps)
+    ctrl = landmark_planner(fb, NEAR_GOAL_LANDMARKS, cfg)
+    _, waypoints = rollout(fb, ctrl, steps=2, start=(3, 1))
+    assert (waypoints[1] == NEAR_GOAL_LANDMARKS.index((2, 1))) == goes_back
+
+
+def test_planner_config_rejects_a_negative_switch_margin():
+    with pytest.raises(ValueError, match="switch_steps"):
+        PlannerConfig(switch_steps=-1.0)
+
+
 def test_replan_every_step_rescores_all_landmarks_at_each_step():
     fb = GridFB(horizon=4)
     ctrl = planner(fb, replace(HORIZON_CFG, replan_every_step=True))
