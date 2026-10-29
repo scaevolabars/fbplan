@@ -9,8 +9,9 @@
 #   scripts/gpu/vast.sh list                           our instances (label $VAST_LABEL)
 #   scripts/gpu/vast.sh push <instance-id>             code at HEAD + checkpoints, then remote setup
 #   scripts/gpu/vast.sh train <instance-id> <env> [seed ...]   retrain pi_h in tmux (seeds 0-4)
+#   scripts/gpu/vast.sh run <instance-id> <session> <command ...>   any command in tmux, in fbplan/
 #   scripts/gpu/vast.sh status <instance-id>           GPU use and the last log line of each run
-#   scripts/gpu/vast.sh pull <instance-id>             runs/train_high and ~/.cache/fbplan/baselines
+#   scripts/gpu/vast.sh pull <instance-id>             runs/ and the trained models in ~/.cache/fbplan
 #   scripts/gpu/vast.sh ssh <instance-id> [command]    shell or one command on the instance
 #   scripts/gpu/vast.sh destroy <instance-id> [-y]     delete the instance and its disk (stops billing)
 #
@@ -107,23 +108,29 @@ cmd_push() {
 cmd_train() {
   local id=$1 env=$2
   shift 2
-  local seeds=${*:-0 1 2 3 4}
-  remote "$id" "cd $REMOTE_DIR && tmux new-session -d -s 'train-$env'" \
-    "'bash scripts/gpu/train_baselines.sh $env $seeds'"
-  echo "started; follow with: $0 status $id"
+  cmd_run "$id" "train-$env" bash scripts/gpu/train_baselines.sh "$env" "$@"
+}
+
+# run <instance-id> <session> <command ...>: start a command in a detached tmux session.
+cmd_run() {
+  local id=$1 session=$2
+  shift 2
+  remote "$id" "cd $REMOTE_DIR && tmux new-session -d -s '$session' '$*'"
+  echo "started $session; follow with: $0 status $id"
 }
 
 cmd_status() {
   remote "$1" "nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv;" \
-    "cd $REMOTE_DIR && for f in runs/train_high/*/seed*/stdout.log; do" \
-    "[ -e \"\$f\" ] && echo \"\$f: \$(tail -n 1 \"\$f\")\"; done; true"
+    "cd $REMOTE_DIR && for f in \$(find runs -name stdout.log | sort); do" \
+    "echo \"\$f: \$(tail -n 1 \"\$f\" | cut -c1-100)\"; done; true"
 }
 
+# Everything except the frozen checkpoints, which came from this machine.
 cmd_pull() {
   mkdir -p "$REPO/runs" "$HOME/.cache/fbplan"
-  remote "$1" "tar -c -C $REMOTE_DIR runs/train_high" | tar -x -C "$REPO"
-  remote "$1" "tar -c -C .cache/fbplan baselines" | tar -x -C "$HOME/.cache/fbplan"
-  echo "pulled into $REPO/runs/train_high and ~/.cache/fbplan/baselines"
+  remote "$1" "tar -c -C $REMOTE_DIR runs" | tar -x -C "$REPO"
+  remote "$1" "tar -c -C .cache/fbplan --exclude ./checkpoints ." | tar -x -C "$HOME/.cache/fbplan"
+  echo "pulled into $REPO/runs and ~/.cache/fbplan"
 }
 
 cmd_ssh() {
@@ -142,14 +149,14 @@ create)
   [[ $# -eq 2 ]] || die "usage: $0 create <offer-id>"
   cmd_create "$2"
   ;;
-push | train | status | pull | ssh | destroy)
+push | train | run | status | pull | ssh | destroy)
   shift
   [[ $# -ge 1 ]] || die "usage: $0 $cmd <instance-id> ..."
   require_ours "$1"
   "cmd_$cmd" "$@"
   ;;
 *)
-  sed -n '2,21p' "$0"
+  sed -n '2,20p' "$0"
   exit 1
   ;;
 esac
