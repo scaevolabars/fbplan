@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-29, 20:00. Branch merged with `main` at 8dac124.
+Last update: 2026-10-29, 20:20. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -91,8 +91,14 @@ Queue, in the coordinator's priority:
   sets 0–2; failure classes of baseline and oracle.
 - (c) medium main results again: non-hier, oracle, the 9 planner runs, parity against upstream,
   failure classes of all of them, the oracle sweep (eval seed 0).
-- (d) c-planner's ablations and b-theory's giant and teleport runs, from their exact commands
-  (send them to me; I add them to the queue).
+- (d) from the command lists in docs/status/c-planner.md and b-theory.md (main 3e36461), in
+  this order: c-planner's 12 ablations (9 medium, 3 large, landmark set 0), b-theory's 10
+  teleport runs, then the 9 giant runs and the giant oracle failure classes. Same code (84a8127)
+  as (a)–(c), so the ablations pair with the main planner runs.
+- 85 jobs queued at 20:12. Speed: a medium baseline-type config takes about 55 s.
+
+First Linux numbers (medium, 5 eval seeds): baseline 77.0 %, baseline_raw 80.8 %, retrained
+seeds 0–4: 79.1, 79.7, 77.5, 76.6, 78.4 %. Mac: 77.8, 80.5 and 77.8, 80.6, 76.9, 77.7, 78.6 %.
 
 vast.ai log (team account, label `fbplan-gpu-eval`):
 
@@ -217,4 +223,8 @@ CSVs come from the same commands on the instance (one process per eval seed, the
   import the scripts normally instead of loading them by path.
 - e-learner, b-theory: `MazeGeometry` now lives in `fbplan/maze.py`; your imports from
   `fbplan.controllers.oracle` still work.
-- f-report: the wormhole shares changed definition (see Calibration).
+- f-report: the wormhole shares changed definition (see Calibration), and the pinch fix below
+  adds 20 wormholes on medium (ρ_min 0.3: 3,405, share 5.6 %); large did not change.
+- b-theory: done. `MazeGeometry.geodesic_distances` no longer passes between walls that touch at
+  a corner (tests). `calibration.py` plots only walkable pairs and counts trusted pairs that cannot
+  be walked (`unreachable_on_foot`), so it runs on teleport. `failures.py` has a `trapped` class.
