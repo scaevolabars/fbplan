@@ -1,20 +1,37 @@
 # Report: planning over sequences of intentions with frozen FB representations
 
-Status: draft. Sections 2–6, the medium results of approach A and the retrained baselines are
-complete; §7.3 has the limits of giant and teleport before any run. Sections and table
-rows marked *(pending)* wait for final runs. Notation: `docs/design.md` §3; names that differ
-between the report and the code: Appendix. Every number names the committed file it comes from.
-pp = percentage points; CI = 95 % confidence interval.
+Status: draft. All sections are complete except approach B (pending tonight) and the A ablations.
+Notation: `docs/design.md` §3; names that differ between the report and the code: Appendix. Every
+number names the committed file it comes from. pp = percentage points; CI = 95 % confidence
+interval.
 
-**Platform.** The evaluation numbers in §6–§10 come from runs on macOS (arm64), in `results/macos/`.
-Final runs on one Linux (x86_64) machine replace them in `results/<env>/` *(pending)*; §6 will then
-state how well the two platforms agree.
+**Platform.** All evaluation numbers come from one Linux (x86_64) machine, in `results/<env>/`.
+The same commands on macOS (arm64) are a reproducibility check, in `results/macos/` (§6). Four
+inputs exist only as Mac runs so far, and the text marks them: the parity run, the oracle sweep
+and the failure classes on medium, and giant (no CSV yet).
 
-## 1. Summary *(pending)*
+## 1. Summary *(approach B pending)*
 
-Written last: success on `antmaze-medium-navigate-v0` of each method against the baseline, with
-the paired difference and its CI; then large, giant and teleport; then the main reason for each
-result.
+- **Question.** Can a high level that values a sequence of intentions beat the one-switch `π_h`
+  of FB π-Switch, with `F`, `B` and `π_l` frozen and offline data only?
+- **Theory (§3).** A chain of switches has an exact value: the chain formula and a graph Bellman
+  equation, checked to 1e-8 on exact tabular mazes. Chaining can help only where `π_l(·∣s,z_r)`
+  or the one-switch value fails at long range. With FB errors it needs `R̂ = 0` for goal reaching
+  and guards. Then a guarded chain reaches 0.46 on far pairs of a tabular maze, against 0.26 for
+  an idealised `π_h` (§3.1).
+- **Central finding: with this frozen `π_l`, no high-level choice of intentions has measurable
+  room on these mazes.** Two baseline rows differ by maze, and the stronger one is the bar (§6).
+  Against it, the privileged oracle, which routes on the true maze map, gains +0.5 pp
+  [−2.6, +3.5] on medium and +1.9 pp [−1.8, +5.6] on large, both not significant (§8.2). On giant
+  the oracle reaches about 2 % (preliminary). On teleport, the time limit and a trap cap an agent
+  that maximises a discounted value exactly at about 50 % (§7.3).
+- **Approach A (graph planner, §4) is below the stronger baseline on every maze:** medium −8.3 to
+  −15.9 pp, large −8.0 to −11.1 pp, teleport −3.6 to −9.1 pp (pooled paired differences of the
+  A variants, all significant; §7). Its loss is mostly time: A reaches the goal later, and its
+  extra failures are episodes still moving at the time limit (§8.4).
+- **Approach B (learned multi-switch critic, §5):** *(pending)*.
+- **Evaluation (§6).** 1,250 paired episodes per method and maze. The provided `π_h` behaves as a
+  typical seed of 5 retrained ones. Mac and Linux runs agree on success rates within noise.
 
 ## 2. Setting
 
@@ -205,7 +222,7 @@ gives `B(w*)` to `π_h` as its task; `replan_every_step` drops the commitment.
 | xy cap of 6 units | wormholes survive any `ρ_min` (§8.3). The maze distance is never shorter than the xy distance, so the cap removes only edges that are long in every metric, and it limits a wormhole hop to 6 units | at `ρ_min` 0.3 it removes 42 % of the wormholes on medium and 64 % on large, all the long ones (§8.3); medium ablation *(pending)* |
 | min over the 2 F heads | pessimism against independent errors | tabular §3.1; lowers the AntMaze wormhole count by a fifth to a quarter (§8.3) |
 | commit until within 3 xy units, with look-ahead | commitment stops dithering between near-equal noisy plans. A rule `ρ̂ ≥ ρ_reached` often does not fire, because FB `ρ̂` near a waypoint stays below about 0.9 | tabular §3.1 (0.37 → 0.50); medium ablation *(pending)* |
-| single-state landmark latents | region latents make `ρ̂` higher and flatter, so it separates near and far landmarks less | 5 eval seeds × 3 landmark sets: region −12.3 pp, single-state −7.7 pp against the baseline (§7.1) |
+| single-state landmark latents | region latents make `ρ̂` higher and flatter, so it separates near and far landmarks less | 5 eval seeds × 3 landmark sets on medium: region −12.1 pp, single-state −8.6 pp against the baseline (§7.1) |
 
 The xy position is part of the observation, so the cap uses no privileged information. Two FB-only
 guards stay as ablations: `two_way`, which uses `min(ρ̂(u,w), ρ̂(w,u))` (maze dynamics are nearly
@@ -289,7 +306,7 @@ length 1000, deterministic actions (temperature 0), success as defined by OGBenc
 `SeedSequence([eval_seed, task_id, episode])`. OGBench draws the start noise from the global NumPy
 RNG, and the goal also depends on the action-space RNG, so the loop seeds all three:
 `np.random.seed(s); env.action_space.seed(s); env.reset(seed=s, options={"task_id": t})`.
-All methods see the same 1,250 start and goal states. An episode replays exactly:
+All methods see the same 1,250 start and goal states. On one platform an episode replays exactly:
 `analysis/failures.py` replays each failure and checks its outcome.
 
 **Methods.**
@@ -304,95 +321,144 @@ All methods see the same 1,250 start and goal states. An episode replays exactly
 | oracle (privileged) | `π_l` toward a waypoint 2 cells ahead on the true shortest path, with a region-mean waypoint latent (radius 0.5); a reference, not a bound (§8.2) |
 | A, B | §4 and §5; approach A over 3 landmark sets (`landmarks.seed` 0, 1, 2), each with all 1,250 episodes |
 
-**Rule for a gain.** A method counts as better than the baseline only if its paired difference is
-significant against both `baseline` and `baseline_raw`.
+**Two baseline rows, and the rule for a gain.** `baseline` (normalized `z_r`) is the controlled
+reference: it has the same input path as every other method, including B and the retrained
+baselines. `baseline_raw` follows upstream. Neither row is the stronger one on every maze
+(paired, `analysis/tables.py` on `results/<env>/`):
+
+| Maze | `baseline_raw` − `baseline` | stronger row |
+|---|---|---|
+| medium | +3.8 [+0.7, +6.8], p = 0.02 | `baseline_raw` |
+| large | −2.3 [−5.6, +1.0], p = 0.19 | not significant; `baseline` is higher |
+| teleport | −3.5 [−6.2, −1.0], p = 0.009 | `baseline` |
+
+Every table shows both rows. A method counts as better than the baseline only if its paired
+difference is significant against both rows, so the stronger row is the bar.
 
 **Statistics** (`fbplan/stats.py`, `analysis/tables.py`). Overall success is the mean over tasks of
 the per-task success, as in OGBench. CIs are percentile intervals from 10,000 bootstrap resamples,
 stratified by task. A paired comparison resamples episode pairs within each task and gives an exact
-McNemar test on the discordant pairs. The retrained baselines and the landmark sets of approach A
-are pooled with a cluster bootstrap over checkpoints or landmark sets; their paired differences are
-given per checkpoint or landmark set. A difference whose CI contains 0 is called not significant.
+McNemar test on the discordant pairs. The landmark sets of approach A and the retrained baselines
+are pooled with a cluster bootstrap over landmark sets or checkpoints and over episodes; their
+paired differences are given pooled and per landmark set or checkpoint. A difference whose CI
+contains 0 is called not significant.
 
-**Parity with upstream.** Our loop with the provided `π_h`, against upstream `evaluate`:
-−2.2 pp, CI [−5.3, +1.0], unpaired, 2,500 episodes (`results/macos/medium/baseline.csv`,
-`results/macos/medium/upstream.csv`). The CI contains 0: our loop reproduces the upstream evaluation
-within noise.
+**Parity with upstream** (Mac runs; not yet rerun on Linux). Our loop with the provided `π_h`,
+against upstream `evaluate`: −2.2 pp, CI [−5.3, +1.0], unpaired, 2,500 episodes
+(`results/macos/medium/baseline.csv`, `results/macos/medium/upstream.csv`). The CI contains 0: our
+loop reproduces the upstream evaluation within noise.
 
 **Physics.** MuJoCo is pinned to 3.1.6, the version that replays the dataset transitions exactly,
 so `π_l` acts in the physics that produced its training data
 (`tests/test_frozen.py::test_eval_env_reproduces_the_dataset_dynamics`).
 
-## 7. Results *(partly pending)*
+**Platform check.** The same commands ran on macOS (arm64) and on the Linux (x86_64) machine
+(`analysis/platform_check.py` on `results/` and `results/macos/`). Across the 23 runs that exist on
+both platforms, Linux − Mac lies between −4.6 and +2.0 pp, and the CI contains 0 for 22 of the 23
+(unpaired). Float results differ between the platforms, so a single episode often ends otherwise:
+only 55–73 % of the episodes have the same outcome on both. So the platforms agree on success
+rates, not on single episodes, and every paired comparison stays within one platform.
+
+## 7. Results *(B pending)*
 
 ### 7.1 Medium (required)
 
-Success (%) with 95 % CI, 1,250 episodes per row; the approach A rows pool 3 landmark sets and the
-retrained baseline pools 5 training seeds, each with a cluster bootstrap (`results/macos/medium/*.csv`,
-`results/macos/medium/planner*/l{0,1,2}.csv`, `results/macos/medium/baseline_retrained/seed{0..4}.csv`;
-`analysis/tables.py --label-root results/macos/medium`, `--cluster config_hash` or
-`--cluster checkpoint_seed`):
+Success (%) with 95 % CI, 1,250 episodes per row (`results/medium/`; `analysis/tables.py
+--label-root results/medium`, with `--cluster config_hash` for approach A and `--cluster
+checkpoint_seed` for the retrained baselines). Bold: the stronger baseline row.
 
 | Method | task 1 | task 2 | task 3 | task 4 | task 5 | all |
 |---|---|---|---|---|---|---|
-| baseline | 81.6 | 84.4 | 76.0 | 62.8 | 84.4 | **77.8** [75.6, 80.1] |
-| baseline_raw | 81.6 | 90.4 | 77.2 | 64.4 | 88.8 | 80.5 [78.3, 82.6] |
-| non-hier | 76.4 | 85.6 | 74.8 | 6.4 | 80.8 | 64.8 [62.7, 66.8] |
-| oracle (privileged) | 81.6 | 88.4 | 88.8 | 74.8 | 86.4 | 84.0 [82.0, 86.0] |
-| A: planner | 65.7 | 75.9 | 75.6 | 56.1 | 77.2 | 70.1 [67.8, 72.3] |
-| A: planner_high | 68.1 | 76.7 | 79.5 | 63.6 | 78.3 | 73.2 [70.4, 75.6] |
-| A: planner, region latents | 52.7 | 73.5 | 79.1 | 64.3 | 58.4 | 65.6 [61.0, 71.5] |
-| retrained baseline (5 seeds) | 78.2 | 83.4 | 78.0 | 64.4 | 87.6 | 78.3 [76.9, 79.8] |
-| B-clean | | | | | | *(pending)* |
-| B-wide | | | | | | *(pending)* |
-| B-region | | | | | | *(pending)* |
+| baseline | 72.4 | 85.2 | 79.6 | 63.2 | 84.8 | 77.0 [74.7, 79.3] |
+| baseline_raw | 80.4 | 86.4 | 81.2 | 66.0 | 90.0 | **80.8** [78.6, 82.9] |
+| retrained baseline (5 seeds) | 79.0 | 81.6 | 77.0 | 65.9 | 87.8 | 78.3 [76.9, 79.7] |
+| non-hier | 73.6 | 91.6 | 72.8 | 8.0 | 81.2 | 65.4 [63.4, 67.5] |
+| oracle (privileged) | 80.4 | 84.4 | 85.2 | 70.4 | 86.0 | 81.3 [79.1, 83.4] |
+| A: planner | 64.7 | 75.7 | 74.9 | 52.5 | 74.1 | 68.4 [66.2, 70.5] |
+| A: planner_high | 62.9 | 75.1 | 79.3 | 65.3 | 79.9 | 72.5 [70.7, 74.3] |
+| A: planner, region latents | 49.7 | 72.3 | 78.7 | 65.2 | 58.7 | 64.9 [59.0, 71.9] |
+| B-clean, B-wide, B-region | | | | | | *(pending)* |
 
 Per-task CIs are about ±5 pp for single runs and up to 25 pp wide for the pooled approach A
-rows. The pooled retrained row has only 5 clusters, so its CI is a rough one.
+rows. The retrained row has only 5 clusters, so its CI is a rough one.
 
-![Success on medium per task](results/macos/figures/success_antmaze-medium-navigate-v0.png)
+![Success on medium per task](docs/figures/report/success_antmaze-medium-navigate-v0.png)
 
-Paired differences (pp) with CI and McNemar p, on the same 1,250 start states. Approach A has one
-row per landmark set; "mean" is the mean over the 3 sets (`analysis/tables.py`, with
-`--reference baseline` and `--reference baseline_raw`):
+Paired differences (pp) with CI and McNemar p, on the same 1,250 start states (`analysis/tables.py`
+with `--reference baseline baseline_raw`). "Pooled" bootstraps over landmark sets or checkpoints
+and over episodes:
 
 | Method | against baseline | against baseline_raw |
 |---|---|---|
-| baseline_raw | +2.6 [−0.5, +5.8], p = 0.11 | – |
-| retrained, seed 0 | −0.0 [−3.1, +3.1], p = 1 | −2.6 [−5.8, +0.5], p = 0.11 |
-| retrained, seed 1 | +2.7 [−0.3, +5.7], p = 0.09 | +0.1 [−3.0, +3.1], p = 1 |
-| retrained, seed 2 | −1.0 [−4.2, +2.3], p = 0.59 | −3.6 [−6.7, −0.5], p = 0.03 |
-| retrained, seed 3 | −0.2 [−3.3, +3.0], p = 0.96 | −2.8 [−6.0, +0.5], p = 0.09 |
-| retrained, seed 4 | +0.8 [−2.2, +3.9], p = 0.65 | −1.8 [−4.8, +1.1], p = 0.26 |
-| retrained, mean | +0.5 | −2.2 |
-| non-hier | −13.0 [−16.2, −10.0], p = 3e-14 | −15.7 [−18.6, −12.7], p = 9e-21 |
-| oracle (privileged) | +6.2 [+3.1, +9.2], p = 1e-4 | +3.5 [+0.5, +6.5], p = 0.02 |
-| planner, set 0 | −6.5 [−9.8, −3.2], p = 2e-4 | −9.1 [−12.2, −5.8], p = 4e-8 |
-| planner, set 1 | −9.9 [−13.4, −6.5], p = 7e-8 | −12.6 [−15.7, −9.4], p = 2e-13 |
-| planner, set 2 | −6.8 [−10.2, −3.4], p = 1e-4 | −9.4 [−12.7, −6.2], p = 4e-8 |
-| planner, mean | −7.7 | −10.4 |
-| planner_high, set 0 | −3.3 [−6.6, +0.1], p = 0.06 | −5.9 [−9.2, −2.6], p = 5e-4 |
-| planner_high, set 1 | −3.0 [−6.2, +0.2], p = 0.08 | −5.7 [−8.8, −2.6], p = 5e-4 |
-| planner_high, set 2 | −7.5 [−10.8, −4.2], p = 2e-5 | −10.2 [−13.4, −6.8], p = 7e-9 |
-| planner_high, mean | −4.6 | −7.3 |
-| planner region, set 0 | −16.6 [−20.1, −13.1], p = 5e-19 | −19.3 [−22.6, −15.9], p = 7e-25 |
-| planner region, set 1 | −6.0 [−9.3, −2.6], p = 5e-4 | −8.6 [−11.8, −5.4], p = 3e-7 |
-| planner region, set 2 | −14.2 [−17.7, −10.6], p = 6e-14 | −16.8 [−20.1, −13.5], p = 5e-21 |
-| planner region, mean | −12.3 | −14.9 |
+| baseline_raw | +3.8 [+0.7, +6.8], p = 0.02 | – |
+| retrained, pooled | +1.2 [−1.5, +4.1] | −2.5 [−5.2, +0.2] |
+| retrained, per seed | −0.4 to +2.6, all p ≥ 0.12 | −4.2 to −1.1; seeds 2 and 3 significant (p = 0.04, 0.01) |
+| non-hier | −11.6 [−14.7, −8.5], p = 3e-11 | −15.4 [−18.3, −12.4], p = 7e-20 |
+| oracle (privileged) | +4.2 [+1.1, +7.5], p = 0.01 | +0.5 [−2.6, +3.5], p = 0.8 |
+| planner, pooled | −8.6 [−12.0, −5.3] | −12.4 [−15.8, −9.2] |
+| planner, sets 0 / 1 / 2 | −8.2 / −7.1 / −10.6, all p ≤ 4e-5 | −12.0 / −10.9 / −14.3, all p ≤ 2e-10 |
+| planner_high, pooled | −4.5 [−7.7, −1.4] | −8.3 [−11.3, −5.2] |
+| planner_high, sets 0 / 1 / 2 | −3.2 (p = 0.06) / −5.6 / −4.8 (p ≤ 0.006) | −7.0 / −9.4 / −8.6, all p ≤ 5e-5 |
+| region latents, pooled | −12.1 [−18.8, −5.1] | −15.9 [−22.5, −8.9] |
+| region latents, sets 0 / 1 / 2 | −18.3 / −4.9 / −13.2, all p ≤ 0.006 | −22.1 / −8.6 / −17.0, all p ≤ 4e-7 |
 | B rows | *(pending)* | *(pending)* |
 
+**The bar on medium is `baseline_raw`** (+3.8 pp over the normalized baseline, §6).
+
+**Even the privileged oracle does not pass it:** +0.5 pp [−2.6, +3.5], p = 0.8. §8.2 discusses
+what this means.
+
 **The provided `π_h` is a typical seed of the upstream recipe.** The 5 retrained `π_h` score
-76.9–80.6 % (`analysis/tables.py` on `results/macos/medium/baseline_retrained/`); none differs
-significantly from the provided one (mean +0.5 pp). So the choice between the provided and the
-retrained baseline does not change any conclusion about approach A.
+76.6–79.7 % (`analysis/tables.py` on `results/medium/baseline_retrained/`), and none differs
+significantly from the provided one (pooled +1.2 pp [−1.5, +4.1]). Two of the 5 are significantly
+below `baseline_raw`. The choice between the provided and the retrained baseline does not change
+any conclusion about approach A.
 
-**Approach A is below the baseline on medium.** All 3 variants lose on all 3 landmark sets. Only
-`planner_high` on sets 0 and 1 is not significantly below the baseline (CI contains 0); against
-`baseline_raw` every variant and every set is significantly below. §8.4 explains why.
+**Approach A is below both baselines on medium.** Every variant on every landmark set is
+significantly below `baseline_raw`. Against the normalized baseline, only `planner_high` on set 0
+is within noise (−3.2 pp, p = 0.06). §8.4 explains why.
 
-### 7.2 Large *(pending)*
+### 7.2 Large
 
-### 7.3 Giant and teleport *(measured results pending)*
+Success (%) with 95 % CI, 1,250 episodes per row (`results/large/`, same commands). Bold: the
+higher baseline row.
+
+| Method | task 1 | task 2 | task 3 | task 4 | task 5 | all |
+|---|---|---|---|---|---|---|
+| baseline | 24.0 | 35.2 | 78.8 | 22.8 | 26.4 | **37.4** [35.0, 39.9] |
+| baseline_raw | 26.4 | 31.2 | 79.6 | 18.0 | 20.4 | 35.1 [32.8, 37.4] |
+| oracle (privileged) | 30.8 | 43.2 | 54.8 | 29.6 | 38.4 | 39.4 [36.7, 42.0] |
+| A: planner | 25.2 | 33.7 | 46.9 | 13.7 | 21.1 | 28.1 [24.7, 32.1] |
+| A: planner_high | 25.2 | 34.0 | 54.0 | 12.9 | 21.2 | 29.5 [27.4, 31.4] |
+| A: planner, region latents | 13.3 | 32.4 | 40.5 | 20.4 | 25.2 | 26.4 [24.7, 28.2] |
+| retrained baseline (5 seeds) | | | | | | *(not evaluated yet)* |
+
+![Success on large per task](docs/figures/report/success_antmaze-large-navigate-v0.png)
+
+| Method | against baseline | against baseline_raw |
+|---|---|---|
+| baseline_raw | −2.3 [−5.6, +1.0], p = 0.19 | – |
+| oracle (privileged) | +1.9 [−1.8, +5.6], p = 0.34 | +4.2 [+0.7, +7.7], p = 0.025 |
+| planner, pooled | −9.3 [−13.8, −4.5] | −7.0 [−11.4, −2.2] |
+| planner, sets 0 / 1 / 2 | −5.2 / −12.6 / −10.1, all p ≤ 0.005 | −2.9 (p = 0.12) / −10.3 / −7.8 (p ≤ 8e-6) |
+| planner_high, pooled | −8.0 [−11.2, −4.6] | −5.7 [−9.0, −2.4] |
+| planner_high, sets 0 / 1 / 2 | −6.6 / −9.6 / −7.8, all p ≤ 3e-4 | −4.2 / −7.3 / −5.4, all p ≤ 0.02 |
+| region latents, pooled | −11.1 [−14.2, −7.8] | −8.7 [−11.8, −5.7] |
+| region latents, sets 0 / 1 / 2 | −9.7 / −11.7 / −11.8, all p ≤ 8e-8 | −7.4 / −9.4 / −9.5, all p ≤ 4e-5 |
+
+- **The bar on large is the normalized baseline.** The two rows do not differ significantly, and
+  `baseline` is higher (+2.3 pp, p = 0.19).
+- **The oracle does not pass it:** +1.9 pp [−1.8, +5.6]. The oracle gains 6.8–12.0 pp on tasks 1,
+  2, 4 and 5, but loses 24.0 pp on task 3, where `π_h` succeeds in 79 % of the episodes.
+- **Approach A is below both baselines.** Only the planner on landmark set 0 is within noise of
+  `baseline_raw`. On task 3 every waypoint method loses 24–38 pp against the baseline, the oracle
+  included, so following waypoints itself costs on that task (not analysed further).
+- **Failures on large are mostly slow episodes, not flips** (`results/large/failures/`): of the
+  baseline's 782 failures, 217 are flips (28 %) and 563 are still moving at the time limit
+  (72 %); of the oracle's 758, 224 (30 %) and 534 (70 %). On medium most failures are flips
+  (§8.2). On large the ant runs out of time, so the pace of `π_l` binds, as on giant (§7.3).
+
+### 7.3 Giant and teleport
 
 Two properties of these mazes limit any high-level method before it runs. They come from exact
 cell-level computations and from the FB calibration (`docs/theory.md` §11).
@@ -417,9 +483,10 @@ Proposition 4). FB values, `π_l`, `π_h` and both approaches maximise `E[γ^H]`
 
 The risk-neutral policy takes the teleporter on all 5 tasks at every pace from 20 to 60 ant steps
 per cell. So an agent that maximises `E[γ^H]` at γ = 0.99 exactly scores about 50 % on teleport
-at best, whatever its high level. `E[γ^H]` at one γ cannot tell "slow" from "sometimes never". Approach A's
-xy cap removes the jump edges, because the exits are far from the entries in xy, so A plans walks:
-the cap works against this risk by accident. But `π_l` can still walk into an entry on its own (`docs/theory.md` §11.3, preliminary).
+at best, whatever its high level. `E[γ^H]` at one γ cannot tell "slow" from "sometimes never".
+Approach A's xy cap removes the jump edges, because the exits are far from the entries in xy, so A
+plans walks: the cap works against this risk by accident. But `π_l` can still walk into an entry on
+its own (`docs/theory.md` §11.3).
 
 **Giant: the time budget and `ρ` at long range.** The shortest walks of the 5 tasks are 30, 26,
 30, 26 and 17 cells. In 1000 steps they fit only at 33, 38, 33, 38 and 58 ant steps per cell or
@@ -433,54 +500,96 @@ units of maze distance; the xy cap leaves 801
 
 ![FB calibration on giant](docs/figures/theory/calibration_antmaze-giant-navigate-v0_min.png)
 
-**Prediction.** On teleport, a method passes about 50 % only if it does not maximise `E[γ^H]`
-exactly. On giant,
-a high level can supply a direction where the direct value has none, but it cannot fix the time
-budget. Measured success of the baseline, non-hier, the oracle and approach A *(pending)*.
+**What these limits imply.** On teleport, a method passes about 50 % only if it does not maximise
+`E[γ^H]` exactly. On giant, a high level can supply a direction where the direct value has none,
+but it cannot fix the time budget.
+
+**Measured on teleport** (`results/teleport/`, 1,250 episodes per row; non-hier and a
+teleport-aware oracle are pending). Bold: the stronger baseline row.
+
+| Method | task 1 | task 2 | task 3 | task 4 | task 5 | all |
+|---|---|---|---|---|---|---|
+| baseline | 22.8 | 43.6 | 29.2 | 24.4 | 18.4 | **27.7** [25.3, 30.2] |
+| baseline_raw | 18.8 | 39.6 | 26.4 | 21.2 | 14.8 | 24.2 [21.8, 26.6] |
+| A: planner | 17.5 | 24.8 | 20.3 | 15.6 | 14.7 | 18.6 [16.5, 21.0] |
+| A: planner_high | 17.1 | 33.6 | 28.1 | 21.7 | 19.9 | 24.1 [21.5, 26.4] |
+
+| Method | against baseline | against baseline_raw |
+|---|---|---|
+| baseline_raw | −3.5 [−6.2, −1.0], p = 0.009 | – |
+| planner, pooled | −9.1 [−12.2, −6.0] | −5.6 [−8.6, −2.5] |
+| planner_high, pooled | −3.6 [−6.7, −0.5] | −0.1 [−3.3, +3.1] |
+
+![Success on teleport per task](docs/figures/report/success_antmaze-teleport-navigate-v0.png)
+
+All methods stay far below the about 50 % that an exact maximiser of `E[γ^H]` would reach.
+Approach A is below the stronger baseline although its xy cap removes the jump edges, so its plans
+are walks. `planner_high` does not differ from `baseline_raw` (−0.1 pp). *(pending: the share of failures that end in the trap, from
+the failure classes.)*
+
+**Giant** (no committed CSV yet). A preliminary Mac run gives the baseline 0.6 % and the privileged
+oracle 2.2 %; in 1000 steps the oracle covers a median of only 5–15.5 of the 17–30 cells of a task
+(`docs/theory.md` §11.3). So the pace of `π_l`, not the route, limits giant, as the time budget
+above predicts.
 
 ## 8. Analysis
 
 ### 8.1 The gap to the paper's numbers
 
-The paper reports 87 ± 6 % on medium (5 training seeds). With the provided checkpoint we measure
-77.8 % [75.6, 80.1] (baseline), 80.5 % [78.3, 82.6] (`baseline_raw`) and 80.0 % [77.8, 82.2]
-(upstream `evaluate`) (`results/macos/medium/{baseline,baseline_raw,upstream}.csv`).
+The paper reports 87 ± 6 % on medium and 66 ± 9 % on large (5 training seeds). With the provided
+checkpoint we measure 77.0 % [74.7, 79.3] (`baseline`) and 80.8 % [78.6, 82.9] (`baseline_raw`) on
+medium, and 37.4 % [35.0, 39.9] and 35.1 % [32.8, 37.4] on large (`results/{medium,large}/`).
+Upstream `evaluate` gives 80.0 % [77.8, 82.2] on medium (Mac run,
+`results/macos/medium/upstream.csv`).
 
 Ruled out:
 
 - **The restore.** The restored parameters equal the checkpoint arrays bit for bit
   (`tests/test_frozen.py::test_restored_parameters_equal_the_checkpoint_arrays`).
 - **Our evaluation loop.** It matches upstream `evaluate` within noise (§6, parity).
-- **The task latent.** The raw `z_r` of upstream does not differ significantly from the normalized
-  one: `baseline_raw` − baseline = +2.6 pp [−0.5, +5.8], p = 0.11, paired.
+- **The task latent, for most of the gap.** With the raw `z_r` of upstream, the provided `π_h`
+  scores 80.8 % on medium, still 6 pp below the paper, and on large the raw `z_r` is not better.
 - **The physics.** The evaluation env replays the dataset transitions exactly (§6).
-
 - **The training seed of `π_h`.** 5 `π_h` that we retrained with the upstream recipe on the same
-  frozen modules score 76.9–80.6 %, and none differs significantly from the provided `π_h` (§7.1).
+  frozen modules score 76.6–79.7 % on medium, and none differs significantly from the provided
+  `π_h` (§7.1).
 
 Still possible: (1) `F`, `B` and `π_l` of training seed 0 are weaker than the average of the
-paper's 5 seeds (the paper's ± 6 shows a wide spread between seeds); we cannot test this without
-retraining FB, which the task forbids; (2) the paper's evaluation differs from upstream `main.py`.
-All our comparisons are paired on the same frozen modules, so the gap does not bias them.
-Large *(pending)*.
+paper's 5 seeds (the paper's ± 6 and ± 9 show a wide spread between seeds); we cannot test this
+without retraining FB, which the task forbids; (2) the paper's evaluation differs from upstream
+`main.py`. The gap is larger on large (about 30 pp) than on medium. All our comparisons are paired
+on the same frozen modules, so the gap does not bias them.
 
-### 8.2 Headroom on medium
+### 8.2 No measurable room for a high level
 
-**A high level matters on medium mainly for task 4.** Without a high level, `π_l(z_r)` scores
-−13.0 pp [−16.2, −10.0] against the baseline (p = 3e-14). Almost all of the loss is on task 4:
-6.4 % against 62.8 %. On the other 4 tasks the direct policy is within 6 pp of `π_h`. So the
-one-switch `π_h` already solves most of what a high level must solve on medium.
+**The oracle is the test.** The privileged oracle routes on the true maze map: `π_l` toward a
+waypoint 2 cells ahead on the shortest path, with a region-mean waypoint latent (radius 0.5). If
+some choice of intentions could beat the baseline with this `π_l`, a choice with the true route
+should come close (`results/{medium,large}/oracle.csv`, `analysis/tables.py`):
 
-**Perfect routing gives +3.5 to +6.2 pp.** The privileged oracle routes on the true maze map and
-scores 84.0 % [82.0, 86.0]: +6.2 pp [+3.1, +9.2] over the baseline (p = 1e-4) and +3.5 pp
-[+0.5, +6.5] over `baseline_raw` (p = 0.02). Its gain is on tasks 3 and 4 (+12.8 and +12.0 pp
-over the baseline). This estimates what a high-level method can gain with this `π_l` on medium.
-It is a reference, not a bound: another waypoint rule changes it by a large amount (next
-paragraph).
+| Maze | oracle | against `baseline` | against `baseline_raw` | gain by the rule of §6 |
+|---|---|---|---|---|
+| medium | 81.3 % | +4.2 [+1.1, +7.5], p = 0.01 | +0.5 [−2.6, +3.5], p = 0.8 | none |
+| large | 39.4 % | +1.9 [−1.8, +5.6], p = 0.34 | +4.2 [+0.7, +7.7], p = 0.025 | none |
 
-**The waypoint latent matters more than the route.** Oracle variants on the same 250 episodes of
-eval seed 0 (`results/macos/medium/oracle_sweep/*.csv`; the baseline scores 76.4 % on these episodes,
-`results/macos/medium/baseline.csv`; CIs about ±5 pp):
+**With this frozen `π_l`, no high-level choice of intentions has measurable room on these mazes.**
+Against the stronger baseline, the oracle gains +0.5 pp on medium and +1.9 pp on large, both not
+significant. On giant the oracle reaches about 2 % (preliminary, §7.3). On teleport the time limit
+and the trap cap an exact maximiser of `E[γ^H]` at about 50 % (§7.3).
+
+This does not say that chaining cannot help in principle. The tabular study shows that it helps
+when `π_l` fails at long range and FB is accurate at short range (§3.1). It says that on these
+mazes the frozen `π_l`, not the choice of intentions, limits success: on medium most failures are
+flips (below), and on large and giant most failures are episodes still moving at the time limit
+(§7.2, §7.3).
+
+The oracle is a reference, not a bound. Another waypoint rule changes its success by a large amount
+(next paragraph), so a better rule could find room that this one misses. In the sweep below, the
+best cell (87.2 %) is within noise of the chosen one (86.4 %) on the same 250 episodes.
+
+**The waypoint latent matters more than the route.** Oracle variants on the 250 episodes of eval
+seed 0 (Mac runs, `results/macos/medium/oracle_sweep/*.csv`; the baseline scores 76.4 % on these
+episodes, `results/macos/medium/baseline.csv`; CIs about ±5 pp):
 
 | Waypoint latent | 1 cell ahead | 2 cells ahead | 3 cells ahead |
 |---|---|---|---|
@@ -496,10 +605,17 @@ reach that exact pose, which is slower and less stable than passing near `w`. A 
 averages the pose out and keeps mostly the position. The test-time `z_r` is also a mean over the
 goal ball. This matters for approach A, whose default landmark latent is the single state (§4).
 
-**Failure classes.** `analysis/failures.py` replays each failed episode and classifies it from the
-observations: *flipped* (the torso points down for the last 50 steps; the ant cannot turn back),
-*stuck* (it stays within 1 xy unit for the last 300 steps), or *other* (still moving at the time
-limit). Counts out of 1,250 episodes (`results/macos/medium/failures/<method>.csv`; descriptive, no CIs):
+**A high level matters on medium mainly for task 4.** Without a high level, `π_l(z_r)` scores
+−11.6 pp [−14.7, −8.5] against the baseline (p = 3e-11). Almost all of the loss is on task 4:
+8.0 % against 63.2 %. On the other 4 tasks the direct policy is within 7 pp of `π_h`, and above it
+on tasks 1 and 2. So the one-switch `π_h` already solves most of what a high level must solve on
+medium.
+
+**Failure classes on medium** (Mac runs; the Linux replays are pending). `analysis/failures.py`
+replays each failed episode and classifies it from the observations: *flipped* (the torso points
+down for the last 50 steps; the ant cannot turn back), *stuck* (it stays within 1 xy unit for the
+last 300 steps), or *other* (still moving at the time limit). Counts out of 1,250 episodes
+(`results/macos/medium/failures/<method>.csv`; descriptive, no CIs):
 
 | Method | failures | flipped | stuck | other | flipped, share of failures |
 |---|---|---|---|---|---|
@@ -511,9 +627,9 @@ limit). Counts out of 1,250 episodes (`results/macos/medium/failures/<method>.cs
 - **Most failures with a high level are flips.** About 71 % for the baseline, `baseline_raw` and
   the oracle. Once the ant has flipped, no high-level choice can repair the episode.
 - **The flip count still depends on the high level.** The oracle flips in 142 episodes against the
-  baseline's 198. The drop is on tasks 3 and 4 (50 → 26 and 72 → 56), where the oracle gains. So
-  flips are not a fixed floor, and a better route also lowers them. *Hypothesis:* a shorter route
-  leaves less time to flip; a success ends the episode early.
+  baseline's 198. The drop is on tasks 3 and 4 (50 → 26 and 72 → 56). So flips are not a fixed
+  floor, and a better route also lowers them. *Hypothesis:* a shorter route leaves less time to
+  flip; a success ends the episode early.
 - **Without a high level, task 4 fails by getting lost, not by flipping.** Of the 234 non-hier
   failures on task 4, 140 are *other* and 47 *stuck*; only 47 are flips. This is the long-range
   failure of `π_l(z_r)` that a high level must repair, and `π_h` repairs most of it (§7.1).
@@ -540,14 +656,14 @@ than the time the ant needs to walk the maze distance at its top speed (99th per
 step length in the data). This is not the tabular definition of §3.1 (Appendix). Counts for the
 400 states, min over heads (`results/calibration/wormholes_<env>_min.csv`):
 
-| Env | `ρ_min` | trusted pairs | of which raw `ρ̂ ≥ 1` | wormholes (raw `ρ̂ < 1`) | share of trusted | within the xy cap of 6 |
+| Env | `ρ_min` | raw `ρ̂` ≥ 1 (untrusted) | trusted pairs (raw `ρ̂` in [`ρ_min`, 1)) | wormholes | share of trusted | within the xy cap of 6 |
 |---|---|---|---|---|---|---|
-| medium | 0.3 | 62,200 | 1,118 | 3,385 | 5.4 % | 1,965 |
-| medium | 0.5 | 28,962 | 1,118 | 3,353 | 11.6 % | 1,965 |
-| medium | 0.7 | 12,146 | 1,118 | 2,997 | 24.7 % | 1,965 |
-| large | 0.3 | 38,359 | 1,170 | 3,992 | 10.4 % | 1,420 |
-| large | 0.5 | 17,856 | 1,170 | 3,411 | 19.1 % | 1,420 |
-| large | 0.7 | 8,343 | 1,170 | 2,707 | 32.4 % | 1,420 |
+| medium | 0.3 | 1,118 | 61,082 | 3,405 | 5.6 % | 1,965 |
+| medium | 0.5 | 1,118 | 27,844 | 3,362 | 12.1 % | 1,965 |
+| medium | 0.7 | 1,118 | 11,028 | 2,997 | 27.2 % | 1,965 |
+| large | 0.3 | 1,170 | 37,189 | 3,992 | 10.7 % | 1,420 |
+| large | 0.5 | 1,170 | 16,686 | 3,411 | 20.4 % | 1,420 |
+| large | 0.7 | 1,170 | 7,173 | 2,707 | 37.7 % | 1,420 |
 
 | Medium, 200 longest wormholes | Large, 200 longest wormholes |
 |---|---|
@@ -556,13 +672,13 @@ step length in the data). This is not the tabular definition of §3.1 (Appendix)
 - **Many wormholes cross the whole maze** (longest: 28.1 xy units of maze distance on medium,
   48.9 on large). A max over routes exploits exactly these pairs.
 - **A higher `ρ_min` does not remove them.** From `ρ_min` 0.3 to 0.7 the trusted pairs drop by
-  80 % on medium, but the wormholes drop by only 12 % (large: 78 % and 32 %). Their share of the
-  trusted pairs grows from 5.4 % to 24.7 % (large: 10.4 % to 32.4 %). The wormholes sit at high
+  82 % on medium, but the wormholes drop by only 12 % (large: 81 % and 32 %). Their share of the
+  trusted pairs grows from 5.6 % to 27.2 % (large: 10.7 % to 37.7 %). The wormholes sit at high
   `ρ̂`. This is why A uses an xy cap instead of a higher `ρ_min` (§4).
-- **The xy cap removes the long wormholes, not all of them.** It leaves 1,965 of 3,385 on medium
+- **The xy cap removes the long wormholes, not all of them.** It leaves 1,965 of 3,405 on medium
   and 1,420 of 3,992 on large, all at most 6 xy units long, so a wormhole hop can no longer jump
   across the maze. *(pending: whether the remaining ones cross a wall.)*
-- **The head min removes few.** With the mean over heads there are 4,289 (medium) and 5,380
+- **The head min removes few.** With the mean over heads there are 4,319 (medium) and 5,380
   (large) wormholes at `ρ_min` 0.3 (`results/calibration/wormholes_<env>_mean.csv`). The min
   lowers the count by only a fifth to a quarter, so most of these errors are shared by the heads,
   as with the wall-blind low-rank features of the tabular study (§3.1, result 4), and unlike
@@ -575,45 +691,46 @@ step length in the data). This is not the tabular definition of §3.1 (Appendix)
 ### 8.4 Why approach A is below the baseline on medium
 
 Evidence from the evaluation CSVs: per-task success (§7.1), time to goal and where failures end
-(`analysis/report_figures.py` on `results/macos/medium/`), and failure classes (`analysis/failures.py`,
-§8.2). Time-to-goal numbers and failure counts are descriptive, without CIs.
+(`analysis/report_figures.py` on `results/medium/`), and failure classes (`analysis/failures.py`,
+Mac runs). Time-to-goal numbers and failure counts are descriptive, without CIs.
 
-**1. Little to gain on medium.** The one-switch `π_h` already solves the long task 4 (§8.2), and
-perfect routing gains only +3.5 to +6.2 pp. The tabular study shows the same pattern: when the
-existing policy is already near the best that the controller allows, planning on noisy values can
-only lose (§3.1, result 1).
+**1. No room on medium.** The one-switch `π_h` already solves the long task 4 (§8.2), and perfect
+routing gains only +0.5 pp against the stronger baseline. The tabular study shows the same pattern:
+when the existing policy is already near the best that the controller allows, planning on noisy
+values can only lose (§3.1, result 1).
 
-**2. A does not get the routing gain where routing matters, and loses elsewhere.** The oracle
-gains about 12 pp on tasks 3 and 4. There `planner_high` (79.5 %, 63.6 %) and the region variant
-(79.1 %, 64.3 %) are only level with the baseline (76.0 %, 62.8 %), within their per-task CIs; the
-plain planner is level on task 3 and lower on task 4 (56.1 %). On tasks 1, 2 and 5, where the
-oracle gains 0–4 pp, every variant loses 6–29 pp. So the planner misses the routing gain and pays
-a cost on tasks that `π_h` already solves.
+**2. A does not get the routing gain where the oracle gets it, and loses elsewhere.** Against the
+normalized baseline, the oracle gains most on tasks 1, 3 and 4 (+8.0, +5.6 and +7.2 pp). On tasks
+3 and 4, `planner_high` (79.3 %, 65.3 %) and the region variant (78.7 %, 65.2 %) are only level with
+the baseline (79.6 %, 63.2 %); the plain planner is lower (74.9 %, 52.5 %). On task 1 every variant
+loses 8–23 pp. On tasks 2 and 5, where the oracle gains −0.8 and +1.2 pp, every variant loses
+5–26 pp. So the planner misses the routing gain and pays a cost on tasks that `π_h` already solves.
 
-**3. A reaches the goal later.** Successful episodes take a median of 441 (planner), 432
-(`planner_high`) and 452 (region) steps, against 361 for the baseline, 372 for `baseline_raw` and
-379 for the oracle, which also follows waypoints:
+**3. A reaches the goal later.** Successful episodes take a median of 442 (planner), 420
+(`planner_high`) and 461 (region) steps, against 363 for the baseline, 368 for `baseline_raw` and
+384 for the oracle, which also follows waypoints:
 
 ![Success within a step budget minus the baseline](docs/figures/report/time_to_goal_antmaze-medium-navigate-v0.png)
 
 | Method | success within 400 steps | 600 | 800 | 1000 |
 |---|---|---|---|---|
-| baseline | 44.4 | 61.5 | 72.2 | 77.8 |
-| planner | 30.7 | 50.2 | 62.7 | 70.1 |
-| planner_high | 32.5 | 53.4 | 66.0 | 73.2 |
-| planner, region latents | 27.4 | 45.6 | 57.9 | 65.6 |
+| baseline | 43.3 | 62.5 | 72.9 | 77.0 |
+| planner | 29.8 | 49.6 | 61.2 | 68.4 |
+| planner_high | 33.8 | 53.1 | 64.7 | 72.5 |
+| planner, region latents | 26.1 | 44.9 | 56.1 | 64.9 |
 
-The gap to the baseline is largest at 420–440 steps (−11.9 to −17.3 pp) and shrinks by 29–61 % by
-step 1000 (to −4.6 to −12.3 pp). So a large part of the final gap is time: the planner reaches many
+The gap to the baseline is largest at 370–580 steps (−10.6 to −18.0 pp) and shrinks by 33–58 % by
+step 1000 (to −4.5 to −12.1 pp). So a large part of the final gap is time: the planner reaches many
 goals later, and the 1000-step limit ends some episodes before it arrives. The curves still rise at
 1000 steps, so these data cannot say how much of the gap a longer episode would close.
 
 **4. Failures end far from the goal, as the baseline's do.** The median final distance of a failed
-episode is 9.6–12.0 xy units (baseline 8.3), and 7.8–9.3 % of A's failures end within 3 units of
-the goal (baseline 11.9 %). So circling next to the goal is not a main failure mode on medium.
+episode is 10.2–11.4 xy units (baseline 8.6), and 7.6–9.7 % of A's failures end within 3 units of
+the goal (baseline 11.5 %). So circling next to the goal is not a main failure mode on medium.
 
-**5. A's extra failures are slow episodes, not flips.** Failure classes per landmark set, out of
-1,250 episodes (`results/macos/medium/failures/planner*_l<k>.csv`; the region variant has no set 2):
+**5. A's extra failures are slow episodes, not flips** (Mac runs; the Linux replays are pending).
+Failure classes per landmark set, out of 1,250 episodes
+(`results/macos/medium/failures/planner*_l<k>.csv`; the region variant has no set 2):
 
 | Method | failures | flipped | stuck | other (moving at the time limit) |
 |---|---|---|---|---|
@@ -623,73 +740,77 @@ the goal (baseline 11.9 %). So circling next to the goal is not a main failure m
 | planner, region latents, sets 0 / 1 | 485 / 352 | 167 / 159 | 6 / 5 | 312 / 188 |
 
 A flips about as often as the baseline (159–210 episodes against 198), but 2 to 4 times as many of
-its episodes are still moving at the time limit (136–312 against 72). On tasks 1 and 5, where A
-loses most, these failures are 41–103 (baseline 23) and 21–93 (baseline 13). So A loses time, not
-balance, which agrees with point 3.
+its episodes are still moving at the time limit (136–312 against 72). On tasks 1 and 5 these
+failures are 41–103 (baseline 23) and 21–93 (baseline 13). So A loses time, not balance, which
+agrees with point 3.
 
-**6. The plan depends on the landmark set.** The paired difference moves by 3.4 pp (planner), 4.5 pp
-(`planner_high`) and 10.6 pp (region) between the 3 landmark sets (§7.1). A graph of 300 sampled
+**6. The plan depends on the landmark set.** The paired difference moves by 3.5 pp (planner), 2.4 pp
+(`planner_high`) and 13.4 pp (region) between the 3 landmark sets (§7.1). A graph of 300 sampled
 states is itself a random object, and region latents make it more sensitive. On sets 0 and 2 the
-region variant scores 44–54 % on tasks 1 and 5 (set 1: 68–70 %; `analysis/tables.py` on
-`results/macos/medium/planner_region/`).
+region variant scores 40–54 % on tasks 1 and 5 (set 1: 63–74 %; `analysis/tables.py` on
+`results/medium/planner_region/`).
 
 **7. Handing the waypoint to `π_h` is the best variant.** `planner_high` gives `B(w*)` to `π_h`
 as its task, so `π_h` chooses the intentions toward the waypoint, and it is the closest variant
-to the baseline (mean −4.6 pp). With points 3 and 5, this suggests that the execution of the
-waypoints, not the route, is the main cost. Route plots would test the second half (the route is
-good) *(pending)*.
+to the baseline (pooled −4.5 pp [−7.7, −1.4]). With points 3 and 5, this suggests that the
+execution of the waypoints, not the route, is the main cost. Route plots would test the second
+half (the route is good) *(pending)*.
 
 **Region latents: good for acting, bad for planning (hypothesis).** Region-mean waypoint latents
-help the oracle by 10–42 pp over single-state ones at the same look-ahead (§8.2), but they make the
-planner worse and slower. The oracle takes its route from the true maze and uses the latent only to
-act. The planner uses the same latent for `ρ̂`, the planning signal, and for the action. A region
-latent makes `ρ̂` higher and flatter between near and far landmarks (§4; ablation pending), so the
-route gets worse even if each hop is easier to execute. Test: plan with single-state `ρ̂` and act
-with region latents. A 100-episode probe of this split by c-planner (held-out start states, not
-committed) showed no gain over single-state latents, so the hypothesis is weak. A possible reason:
-the oracle's waypoints are 2 cells (about 8 xy units) ahead, the planner's at most 6 xy units, and
-the planner switches at 3.
+help the oracle by 10–42 pp over single-state ones at the same look-ahead (§8.2, Mac sweep), but
+they make the planner worse and slower. The oracle takes its route from the true maze and uses the
+latent only to act. The planner uses the same latent for `ρ̂`, the planning signal, and for the
+action. A region latent makes `ρ̂` higher and flatter between near and far landmarks (§4; ablation
+pending), so the route gets worse even if each hop is easier to execute. Test: plan with
+single-state `ρ̂` and act with region latents. A 100-episode probe of this split by c-planner
+(held-out start states, not committed) showed no gain over single-state latents, so the hypothesis
+is weak. A possible reason: the oracle's waypoints are 2 cells (about 8 xy units) ahead, the
+planner's at most 6 xy units, and the planner switches at 3.
 
 ### 8.5 What the learned `V_H` gains over the one-switch value *(pending)*
 
 Needs `V_H(s,B(g))` and `V_1(s,B(g))` against the maze distance, and the clip rates of `ρ`.
 
-## 9. What worked and what did not *(partly pending)*
+## 9. What worked and what did not *(B and the A ablations pending)*
 
 | Item | Outcome | Evidence |
 |---|---|---|
 | Chain formula, graph Bellman equation, contraction, option interruption | hold exactly on tabular mazes | `tests/test_tabular_theory.py`, to 1e-8 |
 | `R̂ = 0` and guards in the tabular study | chaining beats the idealised `π_h` when `π_l` fails at long range (0.46 against 0.26) | §3.1 |
-| Paired evaluation | parity with upstream holds; paired tests resolve differences of about 3 pp | §6, §7.1 |
-| Retrained baselines | the provided `π_h` is a typical seed (retrained 76.9–80.6 %, mean +0.5 pp against it) | §7.1, §8.1 |
-| Approach A on medium | **did not work**: below the baseline for all variants and landmark sets (mean −4.6 to −12.3 pp) | §7.1, §8.4 |
+| Room for any high level with this `π_l` | **none measurable**: the privileged oracle gains +0.5 pp (medium) and +1.9 pp (large) against the stronger baseline, both not significant | §8.2 |
+| Paired evaluation | paired tests resolve differences of about 3 pp; parity with upstream holds (Mac); Mac and Linux agree on success rates | §6, §7.1 |
+| Two baseline rows | neither is the stronger one on every maze (raw +3.8 pp on medium, normalized +3.5 pp on teleport) | §6 |
+| Retrained baselines | the provided `π_h` is a typical seed (retrained 76.6–79.7 %, pooled +1.2 pp against it) | §7.1, §8.1 |
+| Approach A | **did not work**: below the stronger baseline on medium (−8.3 to −15.9 pp), large (−8.0 to −11.1 pp) and teleport (−3.6 to −9.1 pp) | §7 |
+| A's loss on medium | mostly time: later arrival, and slow episodes instead of flips | §8.4 |
 | Region landmark latents | **did not work** for the planner (worst variant, most sensitive to the landmark set), although region waypoint latents help the oracle | §7.1, §8.2, §8.4 |
-| `planner_high` (waypoint as the task of `π_h`) | the best A variant; not significantly below the baseline on 2 of 3 landmark sets, but below `baseline_raw` on all 3 | §7.1 |
+| `planner_high` (waypoint as the task of `π_h`) | the best A variant; equal to `baseline_raw` on teleport, below the stronger baseline elsewhere | §7 |
+| Giant and teleport | teleport: an exact maximiser of `E[γ^H]` takes the teleporter and succeeds about half the time, and every method stays far below that; giant: the walks fit in 1000 steps only at a fast pace (oracle about 2 %, preliminary) | §7.3 |
 | Each guard of A on the real model | *(pending: guard and execution ablations)* | |
 | Approach B | *(pending)* | |
-| A's extra failures on medium | slow episodes (still moving at the time limit: 136–312 against 72), not flips (159–210 against 198) | §8.4 |
-| Large | *(pending)* | |
-| Giant and teleport, before any run | teleport: an exact maximiser of `E[γ^H]` takes the teleporter and succeeds about half the time; giant: the walks fit in 1000 steps only at a fast pace | §7.3 |
-| Giant and teleport, measured | *(pending)* | |
 
-## 10. Limitations and next steps *(partly pending)*
+## 10. Limitations and next steps
 
 Limitations:
 
 - **One FB model per env.** `F`, `B` and `π_l` come from training seed 0. The retrained `π_h`
-  seeds add `π_h` training variance (76.9–80.6 % on medium), not the variance of the frozen
-  modules.
-- **Small headroom on medium.** Perfect routing gains +3.5 to +6.2 pp (§8.2). About 71 % of the
-  failures with a high level are flips; a high level can lower their count but cannot repair a
-  flipped episode (§8.2).
+  seeds add `π_h` training variance (76.6–79.7 % on medium), not the variance of the frozen
+  modules. The central finding holds for this `π_l` only.
+- **The oracle is a reference, not a bound** (§8.2). A better waypoint rule could find room that
+  this oracle misses.
+- **Flips** are about 71 % of the failures with a high level on medium (Mac runs); a high level can
+  lower their count but cannot repair a flipped episode (§8.2).
 - **Tuning on the evaluation tasks.** A's guards were tuned on the 5 medium tasks with other start
   states (§4). This favours A on medium, so it does not explain A's loss.
-- **The oracle is not a bound** (§8.2).
-- **3 landmark sets** estimate the landmark variance of A only roughly (§8.4, point 5).
+- **3 landmark sets** estimate the landmark variance of A only roughly (§8.4, point 6).
+- **Mac-only inputs** (parity, oracle sweep, failure classes on medium) and giant (no CSV yet) wait
+  for their Linux runs.
 
 Next steps that the evidence suggests:
 
-- Larger mazes, where FB loses distance information at long range (§8.3) *(pending: large)*.
+- A better executor before a better planner: with this `π_l`, even the true route gains nothing
+  measurable (§8.2). A waypoint-reaching `π_l`, faster and less prone to flips, would change the
+  frozen setting, so it is a separate study.
 - A target-side wormhole guard (§8.3, hypothesis).
 - On teleport, an objective closer to `P(H ≤ T)` than `E[γ^H]` at one γ: FB at several γ, or a
   penalty on edges whose successor measure has mass in the trap (§7.3, `docs/theory.md` §11.1).
@@ -698,8 +819,14 @@ Next steps that the evidence suggests:
 
 ## 11. Reproduction
 
-Commands for every table and figure: `README.md`, section "Reproduce". The time-to-goal figure
-and table of §8.4: `uv run python analysis/report_figures.py`.
+Commands for every table and figure: `README.md`, section "Reproduce". Figures that only the report
+uses:
+
+- time to goal and the tables of §8.4: `uv run python analysis/report_figures.py`;
+- success per task (§7): `uv run python analysis/plots.py results/<env>/*.csv
+  results/<env>/planner*/*.csv --label-root results/<env> --cluster config_hash --out-dir
+  docs/figures/report`;
+- the Mac-vs-Linux check (§6): `uv run python analysis/platform_check.py`.
 
 ## Appendix: notation and names in the code
 
@@ -728,14 +855,14 @@ not comparable.
 Methods: name in the report, `--method` of `fbplan.evaluate`, and the `method` column of the CSV
 (the `Controller.name`):
 
-| Report | `--method` and options | CSV `method` | Results |
+| Report | `--method` and options | CSV `method` | Results (`<env>`: medium, large, teleport, where run; Mac copies below `results/macos/`) |
 |---|---|---|---|
-| baseline | `baseline` | `baseline` | `results/macos/medium/baseline.csv` |
-| baseline_raw | `baseline_raw` | `baseline_raw` | `results/macos/medium/baseline_raw.csv` |
-| non-hier | `nonhier` | `nonhier` | `results/macos/medium/nonhier.csv` |
-| oracle | `oracle` | `oracle` | `results/macos/medium/oracle.csv` |
-| planner | `planner --opt landmarks.seed=k` | `graph_planner` | `results/macos/medium/planner/l<k>.csv` |
-| planner_high | `planner_high --opt landmarks.seed=k` | `graph_plus_high` | `results/macos/medium/planner_high/l<k>.csv` |
-| planner, region latents | `planner --opt landmarks.latent=region landmarks.seed=k` | `graph_planner` (another `config_hash`) | `results/macos/medium/planner_region/l<k>.csv` |
-| retrained baseline | `baseline --checkpoint retrained:<seed>` | `baseline`, `checkpoint_kind` = `retrained` | `results/macos/medium/baseline_retrained/seed<k>.csv` |
+| baseline | `baseline` | `baseline` | `results/<env>/baseline.csv` |
+| baseline_raw | `baseline_raw` | `baseline_raw` | `results/<env>/baseline_raw.csv` |
+| non-hier | `nonhier` | `nonhier` | `results/<env>/nonhier.csv` |
+| oracle | `oracle` | `oracle` | `results/<env>/oracle.csv` |
+| planner | `planner --opt landmarks.seed=k` | `graph_planner` | `results/<env>/planner/l<k>.csv` |
+| planner_high | `planner_high --opt landmarks.seed=k` | `graph_plus_high` | `results/<env>/planner_high/l<k>.csv` |
+| planner, region latents | `planner --opt landmarks.latent=region landmarks.seed=k` | `graph_planner` (another `config_hash`) | `results/<env>/planner_region/l<k>.csv` |
+| retrained baseline | `baseline --checkpoint retrained:<seed>` | `baseline`, `checkpoint_kind` = `retrained` | `results/<env>/baseline_retrained/seed<k>.csv` |
 | B-clean, B-wide, B-region | `baseline --checkpoint b:<variant>:<seed>` | `baseline`, `checkpoint_variant` = the variant | *(pending)* |

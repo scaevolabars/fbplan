@@ -1,6 +1,6 @@
 # Status: f-report
 
-Last update: 2026-10-29, 21:15. Branch merged with `main` at 3e36461.
+Last update: 2026-10-29, 22:40. Branch merged with `main` at 529f7ff.
 
 ## Done
 
@@ -61,6 +61,24 @@ Last update: 2026-10-29, 21:15. Branch merged with `main` at 3e36461.
     `scripts/reproduce.sh` switches. Checked: on `results/macos/medium` the figure is identical
     byte for byte and the tables are unchanged; a folder without `planner_region`, a planner
     without successes, and a folder without the baseline all behave as described.
+- After the merge of 529f7ff (canonical Linux results for medium, large, teleport; design.md §8
+  on the two baseline rows): the report runs on the Linux numbers.
+  - Status line and §1 Summary (draft, B pending) with the central finding: against the stronger
+    baseline row the privileged oracle gains +0.5 pp [−2.6, +3.5] on medium and +1.9 pp
+    [−1.8, +5.6] on large, so with this frozen `π_l` no high-level choice has measurable room;
+    giant about 2 % (preliminary); teleport bounded by the time limit and the trap.
+  - §6: the two baseline rows per maze (raw stronger on medium, normalized on teleport, no
+    significant difference on large) and the rule "the stronger row is the bar"; the platform check
+    (`analysis/platform_check.py`: Linux − Mac −4.6 to +2.0 pp over 23 runs, CI contains 0 for 22;
+    55–73 % of episodes with the same outcome); parity marked as a Mac run.
+  - §7.1 medium, §7.2 large (new), §7.3 teleport measured (new); pooled paired CIs from the new
+    `tables.py` output; success figures per task made with `analysis/plots.py --out-dir
+    docs/figures/report`.
+  - §8.1 (large gap), §8.2 rewritten around the oracle test, §8.3 from the updated calibration
+    CSVs (trusted pairs exclude raw `ρ̂ ≥ 1`; medium 3,405 wormholes at `ρ_min` 0.3), §8.4 on Linux
+    numbers (time-to-goal figure regenerated), §9, §10, §11, appendix paths.
+  - Marked as Mac-only: the parity run, the oracle sweep and the failure classes on medium. Giant:
+    preliminary numbers from `docs/theory.md` §11.3, no CSV yet.
 - Private defense sheet for the reviewer call (coordinator request): written outside the
   repository, not committed.
 - Every number in the report names a committed file. Recomputed with `analysis/tables.py`
@@ -71,43 +89,22 @@ Last update: 2026-10-29, 21:15. Branch merged with `main` at 3e36461.
 
 | # | Result | Report section | Owner | Expected place |
 |---|---|---|---|---|
-| 2 | A guard and execution ablations on medium: `R̂` exact and paper against zero, raw `ρ̂ ≥ 1` trusted, no xy cap, `two_way`, `reached_xy` 1.5 and the `ρ` rule, no look-ahead, `replan_every_step`; the `ρ̂` statistics of region latents | §4 (evidence column), §8.4, §9 | c-planner (assigned) | `results/medium/planner_ablations/` |
-| 3 | route plots of A on medium and large, committed | §8.4 | c-planner (`analysis/planner_routes.py` writes to `runs/`) | `docs/figures/report/` or c-planner's results |
-| 4 | failure classes of B (Mac: planner variants done, region set 2 missing; Linux reruns all) | §8.4, §10 | d-eval | `results/medium/failures/` |
-| 5 | whether the wormholes that the xy cap leaves cross a wall (a column of the calibration CSV) | §8.3, §4 | d-eval | `results/calibration/` |
-| 6 | B1 on medium: `V_H`, then B-clean, B-wide, B-region, 5 eval seeds | §7.1, §8.5, §9 | e-learner (GPU training), d-eval (evaluation) | `results/medium/` |
-| 7 | B offline diagnostics as a committed file: `V_H` and `V_1` against maze distance, `ρ` cap and clip rates (numbers so far only in e-learner's status) | §8.5 | e-learner | `results/medium/` |
-| 8 | large: baseline, `baseline_raw`, oracle, planner variants, retrained baselines, B | §7.2, §8.1, §10 | d-eval (running); e-learner for large training | `results/large/` |
-| 9 | giant and teleport, measured (the limits before any run are in §7.3) | §7.3 | b-theory (commands), d-eval (Linux runs) | `results/{giant,teleport}/` |
-| 10 | Linux reruns, canonical from now on (coordinator decision): every evaluation CSV that the report quotes. The report cites the Mac CSVs in `results/macos/` until then | all numbers in §6–§10, figures | d-eval (queue on the Linux instance) | `results/<env>/` |
+| 1 | B on medium: B-clean, B-wide, B-region, 5 training seeds, 5 eval seeds; paired against both baseline rows and the retrained baselines | §1, §7.1, §8.5, §9 | e-learner (training), d-eval (evaluation) | `results/medium/` |
+| 2 | B offline diagnostics as a committed file: `V_H` and `V_1` against maze distance, `ρ` cap and clip rates | §8.5 | e-learner | `results/medium/` |
+| 3 | A guard and execution ablations (Linux) | §4 (evidence column), §8.4, §9 | d-eval runs c-planner's commands | `results/<env>/planner_ablations/` |
+| 4 | route plots of A on medium and large, committed | §8.4 point 7 | c-planner | `docs/figures/report/` or c-planner's results |
+| 5 | Linux reruns of the Mac-only medium inputs: parity against upstream, oracle sweep, failure classes of all medium runs | §6, §8.2, §8.4 | d-eval (queue item c) | `results/medium/` |
+| 6 | teleport: non-hier, the teleport-aware oracle, and failure classes with the trap class | §7.3 | d-eval (queue item d) | `results/teleport/` |
+| 7 | giant (Linux): baseline, non-hier, oracle, planner; oracle failure classes | §7.3, §8.2 | d-eval runs b-theory's commands | `results/giant/` |
+| 8 | large: retrained baselines; failure classes of the A variants | §7.2 | d-eval | `results/large/` |
+| 9 | whether the wormholes that the xy cap leaves cross a wall (a column of the calibration CSV) | §8.3, §4 | d-eval | `results/calibration/` |
 
-Dropped: the per-target wormhole diagnostic (coordinator: no new run; §8.3 keeps it as a
-hypothesis). Done: A on medium (`results/medium/planner*/`), the baseline definition, the
-calibration tables (`results/calibration/`), the retrained medium baselines
-(`results/medium/baseline_retrained/`), the failure classes of baseline, `baseline_raw`, oracle
-and non-hier (`results/medium/failures/`). Seen, for §7.3 later: b-theory's time-limit study
-(`docs/figures/theory/time_limit*`).
-
-Every needed result has an owner. The medium results of A are negative, as the brief expected;
-nothing changes the story of the report.
-
-## Plan for the Linux reruns
-
-- When the Linux CSVs land: rerun `analysis/tables.py` (both references, both cluster levels) and
-  `analysis/report_figures.py`, and replace every number and figure in the report that they change.
-- One sentence on the Mac-vs-Linux agreement, from `analysis/tables.py` with `--label-root results`
-  and the Linux CSV as `--reference`: the paired difference with CI, and the share of episodes
-  with the same outcome (from the discordant counts). Checked on a copy: `tables.py` pairs the same
-  method across two folders by episode, so no new code is needed.
-- Report inputs from evaluation runs: `baseline`, `baseline_raw`, `nonhier`, `oracle`, `upstream`
-  (parity), `oracle_sweep/`, `planner*/`, `baseline_retrained/`, `failures/` (they replay
-  episodes, so they must be rerun on the same platform as their CSVs). Inputs without episodes:
-  `results/calibration/`, `docs/figures/theory/`. Any input that is not rerun on Linux keeps its
-  Mac number, and the report says so.
+Every needed result has an owner. The central finding (no measurable room for a high level with
+this `π_l`) was set by the coordinator from the Linux results; the report states it in §1 and §8.2.
 
 ## Next
 
-- Fill §7.2, §7.3, §8.5, the rest of §9 and §10 when the results above arrive; write §1 last.
+- When B lands: §7.1 B rows, §8.5, §1 (B line), §9, §10. Then the other items above as they land.
 - Merge `main` when new results are merged.
 
 ## Blockers
@@ -118,12 +115,11 @@ nothing changes the story of the report.
 
 - d-eval: the calibration CSV counts the wormholes within the xy cap (1,965 on medium) but not
   whether they cross a wall. Your status says they cross none (short pairs, FB overconfident at
-  short range). Please add that count as a column (item 5), so §8.3 can state it.
-- d-eval (Linux reruns): the report quotes these evaluation inputs. Please rerun all of them on the
-  Linux instance, or tell me which stay Mac-only, so the report can mark them: `baseline`,
-  `baseline_raw`, `nonhier`, `oracle`, `upstream` (parity), `oracle_sweep/`, `planner*/`,
-  `baseline_retrained/`, and `failures/` for each of these (a replay must run on the platform of
-  its CSV).
+  short range). Please add that count as a column (item 9), so §8.3 can state it.
+- d-eval (Linux reruns): still Mac-only in the report are the medium parity run, the oracle sweep
+  and the medium failure classes (item 5); teleport needs failure classes with the trap class
+  (item 6). Optional: commit `results/platform_check.csv`, so §6 can name a file and not only the
+  script.
 - g-release: `analysis/report_figures.py` takes the results folder as a positional argument now
   (CLI convention). Please switch `scripts/reproduce.sh` to
   `py analysis/report_figures.py "$dir" --out-dir "$report_dir"`; then I remove the hidden
