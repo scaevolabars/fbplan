@@ -7,7 +7,7 @@ import pytest
 
 from fbplan.learned.checkpoint import FROZEN_MODULES, with_fresh_high_actor
 from fbplan.learned.sampling import HighBatchSpec, make_trajectory_data
-from fbplan.train_high import train, train_chunk
+from fbplan.train_high import parse_args, train, train_chunk
 
 OBS_DIM = 5  # observation size of the shared tiny_agent (tests/conftest.py)
 
@@ -52,6 +52,27 @@ def test_pi_h_init_depends_only_on_seed(frozen_agent):
     c = with_fresh_high_actor(frozen_agent, 1)
     assert same(params_of(a, "modules_high_actor"), params_of(b, "modules_high_actor"))
     assert not same(params_of(a, "modules_high_actor"), params_of(c, "modules_high_actor"))
+
+
+def test_a_temperature_variant_changes_only_high_alpha(frozen_agent):
+    """train_high --high-alpha: same pi_h init and batches, only the AWR weighting differs."""
+    sharp = frozen_agent.replace(config=dict(frozen_agent.config) | {"high_alpha": 0.2})
+    a, b = with_fresh_high_actor(frozen_agent, 3), with_fresh_high_actor(sharp, 3)
+    assert same(params_of(a, "modules_high_actor"), params_of(b, "modules_high_actor"))
+    assert (a.config["high_alpha"], b.config["high_alpha"]) == (0.1, 0.2)
+    args = parse_args(
+        [
+            "--env",
+            "antmaze-medium-navigate-v0",
+            "--seed",
+            "3",
+            "--name",
+            "awr2x",
+            "--high-alpha",
+            "0.2",
+        ]
+    )
+    assert (args.name, args.high_alpha) == ("awr2x", 0.2)
 
 
 def test_training_updates_only_pi_h(frozen_agent, data):

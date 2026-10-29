@@ -3,6 +3,7 @@
 # Runs on the instance (scripts/gpu/vast.sh push calls it). Safe to run again.
 #
 #   bash scripts/gpu/remote_setup.sh [maze ...]     default mazes: medium large
+#   SKIP_TESTS=1 bash scripts/gpu/remote_setup.sh  for a code update on an instance that passed them
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -32,4 +33,6 @@ EOF
 # The tests compare with upstream at CPU tolerances. On Ampere and newer GPUs, JAX multiplies
 # float32 matrices in TF32 by default (differences of about 1e-3), so test at full precision.
 # Training keeps the JAX default, as upstream main.py does (it does not set the precision).
-JAX_DEFAULT_MATMUL_PRECISION=highest uv run pytest -q
+if [[ ${SKIP_TESTS:-0} != 1 ]]; then
+  JAX_DEFAULT_MATMUL_PRECISION=highest uv run pytest -q
+fi

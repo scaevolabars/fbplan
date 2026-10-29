@@ -64,9 +64,12 @@ def load_trained_file(key: str, name: str) -> Any:
     return frozen.load_numpy_pickle(folder / name)
 
 
-def load_baseline_model(env_name: str, seed: int) -> frozen.FrozenFBModel:
-    """The provided model with the pi_h that train_high retrained with `seed`."""
-    return frozen.load_trained_model(env_name, trained_key("baselines", env_name, seed))
+def load_baseline_model(env_name: str, seed: int, name: str | None = None) -> frozen.FrozenFBModel:
+    """The provided model with the pi_h that train_high retrained with `seed`.
+
+    `name` selects a variant of the recipe (train_high --name), for example awr2x.
+    """
+    return frozen.load_trained_model(env_name, trained_key("baselines", env_name, seed, name))
 
 
 def load_b_model(env_name: str, variant: str, seed: int) -> frozen.FrozenFBModel:
