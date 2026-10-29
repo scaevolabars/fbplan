@@ -16,8 +16,9 @@ import jax
 import jax.numpy as jnp
 
 from fbplan.contracts import normalize_z
+from fbplan.learned.checkpoint import Agent
 from fbplan.learned.sampling import SwitchBatch
-from fbplan.learned.value import Agent, ValueConfig, ValueState, switch_targets
+from fbplan.learned.value import ValueConfig, ValueState, switch_targets
 
 MAX_LOG_WEIGHT = 5.0  # upstream clips alpha * A at 5 before exp
 

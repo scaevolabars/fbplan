@@ -177,7 +177,7 @@ push | train | run | status | pull | ssh | destroy)
   "cmd_$cmd" "$@"
   ;;
 *)
-  sed -n '2,20p' "$0"
+  awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"
   exit 1
   ;;
 esac

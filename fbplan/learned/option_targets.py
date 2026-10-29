@@ -44,6 +44,8 @@ class OptionConfig:
 
 @flax.struct.dataclass
 class OptionTerms:
+    """rho and R of one option per sample, and whether its edge may enter the loss."""
+
     rho: jax.Array  # [N] in [0, rho_cap]
     rho_raw: jax.Array  # [N] before the cap, for the clip statistics
     reward: jax.Array  # [N]

@@ -76,6 +76,7 @@ def summary_rows(geodesic: np.ndarray, v1: np.ndarray, vh: np.ndarray) -> list[s
 
 
 def plot(geodesic: np.ndarray, v1: np.ndarray, vh: np.ndarray, title: str, path: Path) -> None:
+    """Median and 25-75 % band of V_1 and V_H per distance bin, saved to path."""
     edges = np.arange(0.0, geodesic.max() + PLOT_BIN, PLOT_BIN)
     centres = edges[:-1] + PLOT_BIN / 2
     fig, ax = plt.subplots(figsize=(7, 4))
@@ -110,6 +111,7 @@ def per_goal_correlations(values: np.ndarray, geodesic: np.ndarray) -> np.ndarra
 
 
 def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
+    """Command line of the diagnostic (see the module docstring)."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--env", default="antmaze-medium-navigate-v0", choices=frozen.ENV_NAMES)
     parser.add_argument(

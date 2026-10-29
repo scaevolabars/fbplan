@@ -55,6 +55,11 @@ class ValueConfig:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ValueConfig:
         """Inverse of dataclasses.asdict, for the config stored in flags.json."""
+        if "rho_max" in d["option"]:
+            raise ValueError(
+                "this flags.json is from code before the rho_max -> rho_cap rename; convert its "
+                "folder with `python -m fbplan.learned.checkpoint export <folder>`"
+            )
         nested = {"option": OptionConfig(**d["option"]), "hidden_dims": tuple(d["hidden_dims"])}
         return cls(**(d | nested))
 
@@ -79,6 +84,7 @@ class ValueState(flax.struct.PyTreeNode):
     def create(
         cls, key: jax.Array, obs_dim: int, latent_dim: int, config: ValueConfig
     ) -> ValueState:
+        """A new delta network from `key`; its target copy starts equal to it."""
         net = delta_network(config.hidden_dims)
         params = net.init(key, jnp.zeros((1, obs_dim)), jnp.zeros((1, latent_dim)))["params"]
         tx = optax.adam(config.lr)

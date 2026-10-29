@@ -25,24 +25,12 @@ from fbplan.learned.checkpoint import (
 from fbplan.learned.sampling import HighBatchSpec, make_trajectory_data
 from fbplan.train_high import train_chunk
 
-fbpiswitch = frozen.upstream_module("agents.fbpiswitch")
 MEDIUM = "antmaze-medium-navigate-v0"
-OBS_DIM = 5
 
 
 @pytest.fixture(scope="module")
-def agent():
-    config = fbpiswitch.get_config().to_dict() | {
-        "actor_hidden_dims": (16, 16),
-        "forward_repr_hidden_dims": (16, 16),
-        "backward_repr_hidden_dims": (16, 16),
-        "latent_dim": 4,
-    }
-    batch = {
-        "observations": np.zeros((1, OBS_DIM), np.float32),
-        "actions": np.zeros((1, 2), np.float32),
-    }
-    return fbpiswitch.FBpiSwitchAgent.create(7, batch, config)
+def agent(tiny_agent):
+    return tiny_agent.agent
 
 
 def leaves(tree):

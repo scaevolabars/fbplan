@@ -19,7 +19,7 @@ import json
 from collections.abc import Sequence
 from functools import partial
 from pathlib import Path
-from typing import Any, Literal, get_args
+from typing import Literal, get_args
 
 import flax
 import jax
@@ -30,7 +30,7 @@ from fbplan import frozen
 from fbplan.learned.checkpoint import (
     SAMPLER_STREAM,
     Agent,
-    git_commit,
+    run_flags,
     trained_key,
     with_fresh_high_actor,
 )
@@ -107,15 +107,18 @@ class Split:
 
     @classmethod
     def load(cls, model: frozen.FrozenFBModel, split: str, kind: LatentKind) -> Split:
+        """The `split` ("train" or "val") of the model's env with latents of the given kind."""
         raw = frozen.load_dataset(model.env_name, split)
         data = make_trajectory_data(raw["observations"], raw["terminals"])
         return cls(data, latent_table(model, raw["observations"], raw["terminals"], kind))
 
     @property
     def obs_dim(self) -> int:
+        """Size of one observation."""
         return self.data.observations.shape[-1]
 
     def batch(self, key: jax.Array, stage: Stage) -> SwitchBatch:
+        """One switch batch with the stage's goal distribution and share of Gaussian latents."""
         return sample_switch_batch(self.data, self.latents, key, stage.spec, stage.gaussian_prob)
 
 
@@ -170,11 +173,13 @@ def train_value(args: argparse.Namespace, model: frozen.FrozenFBModel, run_dir: 
         log_path=run_dir / "train.csv",
         progress_key="loss",
     )
-    flags = base_flags(args) | {
+    flags = run_flags(args.env, args.seed, args.steps) | {
         "latents": args.latents,
         "value_spec": dataclasses.asdict(stage.spec),
     }
-    out_dir = frozen.trained_dir(trained_key("approach_b", args.env, args.seed, args.name))
+    out_dir = args.out_dir or frozen.trained_dir(
+        trained_key("approach_b", args.env, args.seed, args.name)
+    )
     save_value(value, config, flags, out_dir)
     print(f"saved {out_dir}")
 
@@ -271,7 +276,7 @@ def train_policy(args: argparse.Namespace, model: frozen.FrozenFBModel, run_dir:
         log_path=run_dir / "train.csv",
         progress_key="actor_loss",
     )
-    flags = base_flags(args) | {
+    flags = run_flags(args.env, args.seed, args.steps) | {
         "agent": dict(agent.config),
         "approach_b": {
             "variant": args.variant,
@@ -282,7 +287,9 @@ def train_policy(args: argparse.Namespace, model: frozen.FrozenFBModel, run_dir:
             "alpha_used": alpha,
         },
     }
-    out_dir = frozen.trained_dir(trained_key("approach_b", args.env, args.seed, args.name))
+    out_dir = args.out_dir or frozen.trained_dir(
+        trained_key("approach_b", args.env, args.seed, args.name)
+    )
     frozen.save_trained_checkpoint(agent, flags, out_dir)
     print(f"saved {out_dir}")
 
@@ -290,13 +297,8 @@ def train_policy(args: argparse.Namespace, model: frozen.FrozenFBModel, run_dir:
 # ----- CLI -----
 
 
-def base_flags(args: argparse.Namespace) -> dict[str, Any]:
-    """The provided checkpoint's flags.json, with this run's seed, steps and commit."""
-    flags = json.loads((frozen.checkpoint_dir(args.env) / "flags.json").read_text())
-    return flags | {"seed": args.seed, "train_steps": args.steps, "commit": git_commit()}
-
-
 def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
+    """Command line of train_b; resolves the default folder names (see the comment below)."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="stage", required=True)
     stages = {
@@ -304,20 +306,30 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         "policy": sub.add_parser("policy", help="stage 2: train pi_h with the switch advantage"),
     }
     for p in stages.values():
-        p.add_argument("--env", required=True, choices=frozen.ENV_NAMES)
+        p.add_argument("--env", required=True, choices=frozen.ENV_NAMES, help="OGBench env")
         p.add_argument("--seed", type=int, required=True, help="network init and batch sampling")
         p.add_argument("--steps", type=int, default=500_000, help="number of updates")
         p.add_argument("--log-every", type=int, default=5_000, help="updates per CSV row")
         p.add_argument("--run-dir", type=Path, help="default: runs/train_b/<maze>/<name>/seed<k>")
         p.add_argument("--name", help="output folder below approach_b/<maze>/; default below")
+        p.add_argument("--out-dir", type=Path, help="default: the folder of --name in the cache")
     value = stages["value"]
-    value.add_argument("--latents", choices=get_args(LatentKind), default="single")
+    value.add_argument(
+        "--latents", choices=get_args(LatentKind), default="single", help="B(w) or window mean"
+    )
     value.add_argument("--expectile", type=float, default=ValueConfig.expectile, help="tau")
     value.add_argument("--rho-cap", type=float, default=OptionConfig.rho_cap, help="cap on rho")
-    value.add_argument("--edge-reward", choices=get_args(EdgeReward), default="goal_zero")
+    value.add_argument(
+        "--edge-reward",
+        choices=get_args(EdgeReward),
+        default=OptionConfig.edge_reward,
+        help="R(s, w): zero for goal latents, exact, or the paper's proxy",
+    )
     value.add_argument("--hop-cost", type=float, default=ValueConfig.hop_cost, help="per switch")
     policy = stages["policy"]
-    policy.add_argument("--variant", choices=tuple(VARIANTS), required=True)
+    policy.add_argument(
+        "--variant", choices=tuple(VARIANTS), required=True, help="see the module docstring"
+    )
     policy.add_argument("--value-name", help="V_H folder to load; default value-<latents>")
     policy.add_argument("--alpha", type=float, help="AWR temperature; default: upstream spread")
     args = parser.parse_args(argv)

@@ -5,40 +5,19 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from fbplan import frozen
 from fbplan.learned.checkpoint import FROZEN_MODULES, with_fresh_high_actor
 from fbplan.learned.sampling import HighBatchSpec, make_trajectory_data
 from fbplan.train_high import train, train_chunk
 
-fbpiswitch = frozen.upstream_module("agents.fbpiswitch")
-
-OBS_DIM, ACT_DIM = 5, 2
-
-
-def tiny_config() -> dict:
-    """Upstream fbpiswitch config with small networks, as flags.json would give it (lists)."""
-    config = fbpiswitch.get_config().to_dict()
-    config |= {
-        "actor_hidden_dims": [16, 16],
-        "forward_repr_hidden_dims": [16, 16],
-        "backward_repr_hidden_dims": [16, 16],
-        "latent_dim": 4,
-        "batch_size": 32,
-    }
-    return config
+OBS_DIM = 5  # observation size of the shared tiny_agent (tests/conftest.py)
 
 
 @pytest.fixture(scope="module")
-def frozen_agent():
-    """Stands in for the restored checkpoint: a full agent with its own pi_h."""
-    config = tiny_config()
-    batch = {
-        "observations": np.zeros((1, OBS_DIM), np.float32),
-        "actions": np.zeros((1, ACT_DIM), np.float32),
-    }
-    agent = fbpiswitch.FBpiSwitchAgent.create(123, batch, config)
-    # As fbplan.frozen restores it: the stored config may hold lists from flags.json.
-    return agent.replace(config=config)
+def frozen_agent(tiny_agent):
+    """The shared small agent as fbplan.frozen restores one: its config holds lists, as in
+    flags.json."""
+    config = {k: list(v) if isinstance(v, tuple) else v for k, v in tiny_agent.config.items()}
+    return tiny_agent.agent.replace(config=config)
 
 
 @pytest.fixture(scope="module")
