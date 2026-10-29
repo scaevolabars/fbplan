@@ -448,6 +448,13 @@ episodes); ensembles are single runs (T1, code 0be1249). Paired on the same 2,50
   seeds 5–9 are queued in the main tree (84a8127, the code of their seeds 0–4).
 - Code tree for these: `~/fbplan_deval` at 6c603a3 (main merged; it repeats the committed
   baseline seed 0 exactly).
+- T3 step 1 and 2 (`results/teleport/heldout/`, 10 teleport held-out goals, eval seeds 0 1 2,
+  600 episodes per run). Held-out success: baseline 48.2, baseline_raw 46.5; gated candidates
+  w0.5 r1.5 46.5, w0.5 r2.5 44.7, w1.0 r1.5 40.2, w1.0 r2.5 39.8, w2.0 r1.5 27.2, w2.0 r2.5 29.7;
+  ungated controls w0.5 44.2, w1.0 37.8, w2.0 29.8 %. b-theory's rule selects weight 0.5,
+  trap_radius 1.5 (unique best). Every candidate is below the baseline on the held-out goals.
+  Step 3 (that candidate, eval seeds 0–9) is running. Teleport baseline and baseline_raw on
+  eval seeds 0–9: `results/teleport_10seeds/` (27.6 and 25.1 %).
 
 T4 result (medium, eval seeds 0–9, 2,500 episodes per run; `results/medium_10seeds/
 ensemble_raw_<family>.csv`; T1 rows for comparison):
