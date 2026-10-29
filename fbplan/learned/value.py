@@ -187,8 +187,9 @@ def load_value(
     env_name: str, name: str, seed: int, obs_dim: int, latent_dim: int
 ) -> tuple[ValueState, ValueConfig]:
     """The V_H saved by save_value in approach_b/<maze>/<name>/seed<k>, and its config."""
+    key = trained_key("approach_b", env_name, seed, name)
+    state = load_trained_file(key, "value.pkl")
     folder = trained_dir("approach_b", env_name, seed, name)
-    state = load_trained_file(trained_key("approach_b", env_name, seed, name), folder, "value.pkl")
     config = ValueConfig.from_dict(json.loads((folder / "flags.json").read_text())["value_config"])
     template = ValueState.create(jax.random.PRNGKey(0), obs_dim, latent_dim, config)
     value = template.replace(
