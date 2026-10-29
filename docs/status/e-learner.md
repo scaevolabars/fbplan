@@ -115,6 +115,16 @@
   `uv run python -m fbplan.learned.diagnostics --env antmaze-medium-navigate-v0 --value value-single --seeds 0 1 2 3 4`
   and the same with `--value value-single-expectile0.7` (table above from commit 36c18d8 on).
 
+- **B-clean ready for d-eval (21:56 MSK):** policy `clean` seeds 0-4, trained on instance
+  58234389 (20:32-21:29 MSK, code a189a49, on V_H `value-single` of the same seed), pulled and
+  exported. Folders `approach_b/medium/clean/seed{0..4}/` (`high_actor.pkl`, `flags.json`);
+  evaluate with `uv run python -m fbplan.evaluate --checkpoint b:clean:<seed> ...` (seeds 0-4).
+  Checks: each seed loads through `load_b_model`, F/B/pi_l equal the provided ones bit for bit;
+  matched AWR temperature 0.11-0.23 (per seed, from its V_H); training MSE 0.76 -> 0.71-0.73
+  (retrained baselines: 0.711), 90 % valid edges, 0.06-0.19 % saturated weights, no NaN; cosine
+  with the provided pi_h 0.945-0.956. Command with the current code (bit-identical), per seed k:
+  `uv run python -m fbplan.learned.train_b policy --env antmaze-medium-navigate-v0 --seed k --variant clean`.
+
 ## Review findings, first pass (E1-E14, X3, X9, X12)
 
 | Item | What I did |
@@ -183,7 +193,8 @@ What ran on 58234389:
 | 16:20 | 18:10 | large baselines (16:11-17:55) + value-single seeds 0-4 (10 runs, 17 GB). Queue `queue-b1` then runs, one group of 5 at a time: value-region, policy clean, wide, region (two B groups need 25.2 GB) |
 | 18:10 | 19:23 | value-region seeds 0-4 (queue-b1) |
 | 19:24 | 20:32 | value expectile 0.7 seeds 0-4 |
-| 20:32 | | policy clean seeds 0-4 (queue-b1 resumed), then wide, region, then value rho cap 1.0 |
+| 20:32 | 21:29 | policy clean seeds 0-4 (queue-b1 resumed) |
+| 21:29 | | policy wide seeds 0-4, then region, then value rho cap 1.0 |
 | 18:58 | | ablations approved (coordinator for the user): queue `runs/queue-ablations.sh` (below) holds queue-b1, then runs value expectile 0.7, resumes queue-b1 (policy clean, wide, region), then value rho cap 1.0 |
 
 The ablation queue. The instance runs code a189a49, which has no `--name`; each ablation writes
