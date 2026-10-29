@@ -35,6 +35,28 @@ Last update: 2026-10-29.
 6. No trusted edge from `s`: the task policy `pi_l(z_r)` acts. This is what the graph Bellman equation gives.
 7. The task policy option is also a commitment: replan after `commit_timeout` steps.
 
+## Findings on the real model (early probe)
+
+Probe with a-frozen's uncommitted loader (loaded by path, read-only), medium, landmarks from the
+validation split. Scripts are throw-away (not committed). Redo the numbers after a-frozen merges.
+
+- Cost on CPU: N = 100 / 200 / 400 landmarks: edge table 0.3 / 0.5 / 1.5 s, one replan 3 / 4 / 10 ms.
+  Landmark count is not a cost problem in this range.
+- Before clipping: 8–10 % of pairs have rho < 0 and about 1 % have rho > 1 (N = 200: 3950 / 401 of 40000).
+- Calibration (FB steps = log rho / log gamma, N = 200): xy distance [0,2) → median 26 steps;
+  [8,16) → 154; [16,∞) → 230, p90 2749.
+- Default config (exact R, min heads, rho_min 0.3) gives bad routes: 13–14 hops, jumps of 18 xy units,
+  route end up to 15.6 from the goal. Causes:
+  1. Exact R is noise that the max collects: on trusted edges median +2.1, p99 +68 (max direct value 96).
+  2. Pairs with rho > 1 are clipped to 1 and become free hops across the maze. rho_min and top-k cannot remove them.
+  3. Edges with 0.7 <= rho < 1 still jump 16–19 xy units (wormholes).
+- Guards tried (R = 0, N = 200, rho_min 0.5; mean xy distance route end → goal over 5 tasks; longest hop):
+  none: 11.5 / 12.2 — drop rho >= 1: 3.1 / 17.4 — drop rho >= 1 + xy cap 6: 2.3 / 5.8 —
+  drop rho >= 1 + two-way min(rho(u,w), rho(w,u)): 5.4 / 15.5; with rho_min 0.7 the graph disconnects.
+- Closed loop, 5 tasks × 2 episodes (too small to rank): baseline pi_h 6/10, pi_l(z_r) 8/10,
+  planner with drop rho >= 1 + xy cap 6 = 6/10, same + pi_h 5/10. The planner replans 12–41 times
+  per episode and often runs to 1000 steps: rho_reached = 0.9 and the 100-step timeout need tuning.
+
 ## Next
 
 1. After a-frozen merges: time the edge table and the per-step cost on medium (CPU).
@@ -45,7 +67,10 @@ Last update: 2026-10-29.
 
 ## Blockers
 
-- Real-model work waits for a-frozen (`load_model`, `load_dataset`, `make_env`).
+- Waiting for the user: which wormhole guards to adopt (drop rho >= 1 instead of clipping it to 1;
+  xy cap or two-way consistency; R = 0 as the default for navigate tasks). This changes the clipping
+  rule in my brief and the guard list in design.md §3.
+- Final numbers wait for a-frozen to merge (`load_model`, `load_dataset`, `make_env`).
 
 ## Requests to the coordinator
 
