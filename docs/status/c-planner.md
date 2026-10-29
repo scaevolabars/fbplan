@@ -4,6 +4,13 @@ Last update: 2026-10-29.
 
 ## Summary
 
+Time-boxed fix (2026-10-29, see "Time-boxed fixes" below): on dev traces, near the goal the
+full replan overrode the plan's hand-over to the task policy in 74 % of the cases, and on large
+about half of the reach replans were a stall cycle. New option `switch_steps` (route following
+at a reach) removes both, but on held-out episodes success does not change beyond noise
+(medium −2.0 pp, p = 0.69; large +5.3 pp, p = 0.4). Defaults unchanged; recommendation: keep it
+as an ablation, not a default. Next: the approach A ablations (running).
+
 Update after the merge of main (a-frozen, b-theory): main merged into c-planner, 173 tests pass.
 rho is now clipped to [0, gamma] for distinct states (design.md §3); trust uses the raw estimate,
 so decision 1 still holds. New: a switch to re-plan every step (design.md §4.A),
@@ -208,14 +215,95 @@ for tuning), 300 landmarks from the train split:
 - The planner is far below the baseline on this set (68 against 92). The landmark set also moves
   it by several points (see "After the merge").
 
+## Time-boxed fixes: near-goal circling and route switching (2026-10-29)
+
+Approved by the user through the coordinator: about 3 hours, tuning only on my own dev
+episodes, defaults unchanged unless a held-out check supports a change. Episodes use d-eval's
+reset seeds `SeedSequence([eval_seed, task, episode])`: dev = eval seed 100, held-out = eval seed
+200. d-eval's eval set is eval seeds 0–4, so the sets are disjoint. 300 landmarks, train split.
+
+### Diagnosis (dev, defaults; traces with every replan and waypoint)
+
+| | medium (100 episodes) | large (50 episodes) |
+|---|---|---|
+| success (baseline pi_h on the same episodes) | 76 | 16 (16) |
+| failures that are flips | 13 of 24 | 11 of 34 |
+| reaches where the plan says "task policy next" / full replan picks a landmark instead | 110 / 81 | 30 / 21 |
+| reach replans per episode / within 2 steps of the previous one | 18.0 / 4.5 | 37.9 / 17.6 |
+| task-policy segments that start < 8 xy from the goal / time out after 100 steps | 133 / 55 | 28 / 10 |
+
+Three mechanisms:
+
+1. Near the goal (problem 1): when the agent reaches the last landmark of the route, the plan
+   says "task policy". The full replan from s compares one task value F(s, z_r)ᵀz_r with the
+   max over many landmark values, and the max wins in 74 % of these reaches (medium). The
+   agent then heads for a landmark next to the goal and passes the goal.
+2. A stall cycle (most of problem 2): at a reach, the plan's next stop is often more than
+   `max_edge_xy` = 6 xy from s (it is at most 6 from the landmark, and s is up to 3 from it),
+   so it is not trusted from s. The full replan picks a landmark behind the agent; the
+   look-ahead then advances to the reached landmark; the next step replans again. On large
+   17.6 of the ~38 reach replans per episode are this cycle.
+3. The task policy pi_l(z_r) near the goal drifts away: in the 56 medium segments of 100 or
+   more steps without success, the median distance to the goal grew from 4.5 to 7.0 xy.
+
+### Fix: route following at a reach (`switch_steps`)
+
+`PlannerConfig.switch_steps = k`: at a reach of w*, take the plan's next stop `best_next[w*]`
+(a landmark or the task policy) instead of a full replan, unless the full replan finds a choice
+worth more than `gamma^-k` times its Q (it saves more than k FB steps). While that stop is not
+trusted from s, the agent keeps heading for w* (until the timeout). `None` (default) keeps the
+old full replan; `k = inf` (CLI: `--opt switch_steps=1e999`) always follows the plan between
+timeouts. Tests on the U maze: the old rule stalls between two cells, and circles near the goal
+when FB underestimates the task value at one state; route following solves both, and a
+switch away from the plan needs a gain of more than k steps.
+
+Variants on the dev episodes (paired with the defaults on the same episodes; "+a/−b" = episodes
+that only the variant / only the defaults solve):
+
+| Variant | medium | large |
+|---|---|---|
+| defaults (full replan at a reach) | 76/100 | 16/50 |
+| baseline pi_h | – | 16/50 |
+| route following, k = inf | 66/100 (+15/−25, p 0.15) | **25/50** (+16/−7, p 0.09) |
+| route following, k = 10 | 63/100 (+14/−27, p 0.06) | 19/50 (+13/−10, p 0.68) |
+| route following, but full replan when the next stop is not trusted (probe) | 73/100 (+12/−15, p 0.7) | 14/50 (+11/−13, p 0.84) |
+| task policy through pi_h (probe) | 68/100 (+6/−14, p 0.12) | 15/50 (+4/−5, p 1.0) |
+| route following k = inf + task policy through pi_h (probe) | 68/100 | 24/50 |
+
+- The large gain comes from keeping the reached waypoint until the plan's next stop is trusted:
+  without that hold (third row) the gain is gone.
+- On medium the same hold costs: the agent spends a mean 60 steps per episode within 3 xy of
+  its current waypoint (defaults: 5). `pi_l(B(w))` does not settle on `w` (it hovers 1–3 xy
+  away, d-eval saw the same overshoot), so the next stop stays untrusted, and flips rise
+  (20 against 13).
+- Sending the task policy through pi_h did not help; I removed that option.
+
+### Held-out check (eval seed 200, not used for any choice)
+
+Medium 5 tasks × 50 episodes, large 5 tasks × 30 episodes, d-eval's evaluation CLI, 4 workers
+(CSVs in `runs/c-planner/fix/heldout/`, not committed):
+
+| Method | medium | large |
+|---|---|---|
+| baseline pi_h | 81.2 % [76.4, 86.0] | 35.3 % [28.7, 42.0] |
+| planner, defaults | 72.4 % [66.8, 78.0] | 32.7 % [25.3, 40.0] |
+| planner, route following (`switch_steps=1e999`) | 70.4 % [64.8, 75.6] | 38.0 % [30.7, 45.3] |
+| route following − defaults, paired | −2.0 pp [−9.6, +5.6], p = 0.69 | +5.3 pp [−5.3, +16.0], p = 0.4 |
+
+Recommendation: do not make route following the default. It removes the two mechanisms it
+targets (no landmark overrides of the plan's hand-over, no stall cycles), but success does not
+change beyond noise on either maze. The +18-point dev gain on large shrank to +5 points on the
+held-out episodes, as expected after choosing among 5 variants on 50 dev episodes. On medium,
+most failures are flips (13 of 24 on dev) and pi_l drifting near the goal, which route
+following does not touch. The option stays, off by default, as an ablation.
+
 ## Next
 
-1. Merge c-planner into main, so that d-eval can run its 5-seed evaluation. Methods for d-eval:
-   `planner`, `planner_high` (defaults), and `planner --opt landmarks.latent=region`. The landmark
-   set moves results by several points, so the evaluation should also vary `landmarks.seed`.
-2. Large: find why the agent leaves the route (route switching between near-equal ways around a
-   loop?). Candidate fix: hysteresis.
-3. Near the goal: the agent circles landmarks next to the goal (see above).
+1. Approach A ablations (assigned by the user through the coordinator, running): 5 eval seeds
+   × 50 episodes, landmark sets 0–2, one change against the defaults per run, paired against
+   the baseline. Medium first, then large if time allows. CSVs in
+   `results/<maze>/planner_ablations/<variant>/l<seed>.csv`; the defaults are d-eval's
+   `results/medium/planner/l<seed>.csv`.
 
 ## Blockers
 
@@ -223,11 +311,9 @@ for tuning), 300 landmarks from the train split:
 
 ## Requests to the coordinator
 
-- c-planner is ready to merge into main: d-eval needs it for its 5-seed planner evaluation
-  (single-state and region latents, see Next) and for `analysis/calibration.py`.
-- design.md §4.A: please add the user's decisions of 2026-10-29: `reached_xy = 3.0` with the
-  route look-ahead (replaces 1.5), and single-state landmark latents as the default with region
-  means as an option.
+- Merge c-planner: new option `switch_steps` (off by default, defaults unchanged) and the
+  time-boxed fix results. design.md §4.A could note that route following was tested and is not
+  a default (held-out: medium −2.0 pp, large +5.3 pp, both within noise).
 - d-eval / report: in the probe the privileged oracle (waypoint = dataset state nearest to a cell
   centre, `pi_l(B(w))`) was not an upper bound (17/30 against 22/30 for the baseline). The report
   should not call it "the best any high-level method can get" without that caveat.
