@@ -73,7 +73,7 @@ def load_results(paths: Iterable[Path], label_root: Path | None = None) -> pd.Da
     frames = [pd.read_csv(path, dtype=text, keep_default_na=False) for path in paths]
     if label_root is not None:
         frames = [
-            frame.assign(method=Path(path).relative_to(label_root).with_suffix("").as_posix())
+            frame.assign(method=_path_label(path, label_root))
             for path, frame in zip(paths, frames, strict=True)
         ]
     df = pd.concat(frames, ignore_index=True)
@@ -104,11 +104,40 @@ def row_labels(df: pd.DataFrame) -> pd.Series:
     return label.where(~trained, label + "/seed" + df["checkpoint_seed"].astype(str))
 
 
+def labelled_results(paths: Iterable[Path], label_root: Path | None = None) -> pd.DataFrame:
+    """load_results with readable row labels in the method column, for tables and figures.
+
+    Labels are CSV paths below label_root ("planner/l0"), else row_labels. The column
+    `controller` keeps the controller name (EpisodeRecord.method), so that properties of a
+    controller, such as fbplan.controllers.PRIVILEGED, apply to all its configs and folders.
+    """
+    frames = []
+    for path in paths:
+        frame = load_results([path])
+        frame = frame.assign(controller=frame["method"])
+        if label_root is not None:
+            frame = frame.assign(method=_path_label(path, label_root))
+        frames.append(frame)
+    df = pd.concat(frames, ignore_index=True)
+    return df if label_root is not None else df.assign(method=row_labels(df))
+
+
+def markdown_table(df: pd.DataFrame) -> str:
+    """A GitHub Markdown table of a DataFrame, without its index."""
+    lines = ["| " + " | ".join(map(str, df.columns)) + " |", "|" + "---|" * len(df.columns)]
+    lines += ["| " + " | ".join(map(str, row)) + " |" for row in df.itertuples(index=False)]
+    return "\n".join(lines)
+
+
 def pool_label(label: str) -> str:
     """The label that pools a row with its cluster: the part before "/" ("planner/l0" ->
     "planner", "baseline[retrained]/seed3" -> "baseline[retrained]"), else the part before "@"
     (configs of one method: "name@hash" -> "name")."""
     return label.split("/")[0] if "/" in label else label.split("@")[0]
+
+
+def _path_label(path: Path, label_root: Path) -> str:
+    return Path(path).relative_to(label_root).with_suffix("").as_posix()
 
 
 def _quantiles(draws: np.ndarray, level: float) -> tuple[float, float]:
