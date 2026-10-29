@@ -20,9 +20,10 @@
 # subfolder of it), one eval seed, two episodes per task, 10 training steps. It starts from an
 # empty runs/smoke/ and writes only there: results/, docs/figures/ and ~/.cache/fbplan stay
 # unchanged; a run of a trained checkpoint evaluates the model that the smoke run trained.
-# After each evaluation it prints how many episodes equal the committed ones (resets are
-# seeded, so on the platform of the committed CSVs all of them should, except the runs of
-# models that the smoke run trained; another platform changes the chaotic dynamics).
+# After each evaluation it prints how many episodes equal the committed ones: on a Mac those of
+# results/macos/, else the canonical Linux files. Resets are seeded, so on the platform of the
+# reference all of them should, except the runs of models that the smoke run trained; another
+# platform changes the chaotic dynamics.
 # --workers N sets the number of evaluation processes (default 4, smoke 1).
 # Other OGBench datasets download to ~/.ogbench/data on first use.
 set -euo pipefail
@@ -190,22 +191,30 @@ stage_eval() {
     py -m fbplan.evaluate --method "$method" --env "$(env_id "$maze")" \
       --seeds $(seq 0 $((n_seeds - 1))) --episodes "$episodes" --workers "$workers" \
       --out "$root/$maze/$csv" $args
-    if $smoke; then compare_with_committed "results/$maze/$csv" "$root/$maze/$csv"; fi
+    if $smoke; then compare_with_committed "$maze/$csv" "$root/$maze/$csv"; fi
   done 3<<<"$RUNS"
   # Upstream's own evaluation loop, for the parity check; its resets are not seeded.
   py analysis/parity.py --ours "$root/medium/baseline.csv" --reps "$parity_reps" \
     --episodes "$episodes" --workers "$workers" --out "$root/medium/upstream.csv"
 }
 
-# Print how many episodes of a smoke CSV have the success and step count of the committed
-# episode with the same (task, eval seed, episode).
+# Print how many episodes of a smoke CSV ($2) have the success and step count of the committed
+# episode with the same (task, eval seed, episode). $1 is the CSV path below results/. On a Mac
+# the reference is the macOS run in results/macos/, else the canonical (Linux) file.
 compare_with_committed() {
+  local committed=results/$1
+  if [ "$(uname)" = Darwin ] && [ -f "results/macos/$1" ]; then committed=results/macos/$1; fi
+  if [ ! -f "$committed" ]; then
+    echo "$2: no committed CSV to compare with"
+    return
+  fi
   awk -F, 'FNR == 1 { for (i = 1; i <= NF; i++) col[$i] = i; next }
     { key = $col["task_id"] "," $col["eval_seed"] "," $col["episode"]
       value = $col["success"] "," $col["steps"] }
     NR == FNR { committed[key] = value; next }
     { n++; same += committed[key] == value }
-    END { printf "%s: %d of %d episodes equal the committed ones\n", FILENAME, same, n }' "$1" "$2"
+    END { printf "%s: %d of %d episodes equal %s\n", FILENAME, same, n, ARGV[1] }' \
+    "$committed" "$2"
 }
 
 # Failure classes of one run without controller options, as a text block in Markdown.
