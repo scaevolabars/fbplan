@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-29, 22:20. Branch merged with `main` at 3e36461.
+Last update: 2026-10-29, 22:55. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -137,6 +137,28 @@ bootstrap over training seeds (both sides) and episodes.
 - No significant gain over the retrained baselines (+1.1 pp, CI contains 0), and none against
   baseline_raw (−1.5 pp). The spread between B training seeds is the largest effect.
 
+## Held-out seed selection (design.md §8; `results/medium/heldout/`, `heldout_selection.csv`)
+
+Every seed on the 10 medium held-out goals (`--heldout --seeds 0 1 2 --episodes 20`, 600
+episodes per seed), selection by `analysis/heldout_selection.py` (highest held-out success, ties
+to the lower id), then the selected seeds on the 5 eval tasks:
+
+| family | held-out success, seeds 0–4 (%) | selected | eval success | vs selected retrained (pp) | vs baseline_raw (pp) |
+|---|---|---|---|---|---|
+| retrained | 87.8, 86.3, 83.7, 87.7, 86.0 | seed 0 | 79.1 | – | −1.7 [−4.7, +1.4], p 0.31 |
+| B clean | 87.0, 86.0, 87.7, 85.3, 82.2 | seed 2 | 83.0 | +3.8 [+0.9, +6.9], p 0.014 | +2.2 [−1.0, +5.1], p 0.18 |
+
+- The selected B clean seed beats the selected retrained baseline, but not baseline_raw, so by
+  the rule of §8 it is no gain. Held-out differences between seeds are small (one seed: 600
+  episodes, standard error about 1.4 points), so the selection itself is noisy: seeds 0 and 3
+  of the retrained baseline differ by 0.1 point.
+- B wide and B region follow when e-learner exports them (queued automatically).
+
+## Giant (Linux, `results/giant/`, 5 eval seeds × 5 tasks × 50 episodes)
+
+baseline 0.5 %, non-hier 0.5 %, oracle (privileged) 2.5 % (+2.0 [+1.1, +3.0] pp), planner
+(sets 0–2 pooled) 0.4 %, planner_high 0.8 %. No headroom, as b-theory's preview showed.
+
 ## Medium (Linux, `results/medium/`, 5 eval seeds × 5 tasks × 50 episodes)
 
 Planner rows pool landmark sets 0–2 (cluster config_hash); retrained rows pool 5 training seeds
@@ -232,6 +254,36 @@ goal is within 2 xy units of the trap centre's (cell (1, 7); b-theory's rule, th
   55 %), although its xy cap removes the jump edges; planner_high equals baseline_raw.
 - Per landmark set: planner 17.3 / 17.4 / 21.0 %, planner_high 24.7 / 21.5 / 26.0 %.
 - Teleport nonhier and the teleport-aware oracle (both follow modes) run later in the queue (d).
+
+## Planner ablations (Linux, `results/<env>/planner_ablations/<name>/l0.csv`, landmark set 0)
+
+c-planner's commands; paired on the same 1,250 episodes with the default run of the same code
+(84a8127) and the baselines. Medium:
+
+| run | success | vs planner l0 (pp) | vs baseline (pp) | vs baseline_raw (pp) |
+|---|---|---|---|---|
+| planner l0 (defaults) | 68.8 | – | −8.2 | −12.0 |
+| no_xy_cap | 69.5 | +0.7 [−2.7, +4.1] | −7.5 | −11.3 |
+| reached_1.5_no_lookahead | 51.3 | −17.5 [−21.2, −13.7] | −25.8 | −29.5 |
+| no_lookahead | 65.4 | −3.4 [−7.0, +0.1] | −11.7 | −15.4 |
+| edge_reward_exact | 39.5 | −29.3 [−32.6, −25.9] | −37.5 | −41.3 |
+| edge_reward_paper | 60.6 | −8.2 [−11.4, −4.9] | −16.4 | −20.2 |
+| head_agg_mean | 67.5 | −1.3 [−4.7, +2.2] | −9.5 | −13.3 |
+| two_way | 71.8 | +3.0 [−0.4, +6.5] | −5.2 | −9.0 |
+| replan_every_step | 69.7 | +0.9 [−2.7, +4.5] | −7.4 | −11.1 |
+| route_following | 70.1 | +1.3 [−2.1, +4.6] | −7.0 | −10.7 |
+
+Large (vs planner l0, 32.2 %): no_xy_cap 27.1 % (−5.1 [−8.6, −1.8]), reached_1.5_no_lookahead
+22.7 % (−9.5 [−12.8, −6.2]), no_lookahead 21.7 % (−10.6 [−13.8, −7.2]).
+
+Act-ahead (`planner_high --opt landmarks.seed=0 act_ahead_xy=8.0`, code main 8a202e6 from a
+second tree on the instance): 77.0 %; vs planner_high l0 +3.2 [−0.3, +6.6] (p 0.071), vs baseline
++0.0 [−3.2, +3.4], vs baseline_raw −3.8 [−6.9, −0.6] (p 0.022). The check run of planner_high l0
+with the new code repeats `results/medium/planner_high/l0.csv` exactly (1,250 of 1,250 records),
+so the pairing with the committed run is valid.
+
+Teleport, more rows (vs baseline 27.7 %): nonhier 19.0 % (−8.6 [−11.2, −6.1]), teleport-aware
+oracle with π_l 5.6 % (−22.1), with π_h 21.4 % (−6.3 [−9.2, −3.5]).
 
 ## Mac results on large (`results/macos/large/`, reproducibility check only)
 
