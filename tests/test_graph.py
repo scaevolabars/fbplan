@@ -192,19 +192,20 @@ def test_region_latents_average_b_over_the_states_within_the_radius():
     np.testing.assert_allclose(z[0], expected)
 
 
-def test_select_landmarks_gives_region_latents_by_default():
+def test_select_landmarks_gives_region_latents_on_request():
     fb = GridFB()
     obs = dataset_obs(fb)
-    marks = select_landmarks(obs, LandmarkConfig(count=3, region_xy=1.0), fb)
+    marks = select_landmarks(obs, LandmarkConfig(count=3, latent="region", region_xy=1.0), fb)
     expected = region_latents(fb, obs, marks.observations[:, :2], radius=1.0)
     np.testing.assert_allclose(marks.latents, expected)
 
 
-def test_select_landmarks_with_single_state_latents_gives_none():
-    marks = select_landmarks(dataset_obs(GridFB()), LandmarkConfig(count=3, latent="state"))
+def test_select_landmarks_uses_single_state_latents_by_default():
+    # On 100 held-out medium episodes region latents did worse (59 against 68 of 100).
+    marks = select_landmarks(dataset_obs(GridFB()), LandmarkConfig(count=3))
     assert marks.latents is None
 
 
 def test_region_latents_need_a_model():
     with pytest.raises(ValueError):
-        select_landmarks(dataset_obs(GridFB()), LandmarkConfig(count=3))
+        select_landmarks(dataset_obs(GridFB()), LandmarkConfig(count=3, latent="region"))

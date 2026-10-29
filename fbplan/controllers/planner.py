@@ -7,7 +7,7 @@ becomes the waypoint w*, unless the task policy has a higher value F(s, z_r)^T z
 Edges from landmarks and from s follow the same trust rules (see PlannerConfig).
 The controller keeps w* until it is reached (see PlannerConfig.reached_xy) or until a
 timeout, and acts with pi_l(a | s, z_w*) (or pi_l(a | s, z_r) on the task policy), where
-z_w is the landmark's option latent: by default the mean of B around w (fbplan.landmarks).
+z_w is the landmark's option latent: B(w) by default, or a region mean (fbplan.landmarks).
 With lookahead, it moves on along the planned route as soon as the next stop is worth at
 least as much from s as the current waypoint, so the agent does not slow down at each one.
 """

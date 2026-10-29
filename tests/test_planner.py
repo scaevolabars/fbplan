@@ -390,7 +390,7 @@ def test_planner_beats_the_task_policy_under_fb_noise_on_the_tabular_maze():
 def test_planner_with_region_latents_solves_every_task_of_the_exact_tabular_maze():
     fb = TabularFB()
     # Fine cells are 2 xy units apart, so a radius of 2.1 takes each state and its neighbours.
-    cfg = PlannerConfig(landmarks=LandmarkConfig(count=60, region_xy=2.1))
+    cfg = PlannerConfig(landmarks=LandmarkConfig(count=60, latent="region", region_xy=2.1))
     ctrl = GraphPlannerController.from_dataset(fb, fb.maze.xy, cfg)
     expected = region_latents(fb, fb.maze.xy, ctrl.landmarks[:, :2], radius=2.1)
     np.testing.assert_allclose(ctrl.targets.z, expected, atol=1e-9)
