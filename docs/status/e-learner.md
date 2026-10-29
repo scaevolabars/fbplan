@@ -20,9 +20,12 @@
   The instance gets the committed tree at HEAD plus a `REVISION` file; each checkpoint records it.
   OGBench data for medium + large = 534 MB, downloaded on the instance.
 
+- `docs/plans/approach-b.md`: draft plan for approach B, waiting for the user's approval
+  (7 decisions listed in its §10).
+
 ## Next
 
-- Draft `docs/plans/approach-b.md` for the user to approve.
+- After approval: implement B1 (option targets in JAX, `V_H`, AWR `π_h`, CLI, tests).
 - First GPU job (medium, seeds 0-4) when a-frozen is on main. Ask the user before it starts.
 
 ## Blockers
