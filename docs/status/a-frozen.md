@@ -53,6 +53,13 @@ Last update: 2026-10-29.
 - Merged `main` (f1ae57d: g-release's first review) into `a-frozen`: fast-forward.
 - First review: A1-A9, K1-K4, X8, X9 and clean-clone gap 2 done (see "Review findings, first
   pass"). 357 tests pass.
+- Merged `main` (`dded908`, public `7ae64a5`: e-learner's trained-modules format and exports)
+  into `a-frozen`: fast-forward.
+- e-learner's request 2 (public `forward`, `example_batch`, checkpoint writer, `save_numpy_pickle`,
+  `maze_name`, `cache_dir`): already done in `a1a65b6` (first review), no new code. e-learner uses
+  no private name of `frozen.py`. Mapping for e-learner: see the requests.
+- Release `baselines-v1` of the 10 retrained baselines (medium and large, seeds 0-4): prepared and
+  checked, not uploaded (see "Trained checkpoints").
 
 ## Review findings, first pass
 
@@ -137,56 +144,47 @@ e-learner's retrained `pi_h` seeds will show if the `pi_h` training seed explain
 
 ## Trained checkpoints (item 7)
 
-Present on this Mac only: `~/.cache/fbplan/baselines/medium/seed{0..4}/` (`params.pkl` 18.3 MB,
-`flags.json`). `~/.cache/fbplan/approach_b/` does not exist yet.
-
-**Content of a baseline `params.pkl`** (full upstream agent state, 18.3 MB):
-
-| part | MB | trained? |
-|---|---|---|
-| `modules_high_actor` (`pi_h`) | 2.69 | yes |
-| `opt_state` (Adam state of `pi_h`) | 5.37 | yes, needed only to resume training |
-| `modules_forward_repr`, `modules_backward_repr`, `modules_actor` | 10.25 | no: equal to the provided checkpoint, bit for bit |
-
-**Decision (user, 2026-10-29): publish only the trained modules.** The upload waits until
-e-learner has the new format. Reasons: a reviewer downloads about 135 MB instead of about 900 MB
-for about 50 checkpoints (baselines and B variants, 5 seeds); the release does not copy the
-authors' F, B and `pi_l` again; the loader takes F, B and `pi_l` from `load_model(env)`, so they
-cannot differ, and the equality check in `load_retrained_model` becomes unnecessary. Cost: no
+**Decision (user, 2026-10-29): publish only the trained modules.** A trained folder holds
+`high_actor.pkl` (the `modules_high_actor` params, numpy arrays, 2.7 MB instead of the 18.3 MB of
+the full state) and `flags.json`; F, B and `pi_l` come from the provided checkpoint. Reasons: a
+reviewer downloads about 135 MB instead of about 900 MB for about 50 checkpoints; the release
+does not copy the authors' F, B and `pi_l` again; a trained folder cannot change them. Cost: no
 optimizer state, so a published run cannot be resumed (no step needs that).
 
-Format, now in `fbplan/frozen.py` (X9): `save_trained_checkpoint(agent, flags, out_dir)` writes
-`high_actor.pkl` (the `modules_high_actor` params, numpy arrays, about 2.7 MB) and `flags.json`.
-`load_trained_model(env_name, key)` takes F, B and `pi_l` from `load_model(env_name)` and puts
-the saved `pi_h` in; it downloads a missing published checkpoint and refuses a `flags.json` of
-another env. Approach B: `high_actor.pkl` per variant; `value.pkl` per value run stays
-e-learner's format (written with `save_numpy_pickle`). Checked on medium seed 0 before X9: this
-export and load give params equal to `load_baseline_model(env, 0)`, bit for bit.
+Writer and reader: `frozen.save_trained_checkpoint(agent, flags, out_dir)` and
+`frozen.load_trained_model(env_name, key)` (X9). e-learner's `fbplan/learned/checkpoint.py`
+(`save_high_actor`, `load_high_actor_model`) writes and reads the same format. Checked on medium
+and large seed 0: `save_trained_checkpoint` rewrites e-learner's exported `high_actor.pkl` and
+`flags.json` byte for byte, and both loaders give equal params.
 
-Export of the 5 medium baselines (once, no retraining; e-learner runs it):
-```python
-for seed in range(5):
-    old = baseline_dir(env, seed)  # the current full-state folder
-    agent = flax.serialization.from_state_dict(
-        frozen.load_model(env).agent, frozen.load_numpy_pickle(old / "params.pkl")["agent"]
-    )
-    flags = json.loads((old / "flags.json").read_text())  # make "from" portable first
-    frozen.save_trained_checkpoint(agent, flags, frozen.trained_dir(f"baselines/medium/seed{seed}"))
-```
+**Release `baselines-v1`: prepared, not uploaded (the user decides).** Everything is in
+`~/.cache/fbplan/release/baselines-v1/` (outside the repo):
+- `assets/`: 20 files, 26 MB: `baselines-{medium,large}-seed{0..4}-{high_actor.pkl,flags.json}`,
+  copies of e-learner's exports in `~/.cache/fbplan/baselines/` (key `baselines/<maze>/seed<k>`).
+- `sha256.txt`; `notes.md` (release notes with the sha256 table); `pin.txt` (the `_TRAINED_FILES`
+  entries to commit after the upload); `upload.sh` (checks the hashes, then
+  `gh release create baselines-v1 --repo scaevolabars/fbplan --target 7ae64a5... --notes-file
+  notes.md assets/*`). Not run.
+- Tag target: public `main` `7ae64a5` (= local `dded908`), which has the loader for this format.
+  Training commits, from `~/.cache/fbplan/publish/commit-map`: medium `9557a55` = public `e5d66d7`,
+  large `a189a49` = public `6f6439b`. The notes give both hashes of each.
 
-Checks of the present files, done on a full-state staging (not uploaded). They apply to the new
-files too:
-- Pickles: every text value in the pickle stream is a key or a numpy class name
-  (`numpy._core.multiarray._reconstruct`, `ndarray`, `dtype`); no path, no name.
-- `flags.json`: two items. `retrained_high_actor.from` is `/root/.cache/fbplan/checkpoints/medium`
-  (the GPU instance; no user name). `retrained_high_actor.commit` is the local commit `9557a55`; in
-  the public repo it is `e5d66d7` (from `~/.cache/fbplan/publish/commit-map`). The release notes
-  record both hashes. The release tag goes on the public training commit.
-- Release notes: no match for the private-data patterns of `publish.sh` plus `/root/`, `/home/`,
-  the user name, `vast`, `token`, `@`.
+Checks:
+- Pickles: every text value in the 10 pickle streams is a key (`Dense_0..2`, `actor_net`,
+  `mean_net`, `kernel`, `bias`) or a numpy class name (`numpy._core.multiarray._reconstruct`,
+  `ndarray`, `dtype`, `f4`). No path, no name.
+- `flags.json`: every string value is a config value, `checkpoints/medium`, `checkpoints/large`
+  (paths relative to `~/.cache/fbplan`), or one of the 2 local training commits. No absolute path.
+- `notes.md`, `upload.sh`, `flags.json`: no match for the private-data patterns of `publish.sh`
+  plus `/root/`, `/home/`, `/tmp`, the user name, `vast`, `token`, `@`.
+- Download path without an upload: with the 20 hashes pinned and the staged files served in
+  place of GitHub, `python -m fbplan.frozen --trained` fetched all 20 assets into an empty
+  `FBPLAN_BASELINE_DIR`, and `load_trained_model` on each of the 10 keys gave params equal to
+  e-learner's `load_baseline_model` on the local files.
 
-After e-learner's export: stage the files, repeat the checks, ask the user, upload, pin the
-hashes in `_TRAINED_FILES`, download each asset into an empty folder to check it, commit.
+After the upload: commit `pin.txt` into `_TRAINED_FILES`, download each asset from GitHub into
+an empty folder, commit. This needs e-learner's fix of `download_trained(key, folder)` first
+(see the requests).
 
 ## Clean-clone check (item 9)
 
@@ -282,9 +280,8 @@ fails if the physics drift again.
 
 ## Next
 
-- Item 7: when e-learner has exported `high_actor.pkl` for medium seeds 0-4, stage and check
-  the files, ask the user, upload, pin the hashes, check the download, commit. Then the same for
-  the approach B checkpoints.
+- Item 7: after the user's decision, run `~/.cache/fbplan/release/baselines-v1/upload.sh`, pin
+  `pin.txt`, check the real download, commit. Then the same for the approach B checkpoints.
 - Download the train splits of large, giant, teleport (240 MB each) when c-planner or e-learner
   need them.
 
@@ -294,23 +291,26 @@ fails if the physics drift again.
 
 ## Requests to the coordinator
 
-- For e-learner (X8, X9, item 7). Adopt the shared helpers; they keep your env variables:
-  - `baseline_dir(env, seed)` -> `frozen.trained_dir(f"baselines/{frozen.maze_name(env)}/seed{seed}")`;
-    `approach_b_dir(env, name, seed)` -> `frozen.trained_dir(f"approach_b/{maze}/{name}/seed{seed}")`.
-  - `save_checkpoint` -> `frozen.save_trained_checkpoint`; `load_retrained_model`,
-    `load_baseline_model`, `load_b_model` -> `frozen.load_trained_model(env, key)`, which also
-    downloads a missing published checkpoint (so the loaders need no download code).
-  - `save_value`: write with `frozen.save_numpy_pickle`. `train_b.example_batch(agent, obs_dim)`
-    -> `frozen.example_batch(agent.network.params)`. `learned/value.py` `forward` ->
-    `frozen.forward`. `env_name.split("-")[1]` (`train_high.py:51, 181`, `train_b.py:73, 399`,
-    `learned/diagnostics.py:130`) -> `frozen.maze_name`.
-  - Export `high_actor.pkl` for medium seeds 0-4 (snippet under "Trained checkpoints"). The
-    upload waits for it.
-  - `scripts/gpu/vast.sh` (X8): use the env variables, or pass the folders.
-- For e-learner: record portable values in `flags.json`. `retrained_high_actor.from` and
-  `approach_b.value_dir` hold absolute paths of the training machine (`/root/...` on the GPU,
-  the home folder with the user name on the Mac). A path relative to `~/.cache/fbplan`, for example
-  `checkpoints/medium`, says the same and holds no user name.
+- For e-learner, must fix before the release hashes are pinned:
+  `fbplan/learned/checkpoint.py:79` (`load_trained_file`) calls
+  `frozen.download_trained(key, folder)`. Since `a1a65b6`, `download_trained` takes only the key
+  and writes to `frozen.trained_dir(key)`, which is the same folder with the same env variables.
+  So a missing file gives a `TypeError` instead of a download. `tests/test_learned_checkpoint.py:118`
+  replaces `download_trained` with a fake that has the old signature, so the test passes. Fix:
+  `frozen.download_trained(key)`, or `frozen.load_trained_model(env, key)` for the whole loader.
+- For e-learner (request 2 is done; X8, X9): the local copies in `fbplan/learned/checkpoint.py`
+  and `value.py` can use the public names of `frozen.py`:
+  - `maze_name` -> `frozen.maze_name` (also refuses an unknown env);
+    `CACHE`, `_ROOT_VARS`, `trained_dir(kind, env, seed, name)` ->
+    `frozen.trained_dir(trained_key(kind, env, seed, name))` (`frozen.cache_dir` for a root);
+  - `save_numpy_pickle` -> `frozen.save_numpy_pickle` (also refuses object arrays);
+  - `save_high_actor` -> `frozen.save_trained_checkpoint` (byte-equal output, checked);
+    `with_high_actor` and `load_high_actor_model` -> `frozen.load_trained_model(env, key)`;
+  - `example_batch(agent, obs_dim)` -> `frozen.example_batch(agent.network.params)` (reads
+    `obs_dim` from the B weights);
+  - `value.py:99` `forward` (TODO) -> `frozen.forward`;
+  - `jax.device_put` before `frozen.FrozenFBModel(...)` (`checkpoint.py:106`): no longer needed,
+    the constructor does it.
 - For g-release: gap 2 has its tool now. `uv run python -m fbplan.frozen --datasets
   antmaze-medium-navigate-v0` downloads the 4 provided checkpoints and the medium train and val
   splits (270 MB); after it, `uv run pytest` skips no test of medium. Put it before `pytest` in
