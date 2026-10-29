@@ -161,3 +161,14 @@ def test_task_spec_uses_the_ogbench_goal_cell(exact):
 def test_nonzero_temperature_is_rejected(exact):
     with pytest.raises(ValueError, match="temperature"):
         exact.low_action(exact.maze.xy[:1], exact.backward(exact.maze.xy[:1]), temperature=1.0)
+
+
+def test_high_radius_limits_the_subgoals_of_pi_h():
+    model = TabularFB(FakeFBConfig(discount=GAMMA, rho_noise=0.02, high_radius=4))
+    maze = model.maze
+    dist = maze.geodesic_distances()
+    z_task = np.tile(model.infer_task_latent(1), (maze.n_states, 1))
+    high = model.high_latent(maze.xy, z_task)
+    candidates = normalize_z(model.backward(maze.xy), model.latent_dim)
+    chosen = np.argmin(np.linalg.norm(high[:, None] - candidates[None], axis=-1), axis=1)
+    assert np.all(dist[np.arange(maze.n_states), chosen] <= 4)

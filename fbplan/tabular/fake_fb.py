@@ -23,8 +23,11 @@ Construction (n states, latent dimension d, counting measure over states):
   noise rho_noise / (1 - gamma). `low_policy="optimal"` executes pi*_z instead, which isolates
   errors of the planning values from errors of the controller. `true_successor_measure` gives
   the exact M of the executed policy.
-- The baseline pi_h(z | s, z_r) is idealised: the exact argmax over all states w of the
-  switching advantage computed from this model's F and B, returning normalised B(w*).
+- The baseline pi_h(z | s, z_r) is idealised: the exact argmax over states w of the switching
+  advantage computed from this model's F and B, returning normalised B(w*). `high_radius` limits
+  w to states within that walking distance of s, like the support of the training subgoals
+  (a geometric offset along trajectories). Without it, the proxy advantage counts the goal twice
+  and pi_h picks the goal itself, which makes it the same as acting with z_r.
 """
 
 from __future__ import annotations
@@ -45,8 +48,8 @@ from fbplan.tabular.mdp import greedy_policy, optimal_policy, successor_measure
 class FakeFBConfig:
     """Settings of the fake model. The defaults give the exact model on the paper's 104-state maze.
 
-    `discount` 0.9 per fine step puts rho for the farthest pairs of the medium maze near 0.01, the
-    same range as gamma = 0.99 over a few hundred AntMaze steps.
+    With `discount` 0.9 per fine step, rho ranges from 0.9 (neighbours) to 0.09 (the farthest
+    pair of the medium maze, 23 steps).
     """
 
     maze: str = "medium"
@@ -58,6 +61,7 @@ class FakeFBConfig:
     n_heads: int = 2
     low_policy: Literal["greedy", "optimal"] = "greedy"  # greedy on noisy F, or exact pi*_z
     high_advantage: Literal["proxy", "full"] = "proxy"  # proxy drops -rho F(w,z_w)^T z (upstream)
+    high_radius: int | None = None  # pi_h subgoals within this walking distance; None: all
     seed: int = 0
 
 
@@ -198,7 +202,11 @@ class TabularFB:
         """argmax_w of the switching advantage for every state s: [n] state ids."""
         key = np.round(z_hat, 9).tobytes()
         if key not in self._subgoals:
-            self._subgoals[key] = np.argmax(self._switch_advantages(z_hat), axis=1)
+            adv = self._switch_advantages(z_hat)
+            if self.config.high_radius is not None:
+                far = self.maze.geodesic_distances() > self.config.high_radius
+                adv = np.where(far, -np.inf, adv)
+            self._subgoals[key] = np.argmax(adv, axis=1)
         return self._subgoals[key]
 
     def _switch_advantages(self, z_hat: np.ndarray) -> np.ndarray:
