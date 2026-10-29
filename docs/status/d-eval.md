@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-30, 00:20. Branch merged with `main` at 3e36461.
+Last update: 2026-10-30, 00:45. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -408,6 +408,25 @@ The 2× jobs run from a third code tree on the instance, `~/fbplan_deval` (d-eva
 `retrained:<variant>:<seed>`). Check: from that tree, eval seed 0 of the baseline repeats
 `results/medium/baseline.csv` exactly (250 of 250 records), so its runs pair with all
 committed medium rows.
+
+## Wave 1 of the hypothesis tests (coordinator 2026-10-30, readings in design.md §8)
+
+- (1) Final protocol: eval seeds 5–9 for baseline, baseline_raw, the 5 retrained seeds and the 5
+  seeds of B clean, B wide and B region (22 runs, queued; instance main tree 84a8127, the code of
+  their seeds 0–4). Merged 10-seed CSVs will go to `results/medium_10seeds/` (same layout as
+  `results/medium/`); `results/medium/` keeps the 5-seed set that pairs with all other rows.
+- (2) T1, test-time ensemble (h-learn H3): `--method ensemble --opt family=<retrained|b:clean|
+  b:region> seeds=5` (`EnsembleBaselineController`: z = normalize(mean_k pi_h^k(s, z_r)), then
+  pi_l; tested). Eval seeds 0–9 for the 3 families (6 jobs, queued), from the branch tree
+  `~/fbplan_deval` (0be1249; it repeats the committed baseline seed 0 exactly).
+- (3) Teleport held-out goals: `results/heldout_goals/antmaze-teleport-navigate-v0.csv` (10 goals,
+  50-state floor, none at the trap cell (1, 7); 77–1,052 states per goal ball).
+- (4) New goal rule: a goal ball may hold at most 50 % flipped states. Medium is unchanged (its
+  held-out selection stays valid). Large changed: old goals 102 and 103 were 73 % and 77 %
+  flipped; removing such candidates shifts the seeded draws, so 6 of 10 large goals are new.
+  Giant changed too (3 of 10 goals new), as a side effect of the same shift; nobody has run
+  giant held-out goals yet. The instance's code trees still hold the old large goal file and no
+  teleport goals: held-out runs on large or teleport need a tree update first.
 
 ## Next
 
