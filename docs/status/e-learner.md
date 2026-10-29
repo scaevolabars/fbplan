@@ -144,7 +144,33 @@ What ran on 58234389:
 | 15:45 | 16:11 | push of the self-loop fix (code a189a49), 271 of 272 tests pass (c-planner's GPU one fails) |
 | 16:11 | 16:18 | stage 1 as 15 runs: large baselines + value-single + value-region. GPU out of memory: a B run holds 2.5 GB (large baseline 0.86 GB), 15 runs need 29.6 GB of 24. 5 value runs crashed; I stopped all 10 value runs, kept the large ones, moved the logs to `runs/oom-attempt-1611/` |
 | 16:20 | 18:10 | large baselines (16:11-17:55) + value-single seeds 0-4 (10 runs, 17 GB). Queue `queue-b1` then runs, one group of 5 at a time: value-region, policy clean, wide, region (two B groups need 25.2 GB) |
-| 18:10 | | value-region seeds 0-4 (queue) |
+| 18:10 | | value-region seeds 0-4 (queue-b1) |
+| 18:58 | | ablations approved (coordinator for the user): queue `runs/queue-ablations.sh` (below) holds queue-b1, then runs value expectile 0.7, resumes queue-b1 (policy clean, wide, region), then value rho cap 1.0 |
+
+The ablation queue. The instance runs code a189a49, which has no `--name`; each ablation writes
+below its own `FBPLAN_APPROACH_B_DIR` root, so it cannot replace `value-single`. queue-b1 is a
+tmux pane, and tmux resumes a stopped pane, so the queue stops the tmux server too (its training
+processes write to files and keep running; checked). Started with
+`setsid nohup bash runs/queue-ablations.sh > runs/queue-ablations.log 2>&1 < /dev/null &`:
+
+```
+Q=37429 T=24127   # queue-b1 shell, tmux server
+kill -STOP $T; kill -STOP $Q
+while pgrep -f "python -m fbplan[.]learned[.]train_b value"; do sleep 60; done
+FBPLAN_APPROACH_B_DIR=~/.cache/fbplan/approach_b/ablations/expectile0.7 bash scripts/gpu/run_seeds.sh \
+  runs/train_b/medium/value-single-expectile0.7 "0 1 2 3 4" fbplan.learned.train_b value \
+  --env antmaze-medium-navigate-v0 --latents single --expectile 0.7
+kill -CONT $Q; kill -CONT $T
+while kill -0 $Q; do sleep 60; done
+FBPLAN_APPROACH_B_DIR=~/.cache/fbplan/approach_b/ablations/rhocap1.0 bash scripts/gpu/run_seeds.sh \
+  runs/train_b/medium/value-single-rhocap1.0 "0 1 2 3 4" fbplan.learned.train_b value \
+  --env antmaze-medium-navigate-v0 --latents single --rho-max 1.0
+```
+
+Same runs with the current code (bit-identical, see the refactor check), per seed k:
+`uv run python -m fbplan.learned.train_b value --env antmaze-medium-navigate-v0 --seed k --latents single --expectile 0.7 --name value-single-expectile0.7`
+and `... --rho-cap 1.0 --name value-single-rhocap1.0`. After the pull, the folders move to
+`approach_b/medium/value-single-expectile0.7/` and `.../value-single-rhocap1.0/` and are exported.
 
 Launch details (not in a script, so recorded here): every B group runs as
 `env XLA_PYTHON_CLIENT_ALLOCATOR=platform bash scripts/gpu/run_seeds.sh runs/train_b/medium/<name>
@@ -153,11 +179,12 @@ The allocator setting changes memory handling only. It did not lower the 2.5 GB,
 
 ## Next
 
-- Queue on 58234389 (approved jobs): value-region (running since 18:10), then policy clean, wide,
-  region, one group of 5 seeds each (about 55 min per group). Then pull, export, destroy the
-  instance; no further job is approved.
-- Evaluation of the B variants by `fbplan.evaluate --checkpoint` (d-eval), then the ablations
-  (`--expectile 0.7`, `--rho-cap 1.0`, each with its own `--name`; ask the user first).
+- Queue on 58234389 (approved jobs): value-region (running since 18:10), value expectile 0.7,
+  policy clean, wide, region, value rho cap 1.0; one group of 5 seeds each, about 55 min per
+  group, end about 00:30 MSK. Then pull, export, destroy the instance; record the cost.
+- After each value ablation: the geodesic check against V_1. If expectile 0.7 orders states
+  clearly better than V_1, propose a clean policy run on it and ask the user first.
+- Evaluation of the B variants by `fbplan.evaluate --checkpoint` (d-eval).
 - Switch to the shared helpers when they are public (requests 2 and 4).
 
 ## Blockers
