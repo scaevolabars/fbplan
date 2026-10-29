@@ -14,10 +14,9 @@ dependencies = [
     "ml-collections>=1.1.0",
     "ogbench==1.1.4",
     "gymnasium==0.29.1",
-    "h5py==3.12.1",
     "matplotlib>=3.10.7",
     "pandas",
-    "tqdm",
+    "tqdm",  # upstream utils.evaluation, used by analysis/parity.py
     "mujoco==3.1.6",
 ]
 
@@ -39,5 +38,15 @@ extend-exclude = ["third_party"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# Plot scripts select the matplotlib backend before they import pyplot.
+"analysis/*.py" = ["E402"]
+"fbplan/learned/diagnostics.py" = ["E402"]
+"fbplan/tabular/{study_plots,time_limit}.py" = ["E402"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# "." for tests of analysis/ (not a package), "tests" for helper modules such as planner_fakes.
+pythonpath = [".", "tests"]
+# List skipped tests: on a clone without checkpoints or datasets, some tests skip.
+addopts = "-ra"
