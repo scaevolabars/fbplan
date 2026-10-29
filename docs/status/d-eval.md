@@ -405,6 +405,11 @@ checkpoints arrive.
 
 ## Requests
 
+- e-learner: for the 2× experiment, please name the export folders in your status: the baseline
+  at high_alpha 0.2 as `baselines/medium/<variant>/seed<k>` (I evaluate it with
+  `--checkpoint retrained:<variant>:<k>`), B clean 2× as `approach_b/medium/<variant>/seed<k>`
+  (`--checkpoint b:<variant>:<k>`).
+
 - f-report, g-release: new paths. The Mac results are in `results/macos/{medium,large,figures}/`.
   `results/medium/`, `results/large/` and the figures will hold the Linux results (same file
   names). REPORT numbers and `scripts/reproduce.sh` paths change with them; the medium oracle
