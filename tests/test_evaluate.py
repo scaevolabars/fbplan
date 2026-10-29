@@ -361,6 +361,16 @@ def test_builtin_controllers_run_an_episode_on_the_real_model(medium_model, meth
     assert 1 <= record.steps <= 1000
 
 
+def test_ensemble_of_the_retrained_seeds_runs_an_episode(medium_model):
+    folders = [trained.trained_dir("baselines", MEDIUM, k) for k in range(5)]
+    if not all((f / "high_actor.pkl").exists() for f in folders):
+        pytest.skip("retrained medium baselines absent")
+    controller = resolve_controller("ensemble")(medium_model, family="retrained", seeds=5)
+    tasks = make_tasks(MEDIUM, [2], medium_model.infer_task_latent)
+    (record,) = run_episodes(controller, tasks, [0], 1)
+    assert record.method == "baseline_ensemble" and 1 <= record.steps <= 1000
+
+
 def test_raw_baseline_equals_baseline_for_a_task_latent_of_norm_sqrt_d(medium_model):
     obs = frozen.load_dataset(MEDIUM, "val")["observations"][:: 25_000]
     z = np.random.default_rng(0).normal(size=medium_model.latent_dim)

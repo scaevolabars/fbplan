@@ -21,6 +21,7 @@ PRIVILEGED = frozenset({"oracle"})
 ALIASES = {
     "baseline": "fbplan.controllers.baseline:BaselineController",
     "baseline_raw": "fbplan.controllers.baseline:RawBaselineController",
+    "ensemble": "fbplan.controllers.baseline:make_ensemble",
     "nonhier": "fbplan.controllers.baseline:NonHierController",
     "oracle": "fbplan.controllers.oracle:make_oracle",
     "planner": "fbplan.controllers.planner:make_planner",

@@ -5,6 +5,8 @@ from fbplan.contracts import TaskSpec
 from fbplan.controllers import resolve_controller
 from fbplan.controllers.baseline import (
     BaselineController,
+    EnsembleBaselineController,
+    EnsembleConfig,
     NonHierController,
     RawBaselineController,
 )
@@ -94,6 +96,31 @@ def test_raw_baseline_passes_the_task_latent_unnormalized_to_upstream_sample_act
     np.testing.assert_array_equal(z_in, z_r)
     assert temperature == 0.0
     np.testing.assert_allclose(action, np.tanh(z_r[:2] - obs[:2]))
+
+
+class _FixedIntention(_FakeFB):
+    """A pi_h member that always proposes the same normalized intention."""
+
+    def __init__(self, intention) -> None:
+        super().__init__()
+        self.intention = np.asarray(intention, float)
+        self.tasks: list[np.ndarray] = []
+
+    def high_latent(self, obs, z_task, temperature=0.0, seed=None):
+        self.tasks.append(np.asarray(z_task)[0].copy())
+        return self.intention[None]
+
+
+def test_ensemble_acts_on_the_normalized_mean_of_the_members_intentions():
+    model, z_r = _FakeFB(), np.array([1.0, 2.0, 3.0, 4.0])
+    members = [_FixedIntention([2.0, 0, 0, 0]), _FixedIntention([0, 2.0, 0, 0])]  # norm sqrt(d)
+    controller = EnsembleBaselineController(model, members, EnsembleConfig("retrained", 2))
+    controller.reset(_task([0, 0], z_r), seed=0)
+    controller.act(_obs_at([5.0, 1.0]))
+    np.testing.assert_allclose(model.low_latents[-1], [np.sqrt(2), np.sqrt(2), 0, 0])
+    for member in members:
+        np.testing.assert_array_equal(member.tasks[-1], z_r)
+        assert member.low_latents == []  # only the shared model's pi_l acts
 
 
 def test_maze_geometry_matches_ogbench_cell_conversions():
