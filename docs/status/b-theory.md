@@ -1,8 +1,8 @@
 # Status: b-theory
 
-Last update: 2026-10-29. Branch merged with `main` 3e36461. Item 15 (bonus mazes): code, theory
-and preliminary Mac runs done; final runs wait in d-eval's Linux queue (group d), commands
-below. Review: first pass (B1–B15, X2, X13, X7 my part, K2) and second pass (B16–B21) done.
+Last update: 2026-10-29. Branch merged with `main` 28f6aba. Item 15 (bonus mazes) done: all
+final numbers are d-eval's Linux runs, theory.md §11 uses them. Review: first pass (B1–B15, X2,
+X13, X7 my part, K2) and second pass (B16–B21) done.
 
 ## Done
 
@@ -20,8 +20,10 @@ below. Review: first pass (B1–B15, X2, X13, X7 my part, K2) and second pass (B
   - `docs/theory.md` §11: teleport (risk-neutral value vs. success metric) and giant (time budget,
     ρ at long range).
   - Evaluations on the Mac stopped by the coordinator's decision (Linux is the platform for final
-    numbers). Finished Mac CSVs are in `runs/mac/{giant,teleport}/` (not committed); theory.md
-    §11.3 quotes them as preliminary.
+    numbers). d-eval ran the commands below on Linux; theory.md §11.3 uses only those CSVs. The
+    old Mac CSVs stay in `runs/mac/{giant,teleport}/` (not committed).
+  - FB calibration on giant (again, with d-eval's corner fix) and on teleport (new), figures and
+    tables in `docs/figures/theory/`. Found a second geodesic leak (Requests).
 
 ## Review (g-release, first pass)
 
@@ -93,32 +95,40 @@ below. Review: first pass (B1–B15, X2, X13, X7 my part, K2) and second pass (B
 
 ## Results
 
-Teleport, Linux (final; main 43a03db), 5 eval seeds × 5 tasks × 50 episodes, planner rows pool
-landmark sets 0–2; success % [95 % CI], paired against the baseline:
+Linux (d-eval, main 28f6aba), 5 eval seeds × 5 tasks × 50 episodes, planner rows pool landmark
+sets 0–2; success % [95 % CI], paired against the baseline on the same episodes. Trap: failed
+episode whose final goal distance is within 2 xy units of the trap centre's.
 
-| method | all | vs. baseline | trap |
+| teleport | all | vs. baseline (pp) | trap |
 |---|---|---|---|
 | baseline | 27.7 [25.3, 30.2] | – | 54.7 % |
-| baseline_raw | 24.2 [21.8, 26.6] | −3.5 pp [−6.2, −1.0] | 57.4 % |
-| planner | 18.6 [16.5, 21.0] | −9.1 pp [−12.2, −6.0] | 64.2 % |
-| planner_high | 24.1 [21.5, 26.4] | −3.6 pp [−6.7, −0.5] | 53.9 % |
+| baseline_raw | 24.2 [21.8, 26.6] | −3.5 [−6.2, −1.0] | 57.4 % |
+| nonhier | 19.0 [16.9, 21.2] | −8.6 [−11.2, −6.2] | 65.4 % |
+| planner | 18.6 [16.5, 21.0] | −9.1 [−12.2, −6.0] | 64.2 % |
+| planner_high | 24.1 [21.5, 26.4] | −3.6 [−6.7, −0.5] | 53.9 % |
+| teleport-aware oracle, π_l | 5.6 [4.3, 6.9] | −22.1 [−24.7, −19.5] | 19.9 % |
+| teleport-aware oracle, π_h | 21.4 [19.4, 23.3] | −6.3 [−9.2, −3.4] | 18.2 % |
 
-Still preliminary (Mac, MuJoCo 3.1.6, planner code of f1ae57d; `runs/mac/`, not committed):
+| giant | all | vs. baseline (pp) |
+|---|---|---|
+| baseline | 0.5 [0.2, 0.9] | – |
+| nonhier | 0.5 [0.2, 0.9] | +0.0 [−0.6, +0.6] |
+| planner | 0.4 [0.2, 0.7] | −0.1 [−0.6, +0.4] |
+| planner_high | 0.8 [0.5, 1.1] | +0.3 [−0.2, +0.9] |
+| oracle (privileged) | 2.5 [1.7, 3.4] | +2.0 [+1.1, +3.0] |
 
-| maze | baseline | nonhier | oracle |
-|---|---|---|---|
-| teleport | 28.8 [26.4, 31.2] | 19.0 [16.9, 21.2], −9.8 pp | – |
-| giant | 0.6 [0.2, 1.0] | 0.7 [0.3, 1.2], +0.2 pp | 2.2 [1.5, 3.0], +1.7 pp (privileged) |
-
-- Teleport: 54–64 % of all episodes end in the trap exit (Linux; nonhier 65 % on the Mac).
-  An exact risk-neutral agent (max `E[γ^H]`, γ = 0.99) takes the teleporter on every task and
-  succeeds with probability ≤ 1/2; it walks only for γ ≥ 0.9977–0.9993 (theory.md §11.1).
-  π_l itself walks into the entries (the data route through them: 91 up vs. 2 down at (5,6)).
-- Giant: even privileged waypoints give 2.2 %. π_l covers 5–15.5 cells in 1,000 steps (walks
-  are 17–30 cells; 19 % of oracle failures are flips). The executor, not the route, is the
-  bottleneck. FB distance stops tracking the geodesic beyond about 45 xy units.
-- Teleport oracle on 30 dev episodes (eval seed 100): 2/30 with π_l, 6/30 with `follow=pi_h`,
-  baseline 8/30.
+- Teleport: no method beats the baseline. 54–65 % of the episodes of the learned agents end in
+  the trap. An exact risk-neutral agent (max `E[γ^H]`, γ = 0.99) jumps on every task and
+  succeeds with probability ≤ 1/2 (theory.md §11.1). The FB checkpoint has learned the jump:
+  for pairs 60–75 xy units apart on foot, `ρ̂` is 0.15–0.22, against 0.004–0.008 for the walk.
+- Teleport-aware oracle: the risk-free route cuts the trap share to 18–20 %, but π_l and π_h
+  still walk into entry (4,6) next to the start of tasks 3 and 5 (37–39 % trapped there), and
+  the long safe walks time out. On task 2 (no entry on the route) it gains +16.8 pp
+  [+8.0, +25.6] with π_h.
+- Giant: no planner gain. Even privileged waypoints give 2.5 %: π_l covers 5–15.5 cells in
+  1,000 steps (Mac replay, eval seed 0), and the walks are 17–30 cells. FB distance grows with
+  the walk at 1.2–1.7 times the walk time, but from 5 cells on, the upper quartile is at the
+  cap (`ρ̂` < 0.05).
 
 ## Commands for d-eval (Linux evaluation instance)
 
@@ -149,7 +159,7 @@ In the `RUNS` format of `scripts/reproduce.sh` (maze, CSV, eval seeds, method, o
     giant    planner_high/l1.csv     5 planner_high landmarks.seed=1
     giant    planner_high/l2.csv     5 planner_high landmarks.seed=2
 
-After the runs (analysis, for theory.md §11.2–11.3):
+Analysis for theory.md §11.2–11.3 (done on the Mac; tables only):
 
     uv run python analysis/tables.py results/teleport/*.csv results/teleport/planner*/*.csv --label-root results/teleport --cluster config_hash
     uv run python analysis/tables.py results/giant/*.csv results/giant/planner*/*.csv --label-root results/giant --cluster config_hash
@@ -159,14 +169,16 @@ Docs figures and tables (Mac, light):
 
     uv run python -m fbplan.tabular.time_limit        # docs/figures/theory/time_limit*.{csv,png}
     uv run python analysis/calibration.py --env antmaze-giant-navigate-v0 --out-dir docs/figures/theory --table-dir docs/figures/theory
+    uv run python analysis/calibration.py --env antmaze-teleport-navigate-v0 --out-dir docs/figures/theory --table-dir docs/figures/theory
     uv run python -m fbplan.tabular.run_study --workers 4 && uv run python -m fbplan.tabular.study_plots
 
 ## Next
 
-- Teleport baseline, baseline_raw, planner and planner_high are final in theory.md §11.3. When
-  d-eval commits teleport nonhier, the two oracle_teleport runs and the giant runs: replace the
-  remaining Mac rows (and the trap shares: final distance within 2 xy units of the trap
-  centre's distance to the goal).
+- When d-eval fixes the slit leak in `MazeGeometry.geodesic_distances` (Requests): run the two
+  calibration commands again, and replace the raster-check numbers in theory.md §11.1–11.2 with
+  the bins of the fixed figure.
+- If d-eval commits the Linux failure classes of the giant oracle: replace the Mac replay facts
+  in theory.md §11.2.
 
 ## Blockers
 
@@ -174,15 +186,23 @@ Docs figures and tables (Mac, light):
 
 ## Requests to the coordinator
 
-- Please assign `tests/test_oracle_teleport.py` to b-theory (design.md §6), if not done.
-- g-release (X11 flag renames, merge together with this branch): `scripts/reproduce.sh:268-269`
-  becomes `py -m fbplan.tabular.study_plots "$theory_dir"` and
-  `py -m fbplan.tabular.time_limit --out-dir "$theory_dir"`.
-- d-eval: `MazeGeometry.geodesic_distances` lets a point pass between two walls that touch only
-  at a corner (giant 4 places, medium 2, teleport 2). The ant cannot pass there, so some
-  calibration pairs look closer than they are (giant task 5: 21 xy units, walk 17 cells).
-- d-eval: `analysis/calibration.py` failed on teleport (`geodesic.max()` is inf: the trap exit
-  cannot be reached on foot). `analysis/failures.py` could report a "trapped" class
-  (`cells_left = −1`); I used `replay_failures` from a scratch script.
-- d-eval: please run the commands in "Commands for d-eval" on the Linux instance and commit the
-  CSVs to `results/{giant,teleport}/`.
+- Please assign `tests/test_oracle_teleport.py` to b-theory (design.md §6 line 157 does not list
+  it yet).
+- g-release (X11 flag renames): `scripts/reproduce.sh:272-273` still use the old flags and fail
+  with the current CLIs. They become `py -m fbplan.tabular.study_plots "$theory_dir"` and
+  `py -m fbplan.tabular.time_limit --out-dir "$theory_dir"`. The giant and teleport runs are in
+  "Commands for d-eval" above.
+- d-eval: `MazeGeometry.geodesic_distances` still lets a point pass through walls. Two wall cells
+  that share an edge leave a slit of 2e-6 (`_WALL_SHRINK`), and a segment that lies exactly on
+  that grid line passes between them. The corner graph has many such segments (corner to corner
+  along a grid line). Example: giant task 5, (32, 16) → (28, 8), measures 21.2 xy units via the
+  corners (34, 18) → (34, 6), down x = 34 between walls (4, 9) and (4, 10); the walk is 17 cells.
+  Check against an octile Dijkstra on a 0.5-unit raster (at most 8 % too long): pairs of the
+  400-state calibration sample more than 15 % too short: giant 31 %, large 13 %, teleport 16 %,
+  medium 0.2 %. Task geodesics, MazeGeometry vs. raster: giant 76.4/75.1/69.0/51.1/21.2 vs.
+  91.7/81.8/83.8/78.2/51.9; large task 2 21.2 vs. 55.7. It affects the large and giant
+  calibration figures and wormhole counts (`results/calibration/`), not medium. A possible fix:
+  block a segment that runs along a grid line where the cells on both sides are walls (or test
+  the midpoint of each grid-cell crossing against the unshrunk walls). My check script:
+  `/private/tmp/claude-501/-Users-ssbars-Documents-work-tbank-robots--worktrees-b-theory/9eb5871f-f0ef-430e-94a3-2c926e648b0f/scratchpad/geo_check.py`
+  (I can commit it if you want it in the repo).
