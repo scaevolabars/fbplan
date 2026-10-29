@@ -1,17 +1,13 @@
-import sys
-from pathlib import Path
-
 import jax
 import numpy as np
 import pytest
 
+from fbplan.frozen import upstream_module
 from fbplan.learned.sampling import HighBatchSpec, make_trajectory_data, sample_high_batch
 
-# Upstream is imported only to compare distributions. TODO(e-learner): use the a-frozen
-# import helper once it is on main.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "third_party" / "ssm"))
-from agents.fbpiswitch import get_config  # noqa: E402
-from utils.datasets import Dataset, HGCDataset  # noqa: E402
+# Upstream is used only as the reference distribution.
+fbpiswitch = upstream_module("agents.fbpiswitch")
+upstream_datasets = upstream_module("utils.datasets")
 
 TRAJ_LENGTHS = (300, 50, 1000, 7, 600, 120)
 
@@ -32,7 +28,7 @@ def synthetic_dataset() -> dict[str, np.ndarray]:
 
 
 def upstream_config(**updates):
-    config = get_config()
+    config = fbpiswitch.get_config()
     config.update(updates)
     return config
 
@@ -85,7 +81,8 @@ def test_offsets_match_upstream_hgcdataset(updates):
     n = 100_000
 
     np.random.seed(0)
-    upstream = HGCDataset(Dataset.create(**ds), config).sample(n)
+    dataset = upstream_datasets.Dataset.create(**ds)
+    upstream = upstream_datasets.HGCDataset(dataset, config).sample(n)
     spec = HighBatchSpec.from_agent_config(config.to_dict() | {"batch_size": n})
     ours = sample_high_batch(make_trajectory_data(ds["observations"], ds["terminals"]),
                              jax.random.PRNGKey(0), spec)

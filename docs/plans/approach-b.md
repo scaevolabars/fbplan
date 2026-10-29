@@ -1,7 +1,8 @@
 # Plan: approach B, a learned multi-switch value
 
-Status: draft for approval (e-learner, 2026-10-29; revised after the a-frozen and b-theory
-merges). Notation: docs/design.md §3.
+Status: approved by the user on 2026-10-29, with one change: B-clean keeps the upstream
+single-state latents, and region latents are a separate variant, B-region (§3, §10).
+Stage B2 waits until B1 shows a gain. Notation: docs/design.md §3.
 
 ## 1. Idea in one paragraph
 
@@ -80,17 +81,27 @@ All from offline data; same sampler as `train_high` (`fbplan/learned/sampling.py
 | `s` | uniform over dataset states | as upstream |
 | `w` | same trajectory as `s`, offset `k ~ Geometric(1−γ)`, clipped at the trajectory end (mean 100 steps) | as upstream `π_h` subgoals. Every edge `(s,w)` is shown by the data, so the targets contain no wormhole edges |
 | `g` | 70 %: uniform future state of the same trajectory (upstream); 30 %: uniform dataset state | random goals need chaining across trajectories; the value has to cover them |
-| `z` | 50 %: region latent of `g`; 50 %: Gaussian (as upstream `critic_latent_mix_prob = 0.5`) | goals for the eval tasks; Gaussian `z` keeps the zero-shot property for any reward |
+| `z` | 50 %: `B(g)`; 50 %: Gaussian (as upstream `critic_latent_mix_prob = 0.5`) | goals for the eval tasks; Gaussian `z` keeps the zero-shot property for any reward |
 
-**Region latents.** `B` is frozen, so we compute it once for all dataset states (`[N, 128]`,
-512 MB for medium) and look latents up; no `B` call per step. The region latent of a state is the
-mean of `B` over the states within ±5 steps of it on its trajectory (cumulative sums make this
-cheap). It replaces the single-state `B(·)` for the subgoal latent `z_w` and for the goal latent.
-Reasons: d-eval's oracle scored about 4 points above the baseline with region-mean waypoint
-latents and below it with single-state ones, with this `π_l` (design §5, one eval seed); and the
-test-time `z_r = mean(r·B(s))` is itself a mean over the goal ball. With region latents, `z̃_w`
-replaces `z_w` everywhere in §2, so `ρ` becomes the discount to reach the region around `w`.
-Ablation: single-state latents.
+`B` is frozen, so we compute it once for all dataset states (`[N, 128]`, 512 MB for medium) and
+look latents up; no `B` call per step.
+
+**Variants.** Each variant changes one thing against the one before it:
+
+| Variant | Subgoal and goal latents | Goal distribution of `π_h` | What it measures |
+|---|---|---|---|
+| retrained baseline | `B(·)` of one state | upstream | reference |
+| **B-clean** | `B(·)` of one state, as upstream | upstream | only the critic changes: the gain from chaining |
+| **B-wide** | as B-clean | + 30 % random goals | training on goals across trajectories |
+| **B-region** | region latents | as B-clean | the latent type |
+
+The region latent of a state is the mean of `B` over the states within ±5 steps of it on its
+trajectory (cumulative sums over the `B` table make this cheap). Reasons to try it: d-eval's
+oracle scored about 4 points above the baseline with region-mean waypoint latents and below it
+with single-state ones, with this `π_l` (design §5, one eval seed); and the test-time
+`z_r = mean(r·B(s))` is itself a mean over the goal ball. In B-region, `z̃_w` replaces `z_w`
+everywhere in §2, so `ρ` becomes the discount to reach the region around `w`, and B-region needs
+its own `V_H`. B-clean and B-wide share one `V_H`.
 
 All `z` are normalized to norm `√d` before the dot products, because `high_latent` normalizes the
 test-time `z_r` (design §2). Upstream uses raw `B(g)` in the dot products, so its advantage scale
@@ -102,18 +113,16 @@ Cross-trajectory `w` comes in only through the distillation of A (§6).
 ## 4. The new π_h (stage 2)
 
 Same network as upstream (`GCActor`, constant std, input `(s, z)`, output a latent in `R^d`).
-AWR toward the normalized region latent `z̃_w` (§3), with `V_H` frozen:
+AWR toward the normalized subgoal latent (`B(w)`, or `z̃_w` in B-region), with `V_H` frozen:
 
 ```
 A(s,w,z) = y(s,w,z) − V_H(s,z)
-L_π      = −E[ exp(min(α·A, 5)) · log π_h(normalize(z̃_w) | s, z) ]
+L_π      = −E[ exp(min(α·A, 5)) · log π_h(normalize(B(w)) | s, z) ]
 ```
 
 Start with `α = 0.1` (upstream `high_alpha`). `A` has the same units, but the scale can differ,
 so we compare the spread of `α·A` with the upstream run before training (logged).
-Two variants of the `g` distribution for `π_h`:
-**B-clean** uses the upstream goal distribution, so only the critic changes.
-**B-wide** adds the 30 % random goals. We report both.
+The variants are in §3: B-clean (only the critic changes), B-wide, B-region.
 
 The checkpoint has the layout of a provided one (`params.pkl` with a new `modules_high_actor`),
 so d-eval evaluates it with the baseline controller, loaded as `train_high.load_baseline_model`
@@ -142,7 +151,10 @@ Per-step re-selection at test time is safe: if the option values are correct, in
 option for a better one never lowers the return (Sutton, Precup & Singh, 1999, interruption
 theorem). The baseline controller also re-selects every step.
 
-## 6. Distilling A's routes (stage B2, after B1 works)
+## 6. Distilling A's routes (stage B2, only after B1 shows a gain)
+
+A scores below the baseline at present, so B2 waits until B1 gives a gain over the retrained
+baseline (user decision, 2026-10-29).
 
 A gives, for landmark pairs `(u, g)`, a graph value `V_A(u; g)` and a next waypoint `w*(u, g)`.
 Two additions to B, each with its own weight:
@@ -171,12 +183,12 @@ Offline diagnostics, no rollouts (with d-eval's calibration tools):
   at long range, `V_H` decays smoothly;
 - the gain `V_H − V_1` against distance; `ρ` clip rates; agreement with A's `V_A` on landmarks.
 
-Evaluation (d-eval, design.md §5): B-clean and B-wide against the 5 retrained baseline seeds
-(paired), A, and the oracle ceiling, on medium and large.
+Evaluation (d-eval, design.md §5): B-clean, B-wide and B-region against the 5 retrained baseline
+seeds (paired), A, and the oracle ceiling, on medium and large.
 Diagnostic controller **B-argmax**: A's controller with `V_H` in place of graph value iteration
 (`w* = argmax_{w∈L} R + ρ·V_H(w)`). It separates "critic quality" from "actor distillation".
 Ablations: exact vs. proxy `R`; `ρ_max ∈ {0.9, 1.0}`; `τ ∈ {0.7, 0.9}`; residual vs. plain `V_H`;
-with and without distillation.
+with and without distillation (B2 only).
 
 **Hyperparameter selection** uses held-out goals (dataset states far from the 5 eval goals,
 success by OGBench's goal radius), never the 5 eval tasks. Their `z` is the mean of `B` over dataset
@@ -186,8 +198,9 @@ d-eval's loop (request after approval).
 ## 8. Cost, code, dependencies
 
 - GPU: one stage step calls `F` about 4 times per batch, as the upstream `π_h` step does.
-  So each stage costs about one baseline run, and B costs about 2 baseline runs per (env, seed).
-  10 B runs (5 seeds × medium, large) ≈ 20 baseline runs. I ask before each GPU job.
+  So each stage costs about one baseline run (measured on an RTX 3090: 5 runs in parallel take
+  about 50 min). Per env and 5 seeds: one shared `V_H` + B-clean + B-wide `π_h`, and
+  `V_H` + `π_h` for B-region, about 5 baseline-run batches. I ask before each GPU job.
 - Code (all in my area): `fbplan/learned/option_targets.py` (JAX ρ, R, V_1 per pair),
   `fbplan/learned/value.py` (V_H, expectile loss), `fbplan/learned/high_policy.py` (AWR),
   `fbplan/learned/train_b.py` (CLI, both stages), `fbplan/learned/controller.py` (B-argmax),
@@ -204,16 +217,20 @@ d-eval's loop (request after approval).
 - **Actor averaging.** `π_h` regresses onto `B(w)`; if good subgoals lie in two directions, the
   mean lies between them. B-argmax shows whether the critic or the actor is the limit.
 - **Test-time `z_r` differs from training `z`.** `z_r` is an average of `B` over the goal ball.
-  Region latents (§3) reduce the gap.
+  B-region (§3) tests whether region latents reduce the gap.
 
-## 10. Decisions to approve
+## 10. Decisions (approved 2026-10-29)
 
 1. `R = 0` for goal latents (as A), exact `R` for Gaussian latents; the proxy only as an
-   ablation (§2).
-2. Residual `V_H = V_1 + softplus(Δ)` (§2).
-3. `w` only from the trajectory of `s` in B1; other `w` only through A in B2 (§3, §6).
-4. Region latents (±5 trajectory steps) for subgoals and goals; single-state as ablation (§3).
-5. Two stages; same `π_h` network and controller as the baseline (§4).
-6. Report B-clean (only the critic changes) and B-wide (§4).
-7. Cap `ρ ≤ 0.9`, tighter than A's `γ`, and drop samples with raw `ρ̂ ≥ 1` (§5.1).
-8. Hyperparameters chosen on held-out goals, not on the eval tasks (§7).
+   ablation (§2). Approved.
+2. Residual `V_H = V_1 + softplus(Δ)` (§2). Approved.
+3. `w` only from the trajectory of `s` in B1; other `w` only through A in B2 (§3, §6). Approved.
+4. Changed by the user: B-clean keeps single-state latents `B(·)`, exactly as upstream, because
+   region latents also change the target of `π_h`, and a gain could then not be assigned to
+   chaining. Region latents (±5 trajectory steps) are the separate variant B-region (§3).
+5. Two stages; same `π_h` network and controller as the baseline (§4). Approved.
+6. Follows from 4: B-clean = upstream latents and upstream goal distribution, only the critic
+   changes; B-wide as planned (§3).
+7. Cap `ρ ≤ 0.9`, tighter than A's `γ`, and drop samples with raw `ρ̂ ≥ 1` (§5.1). Approved.
+8. Hyperparameters chosen on held-out goals, not on the eval tasks (§7). Approved.
+9. B2 (distillation of A) only after B1 shows a gain (§6).

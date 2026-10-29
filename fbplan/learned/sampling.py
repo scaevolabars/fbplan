@@ -16,6 +16,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from fbplan.contracts import normalize_z
+
 
 @flax.struct.dataclass
 class TrajectoryData:
@@ -79,14 +81,16 @@ def uniform_future_idx(key: jax.Array, idxs: jax.Array, final_idx: jax.Array) ->
     return final_idx - jnp.round((final_idx - start) * u).astype(jnp.int32)
 
 
-def sample_high_batch(data: TrajectoryData, key: jax.Array, spec: HighBatchSpec) -> dict:
-    """The keys that `FBpiSwitchAgent.high_actor_loss` reads, distributed as `HGCDataset.sample`.
+def sample_high_indices(
+    data: TrajectoryData, key: jax.Array, spec: HighBatchSpec
+) -> tuple[jax.Array, jax.Array, jax.Array]:
+    """Dataset indices of (s, g, w), distributed as upstream `HGCDataset.sample`.
 
-    observations: uniform dataset states s.
-    high_actor_goals: the task goal g, a future state of the same trajectory (uniform or
-        geometric offset), or a uniform dataset state with probability actor_p_randomgoal.
-    high_actor_targets: the subgoal w, at a geometric offset from s in the same trajectory.
-        It is not clipped at g, as upstream.
+    s: uniform dataset states.
+    g: the task goal, a future state of the same trajectory (uniform or geometric offset), or a
+        uniform dataset state with probability actor_p_randomgoal.
+    w: the subgoal, at a geometric offset from s in the same trajectory. It is not clipped at g,
+        as upstream.
     """
     k_idx, k_goal, k_random, k_pick, k_target = jax.random.split(key, 5)
     shape = (spec.batch_size,)
@@ -101,10 +105,67 @@ def sample_high_batch(data: TrajectoryData, key: jax.Array, spec: HighBatchSpec)
     pick_random = jax.random.uniform(k_pick, shape) < spec.actor_p_randomgoal
     goal_idxs = jnp.where(pick_random, random_goal_idxs, traj_goal_idxs)
     target_idxs = geometric_future_idx(k_target, idxs, final, spec.discount)
+    return idxs, goal_idxs, target_idxs
 
+
+def sample_high_batch(data: TrajectoryData, key: jax.Array, spec: HighBatchSpec) -> dict:
+    """The keys that upstream `high_actor_loss` reads: s, g and w of `sample_high_indices`."""
+    idxs, goal_idxs, target_idxs = sample_high_indices(data, key, spec)
     obs = data.observations
     return {
         "observations": obs[idxs],
         "high_actor_goals": obs[goal_idxs],
         "high_actor_targets": obs[target_idxs],
     }
+
+
+@flax.struct.dataclass
+class SwitchBatch:
+    """One batch for approach B: a state, a subgoal on its trajectory and a task latent."""
+
+    observations: jax.Array  # [N, obs_dim] s
+    subgoals: jax.Array  # [N, obs_dim] w
+    subgoal_latents: jax.Array  # [N, d] z_w: B(w) or its region mean, raw
+    task_latents: jax.Array  # [N, d] z, norm sqrt(d)
+    is_goal: jax.Array  # [N] bool: z is the latent of a goal state, not a Gaussian sample
+
+
+def sample_switch_batch(
+    data: TrajectoryData,
+    latents: jax.Array,
+    key: jax.Array,
+    spec: HighBatchSpec,
+    gaussian_prob: float,
+) -> SwitchBatch:
+    """(s, w, z) with s, g, w from `sample_high_indices` and `latents` [N, d] looked up by index.
+
+    With probability gaussian_prob, z is a Gaussian sample instead of the latent of g, as
+    upstream `sample_latents` with critic_latent_mix_prob.
+    """
+    k_idx, k_gauss, k_pick = jax.random.split(key, 3)
+    idxs, goal_idxs, target_idxs = sample_high_indices(data, k_idx, spec)
+    d = latents.shape[-1]
+    gaussian = jax.random.normal(k_gauss, (spec.batch_size, d))
+    use_gaussian = jax.random.uniform(k_pick, (spec.batch_size,)) < gaussian_prob
+    task = jnp.where(use_gaussian[:, None], gaussian, latents[goal_idxs])
+    return SwitchBatch(
+        observations=data.observations[idxs],
+        subgoals=data.observations[target_idxs],
+        subgoal_latents=latents[target_idxs],
+        task_latents=normalize_z(task, d),
+        is_goal=~use_gaussian,
+    )
+
+
+def region_latents(latents: np.ndarray, terminals: np.ndarray, half_width: int) -> np.ndarray:
+    """Mean latent over the states within +-half_width steps on the same trajectory. [N, d]."""
+    (ends,) = np.nonzero(terminals > 0)
+    starts = np.concatenate([[0], ends[:-1] + 1])
+    out = np.empty(latents.shape, dtype=np.float32)
+    for start, end in zip(starts, ends, strict=True):
+        segment = latents[start : end + 1].astype(np.float64)
+        sums = np.concatenate([np.zeros((1, segment.shape[1])), np.cumsum(segment, axis=0)])
+        t = np.arange(len(segment))
+        lo, hi = np.maximum(t - half_width, 0), np.minimum(t + half_width, len(segment) - 1)
+        out[start : end + 1] = (sums[hi + 1] - sums[lo]) / (hi - lo + 1)[:, None]
+    return out
