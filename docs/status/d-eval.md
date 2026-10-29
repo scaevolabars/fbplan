@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-30, 01:05. Branch merged with `main` at 3e36461.
+Last update: 2026-10-30, 01:25. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -433,6 +433,21 @@ episodes); ensembles are single runs (T1, code 0be1249). Paired on the same 2,50
   (+2.5, p 0.024) but not against baseline_raw (+0.5, p 0.69), so it does not pass the gain rule;
   the chaining condition (B ensemble beats the retrained ensemble) holds. The retrained ensemble
   is no better than its single seeds (77.9 against 78.4 pooled).
+
+## T4 and T3 (coordinator 2026-10-30 01:10; readings in design.md §8)
+
+- T4, raw input path: `--method ensemble --opt family=<f> seeds=5 z_input=raw`
+  (`RawEnsembleBaselineController`, name `baseline_ensemble_raw`: each member's pi_h gets the raw
+  z_r as upstream sample_actions does; tested: with one member, the provided pi_h, it repeats
+  baseline_raw's actions within 1e-5, while the normalized path differs by 4.5e-3). Retrained,
+  B clean, B region, eval seeds 0–9, queued; then T1 and T4 ensembles on the 10 medium held-out
+  goals (robustness, no selection).
+- T3 (b-theory's commands, status at 7190a09): step 1, the 11-run held-out grid on the teleport
+  held-out goals, queued; step 2, b-theory's selection rule, applied by me after the pull;
+  step 3, the selected candidate on eval seeds 0–9. Teleport baseline and baseline_raw on eval
+  seeds 5–9 are queued in the main tree (84a8127, the code of their seeds 0–4).
+- Code tree for these: `~/fbplan_deval` at 6c603a3 (main merged; it repeats the committed
+  baseline seed 0 exactly).
 
 ## Wave 1 of the hypothesis tests (coordinator 2026-10-30, readings in design.md §8)
 
