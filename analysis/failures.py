@@ -3,8 +3,9 @@
     uv run python analysis/failures.py runs/<csv> --method baseline [--opt key=value ...]
         [--workers 10]
 
-Resets are seeded, so a replay with the same controller config repeats the episode exactly
-(the script checks the config hash and the outcome). Classes, from the ant's observations:
+Resets are seeded, so a replay with the same controller config and checkpoint repeats the
+episode exactly (the script checks the config hash and the outcome; it reads the checkpoint
+from the CSV). Classes, from the ant's observations:
 
 - flipped: the torso points down (body z-axis below the horizon) for the last 50 steps;
   the ant cannot turn back, so this is a pi_l failure that no high-level choice can repair;
@@ -16,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 from multiprocessing import get_context
 from pathlib import Path
 
@@ -25,8 +27,16 @@ import pandas as pd
 from fbplan.contracts import Controller, TaskSpec
 from fbplan.controllers import resolve_controller
 from fbplan.controllers.oracle import MazeGeometry
-from fbplan.evaluate import config_hash, make_tasks, parse_options, run_episode
-from fbplan.frozen import load_model, make_env
+from fbplan.evaluate import (
+    Checkpoint,
+    config_hash,
+    make_tasks,
+    parse_options,
+    run_episode,
+    task_latent,
+)
+from fbplan.frozen import make_env
+from fbplan.stats import CHECKPOINT_DEFAULTS, load_results
 
 FLIP_WINDOW, STUCK_WINDOW, STUCK_RADIUS = 50, 300, 1.0
 
@@ -67,18 +77,23 @@ def classify(observations: np.ndarray) -> str:
 
 
 def replay_failures(
-    method: str, env_name: str, options: dict[str, object], expected_hash: str, rows: list[dict]
+    method: str,
+    env_name: str,
+    options: dict[str, object],
+    checkpoint: Checkpoint,
+    expected_hash: str,
+    rows: list[dict],
 ) -> list[dict]:
     """Replay the episodes in `rows` and return one classified row per episode."""
-    model = load_model(env_name)
+    model = checkpoint.load(env_name)
     inner = resolve_controller(method)(model, **options)
     if config_hash(inner) != expected_hash:
         raise ValueError(f"config hash {config_hash(inner)} differs from the CSV's {expected_hash}")
     controller = RecordingController(inner)
     env = make_env(env_name)
     maze = MazeGeometry.from_env(env)
-    tasks = {t.task_id: t for t in make_tasks(env_name, sorted({r["task_id"] for r in rows}),
-                                              model.infer_task_latent)}
+    task_ids = sorted({r["task_id"] for r in rows})
+    tasks = {t.task_id: t for t in make_tasks(env_name, task_ids, partial(task_latent, model))}
     out = []
     for row in rows:
         task = tasks[row["task_id"]]
@@ -99,14 +114,20 @@ def main() -> None:
     parser.add_argument("--workers", type=int, default=10)
     args = parser.parse_args()
 
-    df = pd.read_csv(args.csv)
+    df = load_results([args.csv])
     (env_name,), (expected_hash,) = df["env_name"].unique(), df["config_hash"].unique()
+    checkpoints = df[list(CHECKPOINT_DEFAULTS)].drop_duplicates()
+    if len(checkpoints) != 1:
+        raise ValueError(f"{args.csv} holds {len(checkpoints)} checkpoints; replay needs one")
+    kind, variant, seed = checkpoints.iloc[0]
+    checkpoint = Checkpoint(str(kind), str(variant), int(seed))
     failed = df[~df["success"]].to_dict("records")
     chunks = [failed[i :: args.workers] for i in range(args.workers) if failed[i :: args.workers]]
     options = parse_options(args.opt)
     with ProcessPoolExecutor(len(chunks), mp_context=get_context("spawn")) as pool:
         futures = [
-            pool.submit(replay_failures, args.method, env_name, options, expected_hash, chunk)
+            pool.submit(replay_failures, args.method, env_name, options, checkpoint,
+                        expected_hash, chunk)
             for chunk in chunks
         ]
         rows = pd.DataFrame([row for future in futures for row in future.result()])

@@ -1,16 +1,19 @@
+import dataclasses
 import math
 
 import pandas as pd
 import pytest
 
 from fbplan.contracts import EpisodeRecord
-from fbplan.evaluate import write_csv
+from fbplan.evaluate import Checkpoint, write_csv
 from fbplan.stats import (
+    CHECKPOINT_DEFAULTS,
     load_results,
     mcnemar_p_value,
     paired_comparison,
     paired_table,
     pool_label,
+    row_labels,
     success_ci,
     summary_table,
     unpaired_comparison,
@@ -118,6 +121,13 @@ def test_load_results_concatenates_csv_files(tmp_path):
     assert df["success"].dtype == bool
 
 
+def test_load_results_reads_config_hashes_that_look_like_numbers_as_text(tmp_path):
+    hashes = ["58e23249", "0123"]
+    records = [dataclasses.replace(_record(1, 0, True), config_hash=h) for h in hashes]
+    write_csv(records, tmp_path / "hashes.csv")
+    assert load_results([tmp_path / "hashes.csv"])["config_hash"].tolist() == hashes
+
+
 def test_load_results_with_label_root_names_methods_by_csv_path(tmp_path):
     (tmp_path / "planner").mkdir()
     write_csv([_record(1, 0, True)], tmp_path / "baseline.csv")
@@ -129,9 +139,35 @@ def test_load_results_with_label_root_names_methods_by_csv_path(tmp_path):
     assert labelled["method"].tolist() == ["baseline", "planner/l0", "planner/l1"]
 
 
-def test_pool_label_drops_the_config_part_of_a_row_label():
-    assert [pool_label(x) for x in ("planner/l0", "baseline@1a2b3c4d", "baseline")] == [
-        "planner", "baseline", "baseline"
+def test_pool_label_drops_the_cluster_part_of_a_row_label():
+    labels = ["planner/l0", "baseline@1a2b3c4d", "baseline", "baseline[retrained]/seed3",
+              "baseline[b-clean]@1a2b3c4d/seed0"]
+    assert [pool_label(x) for x in labels] == [
+        "planner", "baseline", "baseline", "baseline[retrained]", "baseline[b-clean]@1a2b3c4d"
+    ]
+
+
+def test_load_results_fills_the_provided_checkpoint_for_csvs_without_one(tmp_path):
+    old = pd.DataFrame([dataclasses.asdict(_record(1, 0, True))])
+    old.to_csv(tmp_path / "old.csv", index=False)
+    write_csv([_record(1, 1, True)], tmp_path / "new.csv", Checkpoint("retrained", "", 4))
+    df = load_results([tmp_path / "old.csv", tmp_path / "new.csv"])
+    assert df[list(CHECKPOINT_DEFAULTS)].values.tolist() == [
+        ["provided", "", -1], ["retrained", "", 4]
+    ]
+
+
+def test_row_labels_name_checkpoints_and_several_configs():
+    df = pd.DataFrame({
+        "method": ["baseline"] * 4 + ["graph_planner"] * 2,
+        "config_hash": ["h0"] * 4 + ["p1", "p2"],
+        "checkpoint_kind": ["provided", "retrained", "retrained", "b", "provided", "provided"],
+        "checkpoint_variant": ["", "", "", "clean", "", ""],
+        "checkpoint_seed": [-1, 0, 1, 2, -1, -1],
+    })
+    assert row_labels(df).tolist() == [
+        "baseline", "baseline[retrained]/seed0", "baseline[retrained]/seed1",
+        "baseline[b-clean]/seed2", "graph_planner@p1", "graph_planner@p2",
     ]
 
 

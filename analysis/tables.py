@@ -5,11 +5,13 @@
 
 Per env: success (%) per task and overall with the 95 % stratified bootstrap CI, and the paired
 comparison of every method against the reference method on the same episodes.
-Rows are named by method; a method with several config hashes gets one row per config
-("name@hash"). With --label-root, rows are named by CSV path instead ("planner/l0").
---cluster config_hash pools the configs of a method (or the CSVs of a folder) as draws of a
-random factor, such as checkpoints or landmark sets. Paired comparisons stay per config; for a
-pooled method the table adds the mean and the range of its per-config differences.
+Rows are named by fbplan.stats.row_labels: the method, the trained pi_h and its training seed
+("baseline[retrained]/seed3"), and "@hash" for a method with several configs. With
+--label-root, rows are named by CSV path instead ("planner/l0").
+--cluster pools the rows of one label up to "/" (or "@") as draws of a random factor:
+`--cluster checkpoint_seed` for training seeds, `--cluster config_hash` for landmark sets in
+folders. Paired comparisons stay per row label; for a pooled method the table adds the mean and
+the range of its per-label differences.
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from fbplan.stats import load_results, paired_table, pool_label, summary_table
+from fbplan.stats import load_results, paired_table, pool_label, row_labels, summary_table
 
 PRIVILEGED = {"oracle"}  # methods that read privileged information
 
@@ -29,12 +31,6 @@ def markdown(df: pd.DataFrame) -> str:
     lines = ["| " + " | ".join(map(str, df.columns)) + " |", "|" + "---|" * len(df.columns)]
     lines += ["| " + " | ".join(map(str, row)) + " |" for row in df.itertuples(index=False)]
     return "\n".join(lines)
-
-
-def label_configs(df: pd.DataFrame) -> pd.Series:
-    """Method name, plus "@config_hash" for methods that have more than one config."""
-    n_configs = df.groupby("method")["config_hash"].transform("nunique")
-    return df["method"].where(n_configs == 1, df["method"] + "@" + df["config_hash"])
 
 
 def success_markdown(table: pd.DataFrame) -> str:
@@ -94,8 +90,8 @@ def main() -> None:
 
     df = load_results(args.csv, label_root=args.label_root)
     if args.label_root is None:
-        df = df.assign(method=label_configs(df))
-    pooled = args.cluster == "config_hash"
+        df = df.assign(method=row_labels(df))
+    pooled = args.cluster is not None
     for env_name, env_df in df.groupby("env_name"):
         shown = env_df.assign(method=env_df["method"].map(pool_label)) if pooled else env_df
         kind = f"cluster bootstrap over {args.cluster}" if args.cluster else "stratified bootstrap"
