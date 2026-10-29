@@ -106,7 +106,7 @@
 | E1 M | `VAST_LABEL` is required, no default; comments name no account, person or tab |
 | E2 M | `value.switch_target` is a pure function; a test iterates it with a hop cost and a valid mask and matches graph value iteration (`tests/test_learned_option_targets.py`) |
 | E3 M | one formula `ValueState.value(v1, s, z)`; stage 2 and the diagnostic use it |
-| E4 M | one folder function, one writer, one example batch, one `SAMPLER_STREAM` and `Agent` (`fbplan/learned/checkpoint.py`). Two copies wait for other owners: `forward` (a-frozen A2/X9) and batched B (c-planner X4); both are marked TODO |
+| E4 M | one `SAMPLER_STREAM` and `Agent`; folders, writer, reader, example batch and `forward` come from `fbplan.frozen` (a-frozen's X8/X9 helpers, adopted in the second pass). Batched B waits for c-planner (X4, marked TODO) |
 | E5 M | raw network output `delta`, `gain = softplus(delta)`, `delta_network` |
 | E6 S | logged `adv`, `adv_std`, `saturated` count valid edges only |
 | E7 S | `value --name`, `policy --name/--value-name`; defaults keep the main folders; test |
@@ -119,11 +119,13 @@
 | E14 N | `run_seeds.sh` is 100755 in git; comment reworded; tests pass separate arrays |
 | X3 | B's cap is `rho_cap` (CLI `--rho-cap`); exported flags rename `rho_max` |
 | X4 (mine) | `region_latents` in `learned/sampling.py` is now `trajectory_window_latents` |
-| X9, X12 | shared code in `fbplan/learned/checkpoint.py`; `fbplan.learned` no longer imports `train_high` |
+| X9, X12 | `fbplan.frozen` writes and reads `high_actor.pkl` (`save_trained_checkpoint`, `load_trained_model`); my code keeps only keys, the fresh `pi_h`, `V_H` files and export in `fbplan/learned/checkpoint.py`; `fbplan.learned` no longer imports `train_high` |
+| X14 | my real-checkpoint tests use the session fixtures `medium_model` and `medium_val` of `tests/conftest.py` |
 
-Temporary, until their users switch (requests below): `train_high.load_baseline_model`,
-`train_high.baseline_dir` and `train_b.load_b_model` stay importable for `fbplan.evaluate` and
-`tests/test_evaluate.py`.
+Temporary, until fbplan.evaluate switches (request 1): `train_high.load_baseline_model` and
+`train_b.load_b_model` stay importable there. Bug fixed (found by a-frozen, 2637e0f): the loader
+called `download_trained(key, folder)`; the test now runs the real downloader with a fake
+`urlopen`. After adopting a-frozen's helpers, short runs are again bit-identical to the reference.
 
 ## GPU time and cost
 
@@ -195,18 +197,15 @@ The allocator setting changes memory handling only. It did not lower the 2.5 GB,
 
 For d-eval:
 
-1. The trained loaders moved to `fbplan.learned.checkpoint` (`load_baseline_model`,
-   `load_b_model`, `trained_dir`). Please import them from there in `fbplan/evaluate.py`, and in
-   `tests/test_evaluate.py` check `trained_dir("baselines", MEDIUM, 0) / "high_actor.pkl"`
-   (trained folders hold `high_actor.pkl`; `params.pkl` exists only in old local folders). Then
-   I remove the temporary names `train_high.load_baseline_model`, `train_high.baseline_dir`,
+1. Load trained models with `fbplan.frozen.load_trained_model(env, key)`, key from
+   `fbplan.learned.checkpoint.trained_key` (or `load_baseline_model` / `load_b_model` there),
+   in `fbplan/evaluate.py`. Then I remove `train_high.load_baseline_model` and
    `train_b.load_b_model`.
 
 For a-frozen:
 
-2. Make `_forward` and `_example_batch` public and expose `save_numpy_pickle`, `maze_name` and
-   `cache_dir` (review A2, X8, X9). `fbplan/learned/checkpoint.py` and `value.py` hold one local
-   copy of each until then (marked TODO).
+2. Done: `forward`, `example_batch`, `save_numpy_pickle`, `maze_name`, `trained_dir`,
+   `save_trained_checkpoint`, `load_trained_model` are public, and my code uses them.
 3. Ready to publish now: `~/.cache/fbplan/baselines/{medium,large}/seed{0..4}/` with
    `high_actor.pkl` and `flags.json` (keys `baselines/<maze>/seed<k>`; `params.pkl` there is the
    old full state, not for upload). Approach B folders follow after the queue.
@@ -217,8 +216,8 @@ For c-planner:
 
 For g-release:
 
-5. A session fixture for a small upstream agent in `tests/conftest.py` (review X14). Three of my
-   test files build one each.
+5. Optional (X14): a fixture for a small upstream agent in `tests/conftest.py`; three of my test
+   files build one each. The real-model fixtures are in use.
 
 For the coordinator: on the GPU (full float32 precision) c-planner's
 `test_planner_with_region_latents_solves_every_task_of_the_exact_tabular_maze` solved 13 of 15

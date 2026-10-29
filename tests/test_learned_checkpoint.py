@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import pickle
+from pathlib import Path
 
 import flax
 import jax
@@ -11,7 +12,6 @@ import numpy as np
 import pytest
 
 from fbplan import frozen
-from fbplan.learned import checkpoint
 from fbplan.learned.checkpoint import (
     FROZEN_MODULES,
     cache_relative,
@@ -19,11 +19,9 @@ from fbplan.learned.checkpoint import (
     load_baseline_model,
     load_trained_file,
     portable_flags,
-    save_high_actor,
     trained_dir,
     trained_key,
     with_fresh_high_actor,
-    with_high_actor,
 )
 from fbplan.learned.sampling import HighBatchSpec, make_trajectory_data
 from fbplan.train_high import train_chunk
@@ -65,21 +63,17 @@ def test_folder_roots_follow_the_environment_variables(monkeypatch, tmp_path):
     monkeypatch.setenv("FBPLAN_APPROACH_B_DIR", str(tmp_path))
     assert trained_dir("approach_b", MEDIUM, 1, "wide") == tmp_path / "medium" / "wide" / "seed1"
     monkeypatch.delenv("FBPLAN_BASELINE_DIR", raising=False)
-    assert trained_dir("baselines", MEDIUM, 0) == checkpoint.CACHE / "baselines/medium/seed0"
+    expected = Path.home() / ".cache/fbplan/baselines/medium/seed0"
+    assert trained_dir("baselines", MEDIUM, 0) == expected
 
 
-def test_high_actor_file_holds_only_pi_h_as_numpy(agent, tmp_path):
-    save_high_actor(agent, {"seed": 0}, tmp_path)
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["flags.json", "high_actor.pkl"]
-    stored = frozen.load_numpy_pickle(tmp_path / "high_actor.pkl")
-    assert all(type(x) is np.ndarray for x in leaves(stored))
-    other = with_fresh_high_actor(agent, 1, OBS_DIM)
-    restored = with_high_actor(other, stored)
-    assert same(
-        restored.network.params["modules_high_actor"], agent.network.params["modules_high_actor"]
-    )
+def test_fresh_pi_h_keeps_the_frozen_modules(agent):
+    fresh = with_fresh_high_actor(agent, 1)
     for name in FROZEN_MODULES:
-        assert same(restored.network.params[name], other.network.params[name]), name
+        assert same(fresh.network.params[name], agent.network.params[name]), name
+    assert not same(
+        fresh.network.params["modules_high_actor"], agent.network.params["modules_high_actor"]
+    )
 
 
 def test_export_turns_a_full_agent_state_into_the_pi_h_file(agent, tmp_path):
@@ -135,19 +129,18 @@ def test_a_missing_file_is_downloaded_by_its_key(monkeypatch, tmp_path):
     assert len(urls) == 2  # present now: no second download
 
 
-def test_real_checkpoint_retrains_and_reloads_as_a_baseline(tmp_path, monkeypatch):
-    if not (frozen.checkpoint_dir(MEDIUM) / "params.pkl").exists():
-        pytest.skip("medium checkpoint absent: run `uv run python -m fbplan.frozen`")
-    if not frozen.dataset_path(MEDIUM, "val").exists():
-        pytest.skip("medium validation split absent: call fbplan.frozen.load_dataset once")
-    model, val = frozen.load_model(MEDIUM), frozen.load_dataset(MEDIUM, "val")
-    fresh = with_fresh_high_actor(model.agent, 0, val["observations"].shape[-1])
+def test_real_checkpoint_retrains_and_reloads_as_a_baseline(
+    medium_model, medium_val, tmp_path, monkeypatch
+):
+    model, val = medium_model, medium_val
+    fresh = with_fresh_high_actor(model.agent, 0)
     data = make_trajectory_data(val["observations"], val["terminals"])
     trained, _ = train_chunk(
         fresh, data, jax.random.PRNGKey(0), 2, HighBatchSpec.from_agent_config(fresh.config)
     )
     monkeypatch.setenv("FBPLAN_BASELINE_DIR", str(tmp_path))
-    save_high_actor(trained, {}, trained_dir("baselines", MEDIUM, 0))
+    flags = {"env_name": f"ogbench-{MEDIUM}"}
+    frozen.save_trained_checkpoint(trained, flags, trained_dir("baselines", MEDIUM, 0))
     loaded = load_baseline_model(MEDIUM, 0)
 
     obs = val["observations"][:4]

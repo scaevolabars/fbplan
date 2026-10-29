@@ -25,12 +25,11 @@ import jax
 import jax.numpy as jnp
 import optax
 
-from fbplan.frozen import upstream_module
+from fbplan.frozen import forward, save_numpy_pickle, upstream_module
 from fbplan.learned.checkpoint import (
     Agent,
     load_trained_file,
     save_flags,
-    save_numpy_pickle,
     trained_dir,
     trained_key,
 )
@@ -94,14 +93,6 @@ class ValueState(flax.struct.PyTreeNode):
     def value(self, v1: jax.Array, obs: jax.Array, z: jax.Array, params: Any = None) -> jax.Array:
         """V_H(s, z) = V_1(s, z) + min_j gain_j(s, z), given V_1(s, z). [N]."""
         return v1 + self.gain(obs, z, params).min(axis=0)
-
-
-def forward(agent: Agent, obs: jax.Array, z: jax.Array) -> jax.Array:
-    """F(s, z) of both heads [2, N, d], as upstream successor_measure_extract calls it.
-
-    TODO(e-learner): use fbplan.frozen's public forward when it exists (review A2, X9).
-    """
-    return agent.network.select("forward_repr")(obs, agent.normalize_z(z), goal_encoded=True)
 
 
 def multi_switch_value(
