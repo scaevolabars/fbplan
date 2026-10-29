@@ -1,7 +1,7 @@
 # Report: planning over sequences of intentions with frozen FB representations
 
-Status: draft. All sections are complete except the B conclusion (one experiment pending) and the
-B-wide and B-region rows.
+Status: draft. All sections are complete except the B conclusion and five hypothesis tests
+(T2, T3, T4, 2× and its control H1, §8.6), whose results are pending.
 Notation: `docs/design.md` §3; names that differ between the report and the code: Appendix. Every
 number names the committed file it comes from. pp = percentage points; CI = 95 % confidence
 interval.
@@ -20,9 +20,9 @@ The same commands on macOS (arm64) are a reproducibility check, in `results/maco
   an idealised `π_h` (§3.1).
 - **Central finding: with this frozen `π_l`, no high-level choice of intentions has measurable
   room on medium and large, and on giant and teleport the time limit and `π_l` bound every
-  method.** Two baseline rows differ by maze, and the stronger one is the bar (§6). Against it, the
+  method.** Two baseline rows differ by maze, and the higher one is the bar (§6). Against it, the
   privileged oracle, which routes on the true maze map, gains +0.5 pp [−2.6, +3.5] on medium and
-  +1.9 pp [−1.8, +5.6] on large, both not significant (§8.2). On giant it gains +2.0 pp
+  +1.9 pp [−1.8, +5.6] on large, both not significant (5 eval seeds, §8.2). On giant it gains +2.0 pp
   [+1.1, +3.0], but every method stays below 3 %. On teleport, a teleport-aware oracle that walks
   the true route scores below the baseline, and the trap caps an agent that maximises a discounted
   value exactly at about 50 % (§7.3).
@@ -32,15 +32,23 @@ The same commands on macOS (arm64) are a reproducibility check, in `results/maco
   extra failures are episodes still moving at the time limit (§8.4). `R̂ = 0`, the look-ahead and
   the reach radius matter most; no single change of a guard beats the defaults (§4).
 - **Approach B (learned multi-switch critic, §5): no gain so far; the conclusion waits for one
-  experiment.** B-clean gains +1.1 pp [−2.4, +4.5] over 5 retrained baselines and scores −1.5 pp
-  [−5.1, +2.1] against the stronger baseline. The seed selected on held-out goals gains +2.2 pp
-  [−1.0, +5.1] over it, which is no gain by the rule (§7.1). The learned `V_H` raises long-range
-  values but orders states no better than the one-switch value, at expectile 0.9 or 0.7. The 5
-  training seeds split into two significantly different groups (75.5–75.8 % and 80.5–83.0 %),
-  which follow the AWR temperature, not the critic (§8.5). An experiment at matched, twice-sharper
-  AWR weighting, with its reading fixed in advance, decides whether any B gain is chaining or a
-  tuning effect *(pending)*. B-wide and B-region *(pending)*.
-- **Evaluation (§6).** 1,250 paired episodes per method and maze. The provided `π_h` behaves as a
+  experiment and its control.** With 10 eval seeds, the three B families gain +0.5 to +1.5 pp over
+  5 retrained baselines and score −0.6 to −1.6 pp against `baseline_raw`, all not significant
+  (§7.1). The B-clean seed selected on held-out goals is +2.2 pp [+0.1, +4.3] (p = 0.047) against
+  `baseline_raw`: at the edge, one of 8 B tests, and not significant on the new eval seeds alone.
+  The learned `V_H` raises long-range values but orders states no better than the one-switch
+  value, at expectile 0.9 or 0.7. The training seeds split into two significantly different
+  groups, which follow the AWR temperature, not the critic (§8.5). An experiment at matched,
+  twice-sharper AWR weighting, with a control that removes the critic, decides whether any B gain
+  is chaining or a tuning effect *(pending)*.
+- **Hypothesis tests (§8.6), with readings fixed in advance.** T1, a test-time ensemble of 5 `π_h`
+  seeds, gives no gain: the best ensemble (B-region) is +0.5 pp against `baseline_raw`. The
+  B-region ensemble beats the retrained ensemble by +3.0 pp [+0.9, +5.3]; this favours B, but it
+  does not isolate the critic. T2 (log-ratio advantage), T3 (trap avoidance on teleport), T4 (raw
+  input path), the 2× experiment and its control *(pending)*.
+- **Evaluation (§6).** 1,250 paired episodes per method and maze; on medium 2,500 for the baseline
+  rows, the `π_h` families and the hypothesis tests. With 10 eval seeds the two medium baseline
+  rows differ by +2.0 pp (p = 0.07), not by +3.8 pp as with 5. The provided `π_h` behaves as a
   typical seed of 5 retrained ones. Mac and Linux runs agree on success rates within noise.
 
 ## 2. Setting
@@ -342,20 +350,25 @@ would separate the quality of the critic from that of the actor.
 **Gate.** B-clean had to gain over the retrained baselines before any further stage. It did not
 (§7.1, §8.5), so B stops there: B-argmax, stage B2 (distilling A's routes into `π_h`,
 `docs/plans/approach-b.md` §6) and a policy on the expectile 0.7 critic did not run. B-wide and
-B-region were trained before the gate and are evaluated *(pending)*. One controlled experiment
+B-region were trained before the gate; neither gains either (§7.1). One controlled experiment
 follows from the seed analysis of §8.5: both families retrained with the AWR weighting twice as
-sharp, with its reading fixed before any result (`docs/design.md` §8) *(pending)*.
+sharp, plus a control without the critic, with the reading fixed before any result
+(`docs/design.md` §8; §8.6) *(pending)*.
 
 ## 6. Evaluation protocol
 
-**Episodes.** 5 tasks × 50 episodes × 5 eval seeds = 1,250 episodes per method and env. Episode
-length 1000, deterministic actions (temperature 0), success as defined by OGBench at the last step.
+**Episodes.** 5 tasks × 50 episodes × 5 eval seeds = 1,250 episodes per method and env. On medium,
+the final protocol adds eval seeds 5–9 for both baseline rows, the retrained baselines, the B
+families and every later candidate: 2,500 episodes per run (`results/medium_10seeds/`; fixed in
+`docs/design.md` §8 before those runs). The 95 % CI of one paired difference is about ±3.2 pp with 5
+eval seeds and about ±2.2 pp with 10 (§7.1). Episode length 1000, deterministic actions
+(temperature 0), success as defined by OGBench at the last step.
 
 **Paired start states.** The reset seed of an episode is
 `SeedSequence([eval_seed, task_id, episode])`. OGBench draws the start noise from the global NumPy
 RNG, and the goal also depends on the action-space RNG, so the loop seeds all three:
 `np.random.seed(s); env.action_space.seed(s); env.reset(seed=s, options={"task_id": t})`.
-All methods see the same 1,250 start and goal states. On one platform an episode replays exactly:
+All methods see the same start and goal states. On one platform an episode replays exactly:
 `analysis/failures.py` replays each failure and checks its outcome.
 
 **Methods.**
@@ -378,13 +391,15 @@ baselines. `baseline_raw` follows upstream. Neither row is the stronger one on e
 
 | Maze | `baseline_raw` − `baseline` | stronger row |
 |---|---|---|
-| medium | +3.8 [+0.7, +6.8], p = 0.02 | `baseline_raw` |
+| medium, 10 eval seeds | +2.0 [−0.2, +4.2], p = 0.07 | not significant; `baseline_raw` is higher |
+| medium, 5 eval seeds | +3.8 [+0.7, +6.8], p = 0.02 | `baseline_raw` |
 | large | −2.3 [−5.6, +1.0], p = 0.19 | not significant; `baseline` is higher |
 | teleport | −3.5 [−6.2, −1.0], p = 0.009 | `baseline` |
 
-Giant has no `baseline_raw` run; its comparisons use `baseline` only. Every other table shows
-both rows. A method counts as better than the baseline only if its paired
-difference is significant against both rows, so the stronger row is the bar.
+On medium the 5-seed gap does not replicate: on eval seeds 5–9 alone it is +0.3 pp [−2.6, +3.4]
+(§7.1). Giant has no `baseline_raw` run; its comparisons use `baseline` only. Every other table
+shows both rows. A method counts as better than the baseline only if its paired difference is
+significant against both rows, so the higher row is the bar.
 
 **Statistics** (`fbplan/stats.py`, `analysis/tables.py`). Overall success is the mean over tasks of
 the per-task success, as in OGBench. CIs are percentile intervals from 10,000 bootstrap resamples,
@@ -414,41 +429,132 @@ planner code before a tie-break fix (commit 06ea0a8), so the planner rows also d
 ends otherwise: only 55–75 % of the episodes have the same outcome on both. So the platforms agree
 on success rates, not on single episodes, and every paired comparison stays within one platform.
 
-## 7. Results *(B-wide and B-region pending)*
+## 7. Results
 
 ### 7.1 Medium (required)
 
-Success (%) with 95 % CI, 1,250 episodes per row (`results/medium/`; `analysis/tables.py
---label-root results/medium`, with `--cluster config_hash` for approach A and `--cluster
-checkpoint_seed` for the retrained baselines and B). Bold: the stronger baseline row.
+Medium has two sets of runs:
+
+- **Final protocol, 10 eval seeds** (2,500 episodes per run, `results/medium_10seeds/`): both
+  baseline rows, the retrained baselines and the three B families. Eval seeds 0–4 are the runs
+  in `results/medium/`; eval seeds 5–9 ran on the same code.
+- **5 eval seeds** (1,250 episodes per run, `results/medium/`): non-hier, the oracle and
+  approach A. They are paired with the baseline rows on the same 5 eval seeds.
+
+**Final protocol.** Success (%) with 95 % CI (`analysis/tables.py --label-root
+results/medium_10seeds --cluster checkpoint_seed`; families of 5 training seeds are pooled with a
+cluster bootstrap over the seeds). Bold: the higher baseline row.
 
 | Method | task 1 | task 2 | task 3 | task 4 | task 5 | all |
 |---|---|---|---|---|---|---|
-| baseline | 72.4 | 85.2 | 79.6 | 63.2 | 84.8 | 77.0 [74.7, 79.3] |
-| baseline_raw | 80.4 | 86.4 | 81.2 | 66.0 | 90.0 | **80.8** [78.6, 82.9] |
-| retrained baseline (5 seeds) | 79.0 | 81.6 | 77.0 | 65.9 | 87.8 | 78.3 [76.9, 79.7] |
+| baseline | 74.6 | 87.2 | 80.0 | 65.0 | 85.4 | 78.4 [76.9, 80.0] |
+| baseline_raw | 79.8 | 85.8 | 80.2 | 67.8 | 88.8 | **80.5** [78.9, 82.0] |
+| retrained baseline (5 seeds) | 79.6 | 82.0 | 77.0 | 65.1 | 88.1 | 78.4 [77.0, 79.7] |
+| B-clean (5 seeds) | 82.9 | 85.9 | 77.2 | 65.8 | 87.5 | 79.9 [77.5, 82.2] |
+| B-wide (5 seeds) | 81.0 | 82.3 | 79.5 | 65.9 | 85.8 | 78.9 [75.4, 82.0] |
+| B-region (5 seeds) | 80.6 | 84.1 | 79.2 | 67.0 | 88.4 | 79.9 [78.2, 81.4] |
+
+Paired differences (pp) with CI and McNemar p, on the same 2,500 start states (`--reference
+baseline baseline_raw baseline_retrained`). "Pooled" bootstraps over the training seeds of both
+sides and over episodes:
+
+| Method | against baseline | against baseline_raw | against the retrained baselines |
+|---|---|---|---|
+| baseline_raw | +2.0 [−0.2, +4.2], p = 0.07 | – | |
+| retrained, pooled | −0.1 [−2.3, +2.2] | −2.1 [−4.3, +0.1] | – |
+| retrained, seeds 0–4 | −1.9 to +1.7, all p ≥ 0.11 | −3.9 to −0.4; seeds 2 and 3 significant (p ≤ 0.003) | – |
+| B-clean, pooled | +1.4 [−1.5, +4.3] | −0.6 [−3.5, +2.2] | +1.5 [−1.4, +4.4] |
+| B-clean, seeds 0 / 1 / 2 / 3 / 4 | +3.6 / −1.9 / +4.2 / −1.5 / +2.7; seeds 0, 2, 4 significant (p ≤ 0.017) | +1.6 / −4.0 / +2.2 / −3.5 / +0.7; seed 2 significant (p = 0.047), seeds 1 and 3 significantly below (p ≤ 0.003) | |
+| B-wide, pooled | +0.5 [−3.4, +4.0] | −1.6 [−5.4, +1.9] | +0.5 [−3.3, +4.0] |
+| B-wide, seeds 0 / 1 / 2 / 3 / 4 | +3.8 / −1.3 / +4.2 / −5.7 / +1.4; seeds 0 and 2 significant, seed 3 significantly below | +1.8 / −3.3 / +2.2 / −7.8 / −0.7; seed 2 at the edge (p = 0.05), seeds 1 and 3 significantly below | |
+| B-region, pooled | +1.4 [−1.0, +3.7] | −0.6 [−2.9, +1.7] | +1.5 [−0.8, +3.8] |
+| B-region, seeds 0 / 1 / 2 / 3 / 4 | +3.5 / +0.7 / +1.8 / −1.2 / +2.4; seeds 0 and 4 significant | +1.5 / −1.4 / −0.2 / −3.3 / +0.3; seed 3 significantly below | |
+
+**The two baseline rows do not differ significantly with 10 eval seeds.** `baseline_raw` is
++2.0 pp higher (p = 0.07). With 5 eval seeds the gap was +3.8 pp [+0.7, +6.8] (p = 0.02). On the
+new eval seeds 5–9 alone it is +0.3 pp [−2.6, +3.4] (`analysis/tables.py` on the rows of
+`results/medium_10seeds/` with eval seeds 5–9). So most of the 5-seed gap was noise. The rule of
+§6 does not change: a gain must be significant against both rows.
+
+**No pooled family gains.** No family of 5 training seeds differs significantly from either
+baseline row or from the retrained baselines. B-clean and B-region gain +1.5 pp over the retrained
+baselines, the controlled reference of B (same recipe, input path and number of seeds), and B-wide
++0.5 pp; all CIs contain 0. On task 4, where a high level matters most (§8.2), B-clean scores
+65.8 % against 65.1 % for the retrained baselines.
+
+**The provided `π_h` is a typical seed of the upstream recipe.** The 5 retrained `π_h` score
+76.6–80.1 %, and none differs significantly from the provided one (pooled −0.1 pp). Two of the 5
+are significantly below `baseline_raw`. The choice between the provided and the retrained
+baseline does not change any conclusion about approach A.
+
+**The training seed matters, for B more than for the baseline.** B-clean seeds 0, 2 and 4 score
+81.2–82.7 %, seeds 1 and 3 score 76.5–77.0 %. Each seed of the first group beats each seed of the
+second by +4.2 to +6.2 pp (paired, all p ≤ 3e-4; `--reference b_clean/seed1 b_clean/seed3`).
+B-wide shows the same pattern, with seeds 1 and 3 lowest (72.7–82.6 %), B-region a smaller spread (77.2–82.0 %). The
+retrained baselines spread 76.6–80.1 %. With 10 eval seeds their gaps are also significant: seed 1
+beats seeds 2 and 3 by +3.1 and +3.6 pp (p ≤ 0.007; `--reference baseline_retrained/seed2
+baseline_retrained/seed3`). §8.5 traces B's split to the AWR temperature.
+
+**Seed selection on held-out goals.** A rule fixed before any held-out result (`docs/design.md`
+§8): evaluate every seed on the 10 held-out goals of medium (3 eval seeds × 20 episodes per goal,
+600 episodes per seed), select the seed with the highest held-out success, and report it on the
+5 eval tasks against the selected retrained baseline and against `baseline_raw`
+(`results/medium/heldout/`, `results/medium/heldout_selection.csv`, made by
+`analysis/heldout_selection.py` with 5 eval seeds; the 10-seed columns from `analysis/tables.py`
+on `results/medium_10seeds/`):
+
+| Family | held-out success, seeds 0–4 (%) | selected | eval tasks, 10 eval seeds | against the selected retrained baseline: 5 / 10 eval seeds | against `baseline_raw`: 5 / 10 eval seeds |
+|---|---|---|---|---|---|
+| retrained baseline | 87.8, 86.3, 83.7, 87.7, 86.0 | seed 0 | 78.8 % | – | −1.7 [−4.7, +1.4] / −1.7 [−3.9, +0.5] |
+| B-clean | 87.0, 86.0, 87.7, 85.3, 82.2 | seed 2 | 82.7 % | +3.8 [+0.9, +6.9] / +3.9 [+1.8, +6.1] | +2.2 [−1.0, +5.1] / **+2.2 [+0.1, +4.3], p = 0.047** |
+| B-wide | 86.5, 84.0, 84.8, 82.0, 83.3 | seed 0 | 82.2 % | +1.8 [−1.2, +4.9] / +3.4 [+1.3, +5.6] | +0.2 [−2.9, +3.1] / +1.8 [−0.4, +3.9] |
+| B-region | 86.0, 87.8, 86.3, 86.5, 85.7 | seed 1 | 79.1 % | +0.6 [−2.4, +3.7] / +0.3 [−1.9, +2.5] | −1.0 [−4.1, +2.0] / −1.4 [−3.5, +0.8] |
+
+With 5 eval seeds, as the rule was first applied, no selected seed passes `baseline_raw`. With
+the 10 eval seeds of the final protocol, the selected B-clean seed is significant against both
+baseline rows, at the edge: +2.2 pp [+0.1, +4.3] (p = 0.047) against `baseline_raw` and +4.2 pp
+[+2.1, +6.4] against `baseline`. Three limits:
+
+- **Many tests.** Under the final protocol, 8 B rows are tested against `baseline_raw`: 3 pooled
+  families, 3 selected seeds and 2 ensembles (§8.6). One passes, at p = 0.047. A Holm correction
+  over these 8 would need p < 0.006.
+- **Fresh eval seeds alone do not confirm it.** The seed's result on eval seeds 0–4 was known when
+  the 10-seed protocol was fixed. On the new eval seeds 5–9 alone, it scores +2.2 pp [−0.7, +5.3]
+  (p = 0.16) against `baseline_raw`: the same size, not significant on its own.
+- **The cause is open.** The selected seed has the second-sharpest AWR temperature of B-clean
+  (§8.5). So its edge may come from sharper weighting, not from the multi-switch critic. The
+  experiment at 2× sharpness and its control separate the two (§8.6).
+
+So this row does not yet show a gain of chaining; its reading waits for that experiment. The
+selection itself is also noisy: the held-out success of one seed has a standard error of about
+1.4 points, and retrained seeds 0 and 3 differ by 0.1 point. Pooled over the seeds, B-clean is
+level with the retrained baselines on the held-out goals: −0.7 pp [−3.8, +2.4]
+(`analysis/tables.py --reference retrained --cluster checkpoint_seed` on
+`results/medium/heldout/`).
+
+**Rows with 5 eval seeds.** Success (%) with 95 % CI, 1,250 episodes per row (`results/medium/`;
+`analysis/tables.py --label-root results/medium`, with `--cluster config_hash` for approach A).
+The baseline rows on the same 5 eval seeds are shown for reference.
+
+| Method | task 1 | task 2 | task 3 | task 4 | task 5 | all |
+|---|---|---|---|---|---|---|
+| baseline, 5 eval seeds | 72.4 | 85.2 | 79.6 | 63.2 | 84.8 | 77.0 [74.7, 79.3] |
+| baseline_raw, 5 eval seeds | 80.4 | 86.4 | 81.2 | 66.0 | 90.0 | 80.8 [78.6, 82.9] |
 | non-hier | 73.6 | 91.6 | 72.8 | 8.0 | 81.2 | 65.4 [63.4, 67.5] |
 | oracle (privileged) | 80.4 | 84.4 | 85.2 | 70.4 | 86.0 | 81.3 [79.1, 83.4] |
 | A: planner | 64.7 | 75.7 | 74.9 | 52.5 | 74.1 | 68.4 [66.2, 70.5] |
 | A: planner_high | 62.9 | 75.1 | 79.3 | 65.3 | 79.9 | 72.5 [70.7, 74.3] |
 | A: planner, region latents | 49.7 | 72.3 | 78.7 | 65.2 | 58.7 | 64.9 [59.0, 71.9] |
-| B-clean (5 seeds) | 81.7 | 85.6 | 76.0 | 66.7 | 86.7 | 79.3 [76.4, 82.2] |
-| B-wide, B-region | | | | | | *(pending)* |
 
-Per-task CIs are about ±5 pp for single runs and up to 25 pp wide for the pooled approach A
-rows. The retrained and B-clean rows have only 5 clusters each, so their CIs are rough ones.
+Per-task CIs are about ±5 pp for single runs and up to 25 pp wide for the pooled approach A rows.
 
-![Success on medium per task](docs/figures/report/success_antmaze-medium-navigate-v0.png)
+![Success on medium per task, 5 eval seeds](docs/figures/report/success_antmaze-medium-navigate-v0.png)
 
-Paired differences (pp) with CI and McNemar p, on the same 1,250 start states (`analysis/tables.py`
-with `--reference baseline baseline_raw`). "Pooled" bootstraps over landmark sets or checkpoints
-and over episodes:
+Paired differences (pp) with CI and McNemar p, on the same 1,250 start states (`--reference
+baseline baseline_raw`). "Pooled" bootstraps over landmark sets and over episodes:
 
 | Method | against baseline | against baseline_raw |
 |---|---|---|
-| baseline_raw | +3.8 [+0.7, +6.8], p = 0.02 | – |
-| retrained, pooled | +1.2 [−1.5, +4.1] | −2.5 [−5.2, +0.2] |
-| retrained, per seed | −0.4 to +2.6, all p ≥ 0.12 | −4.2 to −1.1; seeds 2 and 3 significant (p = 0.04, 0.01) |
 | non-hier | −11.6 [−14.7, −8.5], p = 3e-11 | −15.4 [−18.3, −12.4], p = 7e-20 |
 | oracle (privileged) | +4.2 [+1.1, +7.5], p = 0.01 | +0.5 [−2.6, +3.5], p = 0.8 |
 | planner, pooled | −8.6 [−12.0, −5.3] | −12.4 [−15.8, −9.2] |
@@ -457,57 +563,13 @@ and over episodes:
 | planner_high, sets 0 / 1 / 2 | −3.2 (p = 0.06) / −5.6 / −4.8 (p ≤ 0.006) | −7.0 / −9.4 / −8.6, all p ≤ 5e-5 |
 | region latents, pooled | −12.1 [−18.8, −5.1] | −15.9 [−22.5, −8.9] |
 | region latents, sets 0 / 1 / 2 | −18.3 / −4.9 / −13.2, all p ≤ 0.006 | −22.1 / −8.6 / −17.0, all p ≤ 4e-7 |
-| B-clean, pooled | +2.3 [−1.5, +6.1] | −1.5 [−5.1, +2.1] |
-| B-clean, seeds 0 / 1 / 2 / 3 / 4 | +4.9 / −1.5 / +5.9 / −1.2 / +3.4; seeds 0, 2, 4 significant (p ≤ 0.04) | +1.1 / −5.3 / +2.2 / −5.0 / −0.3; seeds 1 and 3 significantly below (p ≤ 0.003) |
-| B-wide, B-region | *(pending)* | *(pending)* |
 
-**The bar on medium is `baseline_raw`** (+3.8 pp over the normalized baseline, §6).
-
-**Even the privileged oracle does not pass it:** +0.5 pp [−2.6, +3.5], p = 0.8. §8.2 discusses
-what this means.
-
-**The provided `π_h` is a typical seed of the upstream recipe.** The 5 retrained `π_h` score
-76.6–79.7 % (`analysis/tables.py` on `results/medium/baseline_retrained/`), and none differs
-significantly from the provided one (pooled +1.2 pp [−1.5, +4.1]). Two of the 5 are significantly
-below `baseline_raw`. The choice between the provided and the retrained baseline does not change
-any conclusion about approach A.
+**Even the privileged oracle does not pass `baseline_raw`:** +0.5 pp [−2.6, +3.5], p = 0.8. §8.2
+discusses what this means. The oracle has no run on eval seeds 5–9.
 
 **Approach A is below both baselines on medium.** Every variant on every landmark set is
 significantly below `baseline_raw`. Against the normalized baseline, only `planner_high` on set 0
 is within noise (−3.2 pp, p = 0.06). §8.4 explains why.
-
-**Approach B-clean shows no gain.** Its controlled reference is the retrained baselines: the same
-recipe, input path and number of seeds, with only the critic changed (§5). Against them, B-clean
-gains +1.1 pp [−2.4, +4.5], not significant (`analysis/tables.py --reference baseline_retrained
---cluster checkpoint_seed` on `results/medium/baseline_retrained/` and `results/medium/b_clean/`).
-Against the bar, `baseline_raw`, it scores −1.5 pp [−5.1, +2.1]. On task 4, where a high level
-matters most (§8.2), B-clean scores 66.7 % against 65.9 % for the retrained baselines.
-
-**The B training seeds split into two groups.** Seeds 0, 2 and 4 score 80.5–83.0 %, seeds 1 and 3
-score 75.5–75.8 %. Each seed of the first group beats each seed of the second by +4.6 to +7.4 pp
-(paired, all p ≤ 0.005; `analysis/tables.py --reference b_clean/seed1 b_clean/seed3`). The
-retrained baselines spread less (76.6–79.7 %): the largest gap between two of them, +3.0 pp
-(seed 1 against seed 3), is not significant (p = 0.07; `--reference baseline_retrained/seed3`).
-§8.5 traces the split to the AWR temperature.
-
-**Seed selection on held-out goals.** A rule fixed before any held-out result (`docs/design.md`
-§8): evaluate every seed on the 10 held-out goals of medium (3 eval seeds × 20 episodes per goal,
-600 episodes per seed), select the seed with the highest held-out success, and report it on the
-5 eval tasks against the selected retrained baseline and against `baseline_raw`
-(`results/medium/heldout/`, `results/medium/heldout_selection.csv`, made by
-`analysis/heldout_selection.py`):
-
-| Family | held-out success, seeds 0–4 (%) | selected | eval tasks | against the selected retrained baseline | against `baseline_raw` |
-|---|---|---|---|---|---|
-| retrained baseline | 87.8, 86.3, 83.7, 87.7, 86.0 | seed 0 | 79.1 % | – | −1.7 [−4.7, +1.4], p = 0.31 |
-| B-clean | 87.0, 86.0, 87.7, 85.3, 82.2 | seed 2 | 83.0 % | +3.8 [+0.9, +6.9], p = 0.014 | +2.2 [−1.0, +5.1], p = 0.18 |
-
-The selected B-clean seed beats the selected retrained baseline, but not `baseline_raw`, so by the
-rule of §6 it is no gain. The selection itself is noisy: the held-out success of one seed has a
-standard error of about 1.4 points, and retrained seeds 0 and 3 differ by 0.1 point. Pooled over
-the seeds, B-clean is level with the retrained baselines on the held-out goals: −0.7 pp
-[−3.8, +2.4] (`analysis/tables.py --reference retrained --cluster checkpoint_seed` on
-`results/medium/heldout/`).
 
 ### 7.2 Large
 
@@ -625,11 +687,31 @@ baseline row.
   following them 21.4 %; both are below the baseline. It gains only on task 2: 60.4 % [54.4, 66.4]
   against 43.6 % [37.6, 49.6]. On task 3 it is level with the baseline, and on tasks 1, 4 and 5 it
   scores 3–9 %, although at 40 ant steps per cell the walks of tasks 1 and 4 fit in the time limit.
-  *Hypothesis:* the frozen `π_l` executes these waypoints poorly. On dev episodes it stalled at
-  corners and walked into an entry on its own, against the plan (`docs/theory.md` §11.3).
+- **Most failures end in the trap, even on a route that avoids it.** Share of all 1,250 episodes
+  (`docs/theory.md` §11.3; a trapped episode ends inside the trap cell, found from the final
+  distance to the goal in `results/teleport/*.csv`; the rule finds all 129 trapped episodes of an
+  exact replay of one eval seed):
+
+  | Method | success | trap | other failures |
+  |---|---|---|---|
+  | baseline | 27.7 % | 54.7 % | 17.6 % |
+  | baseline_raw | 24.2 % | 57.4 % | 18.4 % |
+  | non-hier | 19.0 % | 65.4 % | 15.6 % |
+  | A: planner | 18.6 % | 64.2 % | 17.3 % |
+  | A: planner_high | 24.1 % | 53.9 % | 22.1 % |
+  | teleport-aware oracle, `π_l` follows | 5.6 % | 19.9 % | 74.5 % |
+  | teleport-aware oracle, `π_h` follows | 21.4 % | 18.2 % | 60.5 % |
+
+  Every learned agent ends in the trap more often than the 50 % of a policy that jumps until it
+  lands on a good exit. The teleport-aware oracle cuts the trap share by about two thirds, but
+  not to 0: on tasks 3 and 5, which start one cell below an entry, 37–39 % of its episodes still
+  end there. The plan walks down; `π_l` and `π_h` walk up, as the data do (trajectories that leave
+  that cell go up 91 times and down 2 times, `docs/theory.md` §11.1). Its other failures are
+  timeouts 3–4 cells from the goal on tasks 1, 2, 3 and 5. So the frozen executor limits teleport:
+  it follows the expert's route through the entries, and it walks the long safe routes too slowly.
 - **Approach A is below the stronger baseline** although its xy cap removes the jump edges, so its
-  plans are walks. `planner_high` does not differ from `baseline_raw` (−0.1 pp).
-- *(pending: the share of failures that end in the trap, from the failure classes.)*
+  plans are walks. Yet 64 % of planner episodes end in the trap: `π_l` walks into the entries on
+  its own. `planner_high` does not differ from `baseline_raw` (−0.1 pp).
 
 **Measured on giant** (`results/giant/`, 1,250 episodes per row; no `baseline_raw` run):
 
@@ -647,17 +729,21 @@ baseline row.
 - **The time budget sets the pattern.** No method succeeds on tasks 1 and 3, the 30-cell walks
   that fit in 1000 steps only at 33 ant steps per cell. Task 5, the 17-cell walk (58 steps per
   cell), gives approach A most of its successes, and it is one of the two best tasks of the oracle.
-- A preliminary Mac run of the oracle covered a median of only 5–15.5 of the 17–30 cells of a task
-  in 1000 steps (`docs/theory.md` §11.3; the Linux failure classes are pending). So the pace of
-  `π_l`, not the route, limits giant, as the time budget above predicts.
+- **The oracle fails by time, not by route.** Of its 1,219 failures, 77.6 % are still moving at
+  the time limit, 21.7 % are flips and 0.7 % are stuck (`results/giant/failures/oracle.csv`). A
+  replay of one eval seed of a preliminary Mac run shows its pace: it covers a median of 5–15.5 of
+  the 17–30 cells of a task in 1000 steps, 65–200 ant steps per cell against about 40 on medium
+  (`docs/theory.md` §11.2). So the pace of `π_l`, not the route, limits giant, as the time budget
+  above predicts.
 
 ## 8. Analysis
 
 ### 8.1 The gap to the paper's numbers
 
 The paper reports 87 ± 6 % on medium and 66 ± 9 % on large (5 training seeds). With the provided
-checkpoint we measure 77.0 % [74.7, 79.3] (`baseline`) and 80.8 % [78.6, 82.9] (`baseline_raw`) on
-medium, and 37.4 % [35.0, 39.9] and 35.1 % [32.8, 37.4] on large (`results/{medium,large}/`).
+checkpoint we measure 78.4 % [76.9, 80.0] (`baseline`) and 80.5 % [78.9, 82.0] (`baseline_raw`) on
+medium with 10 eval seeds (`results/medium_10seeds/`), and 37.4 % [35.0, 39.9] and 35.1 %
+[32.8, 37.4] on large (`results/large/`).
 Upstream `evaluate` gives 77.9 % [75.6, 80.2] on medium
 (`results/medium/upstream.csv`).
 
@@ -667,10 +753,11 @@ Ruled out:
   (`tests/test_frozen.py::test_restored_parameters_equal_the_checkpoint_arrays`).
 - **Our evaluation loop.** It matches upstream `evaluate` within noise (§6, parity).
 - **The task latent, for most of the gap.** With the raw `z_r` of upstream, the provided `π_h`
-  scores 80.8 % on medium, still 6 pp below the paper, and on large the raw `z_r` is not better.
+  scores 80.5 % on medium, still about 6 pp below the paper, and on large the raw `z_r` is not
+  better.
 - **The physics.** The evaluation env replays the dataset transitions exactly (§6).
 - **The training seed of `π_h`.** 5 `π_h` that we retrained with the upstream recipe on the same
-  frozen modules score 76.6–79.7 % on medium, and none differs significantly from the provided
+  frozen modules score 76.6–80.1 % on medium, and none differs significantly from the provided
   `π_h` (§7.1).
 
 Still possible: (1) `F`, `B` and `π_l` of training seed 0 are weaker than the average of the
@@ -684,8 +771,9 @@ on the same frozen modules, so the gap does not bias them.
 **The oracle is the test.** The privileged oracle routes on the true maze map: `π_l` toward a
 waypoint 2 cells ahead on the shortest path, with a region-mean waypoint latent (radius 0.5). If
 some choice of intentions could beat the baseline with this `π_l`, a choice with the true route
-should come close (`results/<env>/oracle*.csv`, `analysis/tables.py`; on teleport the
-teleport-aware oracle with `π_h` following, the better of its two forms):
+should come close (`results/<env>/oracle*.csv`, `analysis/tables.py`; 5 eval seeds on every
+maze, paired with the baseline rows on the same seeds; on teleport the teleport-aware oracle with
+`π_h` following, the better of its two forms):
 
 | Maze | oracle | against `baseline` | against `baseline_raw` | gain by the rule of §6 |
 |---|---|---|---|---|
@@ -706,7 +794,7 @@ when `π_l` fails at long range and FB is accurate at short range (§3.1). It sa
 mazes the frozen `π_l`, not the choice of intentions, limits success: on medium most failures are
 flips (below), and on large and giant most failures are episodes still moving at the time limit
 (§7.2, §7.3). Approach B gives a second, weaker test of the same room: a learned multi-switch
-critic also gains nothing measurable so far (§8.5).
+critic also gains nothing measurable so far (§7.1, §8.5, §8.6).
 
 The oracle is a reference, not a bound. Another waypoint rule changes its success by a large amount
 (next paragraph), so a better rule could find room that this one misses. In the sweep below, the
@@ -911,10 +999,12 @@ as far as the oracle's waypoints: +3.2 pp, not significant. So the hypothesis is
 
 ### 8.5 Approach B: what the critic and the seeds show *(conclusion pending)*
 
-B-clean does not gain by the rule of §6. Pooled, it gains +1.1 pp [−2.4, +4.5] over the retrained
-baselines. The seed selected on held-out goals gains +2.2 pp [−1.0, +5.1] over `baseline_raw`
-(§7.1). Three findings bear on this result. One controlled experiment decides how to read it
-(end of this section).
+No pooled B family gains by the rule of §6. With 10 eval seeds, B-clean and B-region gain +1.5 pp
+over the retrained baselines and score −0.6 pp against `baseline_raw`, all CIs containing 0
+(§7.1). The B-clean seed selected on held-out goals is +2.2 pp [+0.1, +4.3] (p = 0.047) against
+`baseline_raw`: significant at the edge, with the limits listed in §7.1. Three findings bear on
+these results. One controlled experiment and its control decide how to read them (end of this
+section).
 
 **1. The learned `V_H` lifts long-range values but does not order states better than `V_1`.** The
 critic check compares `V_1(s,B(g))` and `V_H(s,B(g))` with the maze distance from `s` to `g`, for
@@ -951,45 +1041,52 @@ value orders states better by their distance to the goal.
   0.7 agrees with this.
 
 **2. The seeds split by their AWR temperature, not by their critic.** The 5 B-clean seeds form
-two groups, 80.5–83.0 % and 75.5–75.8 %, which differ significantly (§7.1). The retrained
-baselines spread 76.6–79.7 % without a significant gap. One seed alone could show a significant
-gain over the normalized baseline (seed 2: +5.9 pp, p = 2e-4) or a significant loss against
-`baseline_raw` (seed 1: −5.3 pp, p = 9e-4). Per seed (success from `results/medium/b_clean/`;
-calibration from the training flags `approach_b/medium/clean/seed<k>/flags.json`, key
-`approach_b.calibration`):
+two groups, 81.2–82.7 % and 76.5–77.0 %, which differ significantly (§7.1). The retrained
+baselines spread less (76.6–80.1 %). One seed alone can show a significant gain over the
+normalized baseline (seed 2: +4.2 pp, p = 1e-4) or a significant loss against `baseline_raw`
+(seed 1: −4.0 pp, p = 5e-4). Per seed (success with 10 eval seeds from
+`results/medium_10seeds/b_<variant>/`; calibration from the training flags
+`approach_b/medium/<variant>/seed<k>/flags.json`, key `approach_b.calibration`):
 
-| B-clean seed | 0 | 1 | 2 | 3 | 4 |
+| Seed | 0 | 1 | 2 | 3 | 4 |
 |---|---|---|---|---|---|
-| success on the eval tasks (%) | 81.9 | 75.5 | 83.0 | 75.8 | 80.5 |
-| task 4 (%) | 71.6 | 60.8 | 72.4 | 60.4 | 68.4 |
-| AWR temperature α | 0.229 | 0.131 | 0.195 | 0.111 | 0.144 |
-| spread of the upstream advantage in the calibration | 36.6 | 20.5 | 30.6 | 17.4 | 22.5 |
-| spread of B's advantage in the calibration | 16.0 | 15.7 | 15.7 | 15.7 | 15.7 |
-| `V_H` rank correlation, all pairs (`V_1`: −0.586) | −0.545 | −0.554 | −0.548 | −0.543 | −0.546 |
+| B-clean: success on the eval tasks (%) | 82.1 | 76.5 | 82.7 | 77.0 | 81.2 |
+| B-clean: task 4 (%) | 68.0 | 60.8 | 69.8 | 63.6 | 67.0 |
+| B-clean: AWR temperature α | 0.229 | 0.131 | 0.195 | 0.111 | 0.144 |
+| spread of the upstream advantage in the calibration (all three families) | 36.6 | 20.5 | 30.6 | 17.4 | 22.5 |
+| B-clean: spread of B's advantage in the calibration | 16.0 | 15.7 | 15.7 | 15.7 | 15.7 |
+| B-clean: `V_H` rank correlation, all pairs (`V_1`: −0.586) | −0.545 | −0.554 | −0.548 | −0.543 | −0.546 |
+| B-wide: success (%) / α | 82.2 / 0.244 | 77.2 / 0.141 | 82.6 / 0.210 | 72.7 / 0.118 | 79.8 / 0.153 |
+| B-region: success (%) / α | 82.0 / 0.211 | 79.1 / 0.121 | 80.2 / 0.177 | 77.2 / 0.102 | 80.8 / 0.131 |
 
 - **Not the critic.** The 5 critics order states almost alike, and the weakest policy (seed 1)
   has the critic with the best order.
 - **The temperature.** α was set so that the spread of `α·A` equals 0.1 times the spread of the
   upstream advantage on one batch (§5). B's own spread is stable (15.7–16.0), but the upstream
   spread varies twofold (17.4–36.6), so α varies twofold. The two weak seeds have the two lowest
-  temperatures, and both score about 10 pp lower on task 4, the longest task. Success follows α
-  with rank correlation +0.8 (n = 5, so suggestive, not significant).
+  temperatures, and both score 3–9 pp lower on task 4, the longest task. Success follows α with
+  rank correlation +0.8 (n = 5, so suggestive, not significant). In B-wide and B-region it is
+  +0.9. These two families are not independent evidence: their calibrations measured the same
+  upstream spread per seed, so their temperatures follow the same pattern. Within these runs the
+  training seed also sets the initialization and the batches, so it confounds the temperature
+  with them. The experiment at 2× sharpness removes this: one temperature for all seeds.
 - *Hypothesis* (e-learner, `docs/status/e-learner.md`): the upstream advantage divides by
   `F(w,z_w)ᵀB(w)`, which can be near 0, so its spread on one batch is heavy-tailed, and each seed's
   α came from one noisy draw of it.
 - **Consequence.** "Only the critic changes" (§5) held for the network, the data and the
   optimizer, but not for the sharpness of the AWR weights, which differed twofold between the
-  seeds. So B-clean's +1.1 pp is within the noise that the temperature adds. *Hypothesis:* a
+  seeds. So B-clean's +1.5 pp is within the noise that the temperature adds. *Hypothesis:* a
   sharper weighting alone, without the multi-switch critic, explains part of the gain of the good
   seeds. The open test below checks this.
 
 **3. With this `π_l`, the bar leaves almost no room.** With the true route, the privileged oracle
 gains +0.5 pp [−2.6, +3.5] against `baseline_raw` (§8.2). B must pass the same bar, and it starts
-below it: on B's input path (normalized `z_r`), the retrained baselines score −2.5 pp
-[−5.2, +0.2] against `baseline_raw`. A learned critic knows less about the maze than the true
+below it: on B's input path (normalized `z_r`), the retrained baselines score −2.1 pp
+[−4.3, +0.1] against `baseline_raw` (10 eval seeds). A learned critic knows less about the maze than the true
 route, so a gain past the bar was unlikely even with a critic that orders states well. The oracle
-is a reference, not a bound (§8.2), so this is an argument, not a proof. B-clean's CI against
-`baseline_raw`, [−5.1, +2.1], does not exclude a small gain, but it does not show one.
+is a reference, not a bound (§8.2), so this is an argument, not a proof. With 10 eval seeds,
+pooled B-clean's CI against `baseline_raw`, [−3.5, +2.2], does not exclude a small gain, but it
+does not show one. The oracle has 5 eval seeds only.
 
 **The open test: AWR sharpness at 2×** (`docs/design.md` §8, fixed before any result). Both
 families are retrained on medium with the AWR weighting twice as sharp as upstream, 5 seeds each:
@@ -1002,37 +1099,102 @@ stable estimate shared by all seeds, to the same spread of `α·A`. The reading 
 | both rise together | the gain is a `π_h` tuning effect, reported as such and not as a gain of chaining |
 | neither | B stays negative |
 
-*(Result and conclusion pending.)* What holds already: the learned critic does not order states
-better than `V_1` (finding 1), and the bar leaves almost no room on medium (finding 3).
+A control was added before any result: B-clean at the same 2× temperature with `V_H` replaced by
+`V_1` (H1 of `docs/hypotheses/h-learn.md`). If B at 2× scores about as H1 does, the critic adds
+nothing, and any rise is a temperature effect. Results go to §8.6.
 
-## 9. What worked and what did not *(B conclusion, B-wide and B-region pending)*
+*(Result and conclusion pending.)* What holds already: the learned critic does not order states
+better than `V_1` (finding 1), the seed split follows the temperature (finding 2), and the bar
+leaves almost no room on medium (finding 3).
+
+### 8.6 Hypothesis tests with readings fixed in advance *(T2, T3, T4, 2× and H1 pending)*
+
+After the results above, a search for the hypotheses most likely to give a gain looked through
+three lenses: execution and the low-level policy, the training of `π_h`, and the latents
+(`docs/hypotheses/h-exec.md`, `h-learn.md`, `h-repr.md`; each ranks 5–8 hypotheses by expected
+value and lists the rejected ones). Their offline checks use scripts that are not in the
+repository, so the report quotes them as the files state them:
+
+- **Execution.** On medium, no test-time change of `z` that was tried (smoothing, holding, a
+  safety term) lowers the flips; they occur at the rate of the training data. On teleport, a trap
+  latent from the offline data halves the trap share, but the saved episodes then time out.
+- **Training of `π_h`.** The upstream AWR puts 56 % of the goal-latent weight on samples already
+  within the success radius. B's `R = 0` removes the term that carries the long-range progress
+  signal of the upstream advantage. B's per-seed temperatures were not matched in effective
+  sharpness.
+- **Latents.** The direction of `z_r` is stable and robust; its norm acts as a look-ahead knob,
+  and the training norm is already the best on held-out goals.
+
+Every probability of a gain that the files estimate is 0.20 or less. The tests below were fixed,
+with their readings, before any of their results (`docs/design.md` §8). T1–T4 run on 10 eval
+seeds, paired against both baseline rows on the same seeds; the 2× experiment and its control
+were fixed earlier, with 5 eval seeds. The rule of §6 decides. Choices are made on held-out goals,
+never on the eval tasks.
+
+| Test | What changes | Reading fixed in advance | Result |
+|---|---|---|---|
+| T1, test-time ensemble | `z = normalize(mean_k normalize(π_h^k(s, z_r)))` over the 5 seeds of a family (retrained, B-clean, B-region); no training | a pass is test-time aggregation of `π_h` seeds; it is a gain of chaining only if the B ensemble also beats the retrained ensemble | no pass: best +0.5 pp against `baseline_raw` (B-region); the chaining condition holds for B-region (below) |
+| T2, log-ratio advantage | the baseline `π_h` retrained (5 seeds) with a log-ratio proxy advantage, whose scale does not shrink with the goal distance | a pass is a `π_h` training improvement, not a gain of chaining | *(pending)* |
+| T3, time-aware trap avoidance (teleport) | a penalty on the trap latent in the intention, only where a walk still fits in the time left; weight and radius chosen on teleport held-out goals | a pass is a gain of a sequence-aware high level over the one-switch baseline on teleport | *(pending)* |
+| T4, raw input path | the T1 ensembles with the raw `z_r` at the input of each `π_h`, as `baseline_raw` | a gain if a B ensemble beats both baseline rows; chaining if it also beats the retrained ensemble on the same path; all rows reported | *(pending)* |
+| 2× sharpness | both families retrained with AWR weights twice as sharp as upstream; B with one temperature for all seeds (§8.5) | B beats both → chaining at matched sharpness; both rise → a `π_h` tuning effect; neither → B stays negative | *(pending)* |
+| H1, control of 2× | B-clean at the same 2× temperature with `V_H = V_1` | B at 2× ≈ H1 → the critic adds nothing | *(pending)* |
+
+**T1: no gain; the chaining condition holds for B-region.** Each ensemble is one controller,
+evaluated on the 2,500 episodes of the final protocol (`results/medium_10seeds/ensemble_*.csv`;
+`analysis/tables.py --reference baseline baseline_raw ensemble_retrained`, and `--reference
+<family> --cluster checkpoint_seed` for the last column):
+
+| Ensemble of 5 seeds | success | against baseline | against `baseline_raw` | against the retrained ensemble | against its own seeds, pooled |
+|---|---|---|---|---|---|
+| retrained | 77.9 [76.3, 79.5] | −0.5 [−2.8, +1.7] | −2.6 [−4.8, −0.4], p = 0.023 | – | −0.5 [−2.7, +1.7] |
+| B-clean | 80.0 [78.4, 81.6] | +1.6 [−0.6, +3.7] | −0.5 [−2.6, +1.7] | +2.1 [−0.1, +4.3], p = 0.071 | +0.1 [−2.7, +3.1] |
+| B-region | 81.0 [79.4, 82.5] | +2.5 [+0.4, +4.6], p = 0.024 | +0.5 [−1.7, +2.6], p = 0.69 | +3.0 [+0.9, +5.3], p = 0.007 | +1.1 [−1.2, +3.4] |
+
+- **By the fixed reading, no ensemble gains.** None is significantly above `baseline_raw`.
+- **The B-region ensemble beats the retrained ensemble** by +3.0 pp: the chaining condition of the
+  reading holds. The held-out-selected seeds of B-clean and B-wide also beat the selected retrained
+  baseline (+3.9 and +3.4 pp, §7.1). The pooled families do not (+0.5 to +1.5 pp).
+- **Four limits.** (1) An ensemble is one controller, so its CI covers the episodes, not the
+  choice of the 5 training seeds. The pooled comparison, which includes that variance, is +1.5 pp
+  [−0.8, +3.8] (B-region against the retrained baselines, §7.1). (2) No ensemble differs
+  significantly from its own seeds; part of the gap comes from the retrained ensemble, which is
+  0.5 pp below its seeds. (3) B-region changes the critic and the latent type (region-mean
+  targets, §5), so this comparison does not isolate the critic. A retrained baseline with
+  region-mean targets (H1 of `docs/hypotheses/h-repr.md`) would separate the two; it is not in
+  this set of tests. (4) Two B ensembles ran; the B-clean ensemble's +2.1 pp is not significant.
+- *(pending: the T1 and T4 ensembles on the 10 held-out goals of medium, a robustness check
+  without selection.)*
+
+## 9. What worked and what did not *(B conclusion and hypothesis tests pending)*
 
 | Item | Outcome | Evidence |
 |---|---|---|
 | Chain formula, graph Bellman equation, contraction, option interruption | hold exactly on tabular mazes | `tests/test_tabular_theory.py`, to 1e-8 |
 | `R̂ = 0` and guards in the tabular study | chaining beats the idealised `π_h` when `π_l` fails at long range (0.46 against 0.26) | §3.1 |
 | Room for any high level with this `π_l` | **none measurable** on medium and large: the privileged oracle gains +0.5 pp and +1.9 pp against the stronger baseline, both not significant; on giant +2.0 pp at 2.5 % success; on teleport the walking route scores below the baseline | §8.2 |
-| Paired evaluation | paired tests resolve differences of about 3 pp; parity with upstream holds; Mac and Linux agree on success rates | §6, §7.1 |
-| Two baseline rows | neither is the stronger one on every maze (raw +3.8 pp on medium, normalized +3.5 pp on teleport) | §6 |
-| Retrained baselines | the provided `π_h` is a typical seed (retrained 76.6–79.7 %, pooled +1.2 pp against it) | §7.1, §8.1 |
+| Paired evaluation | paired tests resolve differences of about 3 pp with 5 eval seeds and about 2 pp with 10; parity with upstream holds; Mac and Linux agree on success rates | §6, §7.1 |
+| Two baseline rows | neither is the stronger one on every maze (medium: raw +2.0 pp with 10 eval seeds, p = 0.07, after +3.8 pp with 5; teleport: normalized +3.5 pp) | §6 |
+| Retrained baselines | the provided `π_h` is a typical seed (retrained 76.6–80.1 %, pooled −0.1 pp against it, 10 eval seeds) | §7.1, §8.1 |
 | Approach A | **did not work**: below the stronger baseline on medium (−8.3 to −15.9 pp), large (−8.0 to −11.1 pp) and teleport (−3.6 to −9.1 pp) | §7 |
 | A's loss on medium | mostly time: later arrival, and slow episodes instead of flips | §8.4 |
 | Region landmark latents | **did not work** for the planner (worst variant, most sensitive to the landmark set), although region waypoint latents help the oracle | §7.1, §8.2, §8.4 |
 | `planner_high` (waypoint as the task of `π_h`) | the best A variant; equal to `baseline_raw` on teleport, below the stronger baseline elsewhere | §7 |
-| Giant and teleport | teleport: an exact maximiser of `E[γ^H]` takes the teleporter and succeeds about half the time, and every method stays far below that, the teleport-aware oracle included (21.4 %); giant: the walks fit in 1000 steps only at a fast pace, and every method stays below 3 % | §7.3 |
+| Giant and teleport | teleport: an exact maximiser of `E[γ^H]` takes the teleporter and succeeds about half the time, and every method stays far below that, the teleport-aware oracle included (21.4 %), and 54–65 % of the learned agents' episodes end in the trap; giant: the walks fit in 1000 steps only at a fast pace, and every method stays below 3 % | §7.3 |
 | Each guard of A on the real model | `R̂ = 0`, the look-ahead and the reach radius matter; the xy cap matters on large only; the head min, commitment, route following and `two_way` show no effect on medium; no single change beats the defaults | §4 |
 | Acting like the oracle on A's route (act-ahead) | +3.2 pp over `planner_high` (not significant); level with `baseline`, below `baseline_raw` and the oracle | §8.4 |
-| Approach B (B-clean) | **no gain so far**: pooled +1.1 pp [−2.4, +4.5] over the retrained baselines; the held-out-selected seed +2.2 pp [−1.0, +5.1] over `baseline_raw`; conclusion pending (AWR sharpness at 2×) | §7.1, §8.5 |
+| Approach B (B-clean, B-wide, B-region) | **no gain so far**: pooled +0.5 to +1.5 pp over the retrained baselines and −0.6 to −1.6 pp against `baseline_raw` (10 eval seeds, all CIs contain 0); the held-out-selected B-clean seed is +2.2 pp [+0.1, +4.3] (p = 0.047) against `baseline_raw`, at the edge, among 8 B tests and not confirmed on the new eval seeds alone; conclusion pending (AWR sharpness at 2× and its control) | §7.1, §8.5 |
 | B's critic `V_H` | lifts long-range values (median 16.4 against 7.8 at 20–24 xy units) but orders states no better than `V_1`, at expectile 0.9 or 0.7 | §8.5 |
-| B's training seeds | split into two significantly different groups (80.5–83.0 % and 75.5–75.8 %), which follow the AWR temperature, calibrated per seed from one noisy batch, not the critic | §7.1, §8.5 |
-| B-wide, B-region | *(pending)* | |
+| B's training seeds | split into two significantly different groups (B-clean 81.2–82.7 % and 76.5–77.0 %), which follow the AWR temperature, calibrated per seed from one noisy batch, not the critic | §7.1, §8.5 |
+| Test-time ensembles of 5 `π_h` seeds (T1) | **no gain**: the best, B-region, is +0.5 pp against `baseline_raw`; it beats the retrained ensemble by +3.0 pp [+0.9, +5.3], but the CI covers only the episodes, and B-region also changes the latent type | §8.6 |
+| T2, T3, T4, 2× sharpness, H1 | *(pending)* | §8.6 |
 
 ## 10. Limitations and next steps
 
 Limitations:
 
 - **One FB model per env.** `F`, `B` and `π_l` come from training seed 0. The retrained `π_h`
-  seeds add `π_h` training variance (76.6–79.7 % on medium), not the variance of the frozen
+  seeds add `π_h` training variance (76.6–80.1 % on medium), not the variance of the frozen
   modules. The central finding holds for this `π_l` only.
 - **The oracle is a reference, not a bound** (§8.2). A better waypoint rule could find room that
   this oracle misses.
@@ -1049,6 +1211,9 @@ Limitations:
 - **B's critic was varied only offline.** The expectile (0.9, 0.7) was compared with the critic
   check; the `ρ` cap (0.9) was not varied in a policy run.
 - **Giant has no `baseline_raw` run**, so its comparisons use the normalized baseline only.
+- **Some medium rows have 5 eval seeds only.** Non-hier, the oracle and approach A have no run on
+  eval seeds 5–9. Their comparisons stay on eval seeds 0–4, where the two baseline rows differ
+  more (+3.8 pp) than on all 10 (+2.0 pp).
 
 Next steps that the evidence suggests:
 
@@ -1064,6 +1229,8 @@ Next steps that the evidence suggests:
   penalty on edges whose successor measure has mass in the trap (§7.3, `docs/theory.md` §11.1).
 - Separating the planning latent from the acting latent gave +3.2 pp, not significant (act-ahead,
   §8.4), so it has a low priority.
+- A retrained baseline with region-mean intention targets, to tell whether B-region's edge over
+  the retrained ensemble comes from its critic or from its latent type (§8.6).
 
 ## 11. Reproduction
 
@@ -1082,10 +1249,16 @@ uses:
   `results/medium/heldout_selection.csv`);
 - the Mac-vs-Linux check (§6): `uv run python analysis/platform_check.py` (writes
   `results/platform_check.csv`);
-- B-clean against the retrained baselines and between its seeds (§7.1): `uv run python
-  analysis/tables.py results/medium/baseline_retrained/*.csv results/medium/b_clean/*.csv
-  --label-root results/medium --reference baseline_retrained --cluster checkpoint_seed`, and the
-  same with `--reference b_clean/seed1 b_clean/seed3` and no `--cluster`;
+- the final protocol on medium (§7.1) and T1 (§8.6): `uv run python analysis/tables.py
+  results/medium_10seeds/*.csv results/medium_10seeds/*/*.csv --label-root results/medium_10seeds
+  --cluster checkpoint_seed --reference baseline baseline_raw baseline_retrained
+  ensemble_retrained`; without `--cluster`, the same files with `--reference b_clean/seed1
+  b_clean/seed3 baseline_retrained/seed2 baseline_retrained/seed3` (seed gaps) and with
+  `--reference baseline_retrained/seed0` (held-out-selected seeds); each ensemble against its own
+  seeds with `--reference <family> --cluster checkpoint_seed` on that family and the ensemble;
+- eval seeds 5–9 alone (§6, §7.1): keep the rows with `eval_seed >= 5` of every CSV of
+  `results/medium_10seeds/` in a folder with the same layout, and run the same `tables.py`
+  command on it;
 - the critic check of B (§8.5): the two `fbplan.learned.diagnostics` commands at the top of
   `docs/figures/report/b_critic_check_medium.txt`; it needs the trained `V_H` folders
   `approach_b/medium/value-single*/`.
@@ -1119,14 +1292,15 @@ Methods: name in the report, `--method` of `fbplan.evaluate`, and the `method` c
 
 | Report | `--method` and options | CSV `method` | Results (`<env>`: medium, large, giant, teleport, where run; Mac copies below `results/macos/`) |
 |---|---|---|---|
-| baseline | `baseline` | `baseline` | `results/<env>/baseline.csv` |
-| baseline_raw | `baseline_raw` | `baseline_raw` | `results/<env>/baseline_raw.csv` |
+| baseline | `baseline` | `baseline` | `results/<env>/baseline.csv`; medium, 10 eval seeds: `results/medium_10seeds/baseline.csv` |
+| baseline_raw | `baseline_raw` | `baseline_raw` | `results/<env>/baseline_raw.csv`; medium, 10 eval seeds: `results/medium_10seeds/baseline_raw.csv` |
 | non-hier | `nonhier` | `nonhier` | `results/<env>/nonhier.csv` |
 | oracle | `oracle` | `oracle` | `results/<env>/oracle.csv` |
 | teleport-aware oracle, `π_l` / `π_h` follows | `fbplan.controllers.oracle_teleport:make_teleport_oracle` (`--opt follow=pi_h` for `π_h`) | `oracle_teleport` (two `config_hash` values) | `results/teleport/oracle_teleport{,_pi_h}.csv` |
 | planner | `planner --opt landmarks.seed=k` | `graph_planner` | `results/<env>/planner/l<k>.csv` |
 | planner_high | `planner_high --opt landmarks.seed=k` | `graph_plus_high` | `results/<env>/planner_high/l<k>.csv` |
 | planner, region latents | `planner --opt landmarks.latent=region landmarks.seed=k` | `graph_planner` (another `config_hash`) | `results/<env>/planner_region/l<k>.csv` |
-| retrained baseline | `baseline --checkpoint retrained:<seed>` | `baseline`, `checkpoint_kind` = `retrained` | `results/<env>/baseline_retrained/seed<k>.csv`; held-out goals `results/medium/heldout/retrained/` |
+| retrained baseline | `baseline --checkpoint retrained:<seed>` | `baseline`, `checkpoint_kind` = `retrained` | `results/<env>/baseline_retrained/seed<k>.csv`; 10 eval seeds `results/medium_10seeds/baseline_retrained/`; held-out goals `results/medium/heldout/retrained/` |
 | A ablations, act-ahead | `planner` or `planner_high --opt landmarks.seed=0 <option>` | `graph_planner`, `graph_plus_high` (another `config_hash`) | `results/<env>/planner_ablations/<name>/l0.csv` |
-| B-clean, B-wide, B-region | `baseline --checkpoint b:<variant>:<seed>` | `baseline`, `checkpoint_kind` = `b`, `checkpoint_variant` = the variant | `results/medium/b_clean/seed<k>.csv`; held-out goals `results/medium/heldout/b_clean/`; B-wide and B-region *(pending)* |
+| B-clean, B-wide, B-region | `baseline --checkpoint b:<variant>:<seed>` (variant `clean`, `wide`, `region`) | `baseline`, `checkpoint_kind` = `b`, `checkpoint_variant` = the variant | `results/medium/b_<variant>/seed<k>.csv`; 10 eval seeds `results/medium_10seeds/b_<variant>/`; held-out goals `results/medium/heldout/b_<variant>/` |
+| T1 ensemble of 5 seeds | `ensemble --opt family=<retrained, b:clean or b:region> seeds=5` | `baseline_ensemble` | `results/medium_10seeds/ensemble_<retrained, b_clean or b_region>.csv` |
