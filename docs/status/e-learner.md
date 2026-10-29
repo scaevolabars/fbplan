@@ -50,11 +50,30 @@
 - At `create`, the vast.ai API answered "SSH key already associated with instance": the key may
   already be registered for the user in the team account, not only on our instance.
 
+- B1 implemented (plan approved 2026-10-29 with B-clean on single-state latents):
+  - `fbplan/learned/option_targets.py`: per-sample `ρ`, `R`, `V_1` in JAX, same formulas and head
+    convention as `fbplan/option_model.py`; tested equal to it on a noisy fake FB and to
+    b-theory's exact option tables; the residual form reaches the graph value-iteration fixed point
+    with chaining gains on a low-rank fake.
+  - `value.py` (stage 1: `V_H = V_1 + softplus(gain)`, expectile 0.9, `ρ ≤ 0.9`, `R = 0` for goal
+    latents, EMA target), `high_policy.py` (stage 2: upstream AWR with the switch advantage),
+    `train_b.py` (CLI; variants clean, wide, region; `load_b_model` for d-eval), `loop.py`
+    (logged loop shared with `train_high`).
+  - AWR temperature: chosen so that the spread of `α·A` equals upstream's (`0.1 × std` of the
+    upstream advantage on the same data), so that B-clean changes only the critic.
+  - CPU smoke run of both stages on the real medium checkpoint; 271 tests pass.
+- Measured on medium (validation split, 4096 in-trajectory pairs): `ρ` median 0.78, raw `ρ ≥ 1`
+  on 9.7 %, `ρ > 0.9` on 33 %. Correction to the plan (§5.1 said the cap "changes few targets"):
+  the cap binds on a third of the pairs, mostly short hops. Kept as approved; the ablation
+  `ρ_max ∈ {0.9, 1.0}` tests it. Exact `R` is noisy (10–90 %: −8.8 to +29), which supports
+  `R = 0` for goals. One-hop gain with `R = 0` is positive on 26 % of pairs.
+
 ## Next
 
 - Medium: pull results, check the 5 training curves, destroy the instance or ask the user
   about large (the user wants a question before large).
-- After approval: implement B1 (option targets in JAX, `V_H`, AWR `π_h`, CLI, tests).
+- B1 GPU runs on medium (ask the user first): `value --latents single` seeds 0-4, then
+  `policy --variant clean` and `wide`, then the region pair.
 
 ## Blockers
 
