@@ -5,10 +5,12 @@ Last update: 2026-10-29.
 ## Summary
 
 Approach A is implemented, tested and runs on the real medium model. With the approved guards,
-the planned routes are clean (they follow the corridors and end at the goal). In a smoke run the
-planner is level with the baseline within noise (31–33/50 against 34/50) and slower. Waypoint
-following by `pi_l`, not the plan, is the bottleneck. All real-model numbers come from a probe with
-a-frozen's uncommitted loader; redo them after a-frozen merges.
+the planned routes are clean (they follow the corridors and end at the goal). Waypoint following,
+not the plan, was the bottleneck: an earlier switch (reached_xy 3) plus a look-ahead along the
+route lifted the planner from 56/100 to 79/100 on held-out medium episodes. The baseline pi_h
+gets 84/100 on the same start states, so the planner does not beat it on medium yet.
+All real-model numbers come from a probe with a-frozen's uncommitted loader; redo them after
+a-frozen merges.
 
 ## Done
 
@@ -28,10 +30,15 @@ a-frozen's uncommitted loader; redo them after a-frozen merges.
   2. Edges longer than `max_edge_xy = 6` xy units are untrusted (default guard against wormholes).
      `two_way = True` uses `min(rho(u,w), rho(w,u))`: an FB-only option for the report.
   3. `edge_reward = "zero"` is the default; exact and paper stay as ablations.
-  4. A waypoint is reached within `reached_xy = 1.5` xy units (default); `reached_xy = None` gives
-     the brief's rule `rho(s,w*) >= rho_reached`.
+  4. A waypoint is reached within `reached_xy` xy units; `reached_xy = None` gives the brief's
+     rule `rho(s,w*) >= rho_reached`.
+  5. Look-ahead along the planned route (user: "follow your recommendation"): `lookahead = True`
+     moves on to the next route stop when Q(s, next) >= Q(s, current) and the edge s -> next is
+     trusted.
   The same rules apply to the landmark graph and to the first hop from `s`.
-- Tests: 63 pass (`uv run pytest`), ruff clean. They run on an exact tabular fake,
+  Defaults changed by c-planner after a held-out check (user approved 1.5 before; please confirm):
+  `reached_xy = 3.0` and `lookahead = True` (79/100 against 56/100 for 1.5 without look-ahead).
+- Tests: 67 pass (`uv run pytest`), ruff clean. They run on an exact tabular fake,
   `tests/planner_fakes.py` (`rho = gamma^distance`; knobs for one-head wormholes and a horizon
   beyond which FB and `pi_z` fail). Closed loop on the fake: the planner reaches a goal 10 steps
   away with 4-step edges via 2 waypoints, where the task policy alone stands still.
@@ -94,16 +101,38 @@ validation split. Probe scripts are throw-away and not committed.
   | graph_plus_high (pi_h) | 33/50 | .4 .6 .8 .6 .9 | 692 |
 
   Level with the baseline within noise; better on task 5, worse on tasks 1–2, slower overall.
-  The baseline here (68 %) is below the paper (87 %); a-frozen's sanity run should confirm the loader.
+- Look-ahead and reached radius, on the 50 smoke-run episodes (a dev set; selection among
+  12 configurations on it is biased upward):
+
+  | Planner config | pi_l | pi_h |
+  |---|---|---|
+  | reached_xy 1.5 | 31/50 | 33/50 |
+  | reached_xy 1.5 + look-ahead | 29/50 | 30/50 |
+  | reached_xy 2.0 | 31/50 | 36/50 |
+  | reached_xy 3.0 | 37/50 | 35/50 |
+  | reached_xy 4.0 | 32/50 | 25/50 |
+  | reached_xy 3.0 + look-ahead | 40/50 | – |
+
+  Held-out check, 5 tasks × 20 new episodes (paired, seeds 1000·task + 10..29):
+
+  | Method | Success | Per task 1–5 | Median steps |
+  |---|---|---|---|
+  | baseline pi_h | 84/100 | .85 .90 .80 .70 .95 | 442 |
+  | planner pi_l, reached_xy 1.5 (old default) | 56/100 | .35 .60 .85 .50 .50 | 841 |
+  | planner pi_l, reached_xy 3.0 + look-ahead (new default) | 79/100 | .80 .75 .75 .75 .90 | 500 |
+  | planner pi_l, reached_xy 3.0 | 62/100 | .55 .70 .85 .40 .60 | 744 |
+  | planner pi_h, reached_xy 2.0 | 64/100 | .35 .90 .85 .60 .50 | 792 |
+
+  The baseline's 84 % matches the paper (87 %); the 68 % in the smoke run came from a hard set
+  of start states. Neither the radius nor the look-ahead alone helps much; together they do.
 - Route plots: `runs/c-planner/routes_medium.png` (not committed). Planned routes follow the
   corridors, cross no wall and end at the goal. Executed paths wobble around waypoints and
   sometimes loop back: execution, not the plan, costs the time.
 
 ## Next
 
-1. Waypoint following is the bottleneck. Candidates to discuss with the user: switch to the next
-   route waypoint before the current one is reached (look-ahead along the route), or condition
-   the policy on a waypoint further along the route.
+1. Long horizons: medium is short for pi_h (84 %). The planner's case is large and giant (paper
+   baseline 66 % and 1 %). Run the same probe on large with landmarks from its validation split.
 2. After a-frozen merges: redo the numbers with landmarks from the train split, and hand the
    factories to d-eval for a full evaluation (the probe samples are too small to rank methods).
 3. Switch the tests to `fbplan/tabular/fake_fb.py` when b-theory merges it.

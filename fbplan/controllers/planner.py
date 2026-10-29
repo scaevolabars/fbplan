@@ -7,6 +7,8 @@ becomes the waypoint w*, unless the task policy has a higher value F(s, z_r)^T z
 Edges from landmarks and from s follow the same trust rules (see PlannerConfig).
 The controller keeps w* until it is reached (see PlannerConfig.reached_xy) or until a
 timeout, and acts with pi_l(a | s, B(w*)) (or pi_l(a | s, z_r) on the task policy).
+With lookahead, it moves on along the planned route as soon as the next stop is worth at
+least as much from s as the current waypoint, so the agent does not slow down at each one.
 """
 
 from __future__ import annotations
@@ -49,8 +51,15 @@ class PlannerConfig:
         None: use rho(s, w*) >= rho_reached instead. The xy rule is the default because on
         medium FB rho near a waypoint peaks at 0.88-0.90 (within 0.5 xy units) and passes
         0.9 elsewhere about 2.3 units away; in a 30-episode probe the planner succeeded in
-        23/30 episodes with the xy rule and 10/30 with the rho rule.
+        23/30 episodes with the xy rule and 10/30 with the rho rule. Keep it well below
+        max_edge_xy: landmarks within reached_xy are excluded at a replan.
     rho_reached: threshold of the rho rule.
+    lookahead: each step, compare the current waypoint w with the next stop w' on the route
+        (best_next[w]: a landmark or the task policy) and move on when Q(s, w') >= Q(s, w)
+        and the edge s -> w' is trusted. This is the replan comparison, restricted to the route.
+        Defaults reached_xy = 3 with lookahead: on 100 held-out medium episodes (same start
+        states for all) 79/100 successes, against 56/100 for reached_xy = 1.5 without it and
+        62/100 for reached_xy = 3 without it (baseline pi_h: 84/100).
     commit_timeout: replan after this many steps on one waypoint or on the task policy.
     """
 
@@ -62,8 +71,9 @@ class PlannerConfig:
     two_way: bool = False
     top_k: int | None = None
     hop_discount: float = 1.0
-    reached_xy: float | None = 1.5
+    reached_xy: float | None = 3.0
     rho_reached: float = 0.9
+    lookahead: bool = True
     commit_timeout: int = 100
     vi_max_iters: int = 1000
     vi_tol: float = 1e-8
@@ -98,6 +108,7 @@ class GraphPlannerController:
         self._waypoint: int | None = None  # None: replan at the next step
         self._steps_on_waypoint = 0
         self._replans = 0
+        self._advances = 0
         self._rho_waypoint = np.nan
 
     @classmethod
@@ -133,12 +144,14 @@ class GraphPlannerController:
         if key not in self._plans:
             self._plans[key] = self._solve(z_r)
         self.plan = self._plans[key]
-        self._waypoint, self._steps_on_waypoint, self._replans = None, 0, 0
-        self._rho_waypoint = np.nan
+        self._waypoint, self._steps_on_waypoint = None, 0
+        self._replans, self._advances, self._rho_waypoint = 0, 0, np.nan
 
     def act(self, obs: np.ndarray) -> np.ndarray:
         if self._needs_replan(obs):
             self._replan(obs)
+        elif self.config.lookahead:
+            self._advance(obs)
         self._steps_on_waypoint += 1
         z = self.plan.z_r if self._waypoint == DIRECT else self.targets.z[self._waypoint]
         return self._action(obs, z)
@@ -147,6 +160,7 @@ class GraphPlannerController:
         return {
             "waypoint": DIRECT if self._waypoint is None else self._waypoint,
             "replans": self._replans,
+            "advances": self._advances,
             "rho_waypoint": self._rho_waypoint,
         }
 
@@ -209,11 +223,7 @@ class GraphPlannerController:
         Q = rho * V_H ~ V_H, and choosing it again would stall the agent.
         """
         cfg, plan = self.config, self.plan
-        row = self.options.pair_table(obs[None], self.targets, plan.z_r)
-        rho = row.rho
-        if cfg.two_way:  # rho(w, s) for every landmark w, with s as the target
-            back = self.options.pair_table(self.landmarks, self.options.targets(obs[None]))
-            rho = np.minimum(rho, back.rho.T)
+        row, rho = self._row(obs)
         reached = self._reached(obs, np.arange(len(self.landmarks)), row.rho[0])
         candidates = np.where(reached, -np.inf, rho)
         mask = self._trusted(candidates, obs[None])
@@ -223,15 +233,64 @@ class GraphPlannerController:
         best = int(q.argmax())
         return best, float(row.rho[0, best])
 
+    def _advance(self, obs: np.ndarray) -> None:
+        """Move on along the route while the next stop is worth at least the current waypoint."""
+        while self._waypoint != DIRECT:
+            nxt = int(self.plan.solution.best_next[self._waypoint])
+            (q_now, q_next), (_, rho_next) = self._stop_values(obs, np.array([self._waypoint, nxt]))
+            if not (np.isfinite(q_next) and q_next >= q_now):
+                return
+            self._waypoint, self._rho_waypoint = nxt, rho_next
+            self._steps_on_waypoint = 0
+            self._advances += 1
+
+    def _stop_values(self, obs: np.ndarray, stops: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Q(s, w) and rho(s, w) for route stops (DIRECT: the task value, rho nan).
+
+        A stop behind an untrusted edge gets Q = -inf. top_k is not applied: it ranks a full row.
+        """
+        q, rho_out = np.full(len(stops), -np.inf), np.full(len(stops), np.nan)
+        landmark = stops != DIRECT
+        if landmark.any():
+            idx = stops[landmark]
+            row, rho = self._row(obs, idx)
+            mask = self._trusted(rho, obs[None], idx=idx)
+            values = self.plan.solution.values[idx]
+            q[landmark] = q_values(rho, row.reward, values, mask, self.config.hop_discount)[0]
+            rho_out[landmark] = row.rho[0]
+        if not landmark.all():
+            q[~landmark] = self.options.direct_value(obs[None], self.plan.z_r)[0]
+        return q, rho_out
+
+    def _row(
+        self, obs: np.ndarray, idx: np.ndarray | None = None
+    ) -> tuple[OptionTable, np.ndarray]:
+        """rho and R from obs to the landmarks idx (default: all), and the edge discount:
+        rho, or min(rho(s, w), rho(w, s)) with two_way."""
+        targets = self.targets if idx is None else self.targets.take(idx)
+        row = self.options.pair_table(obs[None], targets, self.plan.z_r)
+        if not self.config.two_way:
+            return row, row.rho
+        sources = self.landmarks if idx is None else self.landmarks[idx]
+        back = self.options.pair_table(sources, self.options.targets(obs[None]))
+        return row, np.minimum(row.rho, back.rho.T)
+
     def _trusted(
-        self, rho: np.ndarray, sources: np.ndarray, exclude_diagonal: bool = False
+        self,
+        rho: np.ndarray,
+        sources: np.ndarray,
+        exclude_diagonal: bool = False,
+        idx: np.ndarray | None = None,
     ) -> np.ndarray:
-        """Trust rules of PlannerConfig for edges from source observations to all landmarks."""
+        """Trust rules of PlannerConfig for edges from source observations to the landmarks
+        idx (default: all). top_k ranks a full row, so it applies only to all landmarks."""
         cfg = self.config
+        targets = self.landmarks if idx is None else self.landmarks[idx]
         if cfg.max_edge_xy is not None:
-            dist = np.linalg.norm(sources[:, None, :2] - self.landmarks[None, :, :2], axis=-1)
+            dist = np.linalg.norm(sources[:, None, :2] - targets[None, :, :2], axis=-1)
             rho = np.where(dist <= cfg.max_edge_xy, rho, -np.inf)
-        return trusted_edges(rho, cfg.rho_min, cfg.top_k, exclude_diagonal, cfg.rho_max)
+        top_k = cfg.top_k if idx is None else None
+        return trusted_edges(rho, cfg.rho_min, top_k, exclude_diagonal, cfg.rho_max)
 
 
 class GraphPlusHighController(GraphPlannerController):

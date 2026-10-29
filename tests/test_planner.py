@@ -17,8 +17,11 @@ from fbplan.option_model import OptionModelConfig
 START, GOAL = (1, 4), (5, 4)  # the two bottom ends of the U maze, 10 steps apart
 # With horizon 4, edges are trusted up to 4 steps (gamma^4 = 0.656); a waypoint counts as
 # reached only on its own cell (cells are 1 xy unit apart). A small cost per hop makes the
-# route take as few hops as it can, so it is unique.
-HORIZON_CFG = PlannerConfig(rho_min=0.65, reached_xy=0.5, hop_discount=0.99, commit_timeout=20)
+# route take as few hops as it can, so it is unique. These tests check the plain commitment
+# rule, so look-ahead is off; the look-ahead tests turn it on.
+HORIZON_CFG = PlannerConfig(
+    rho_min=0.65, reached_xy=0.5, hop_discount=0.99, commit_timeout=20, lookahead=False
+)
 # The same with the rho rule: only the waypoint's own cell has rho >= 0.95 (neighbours: 0.9).
 RHO_RULE_CFG = replace(HORIZON_CFG, reached_xy=None, rho_reached=0.95)
 
@@ -262,3 +265,53 @@ def test_reached_landmarks_do_not_use_top_k_slots():
     ctrl = planner(fb, replace(HORIZON_CFG, top_k=2, reached_xy=1.0))
     ctrl.act(fb.obs((2, 1)))
     assert fb.cells[ctrl.step_info()["waypoint"]] == (4, 1)
+
+
+# Landmarks on the U path with hops shorter than the 4-step horizon: (1, 1) is 3 steps from
+# START, (3, 1) 2 steps further, (5, 2) 3 steps further, and the goal 2 steps after that.
+SHORT_HOPS = [(1, 1), (3, 1), (5, 2)]
+
+
+def short_hop_planner(fb: GridFB, lookahead: bool, **overrides) -> GraphPlannerController:
+    landmarks = np.stack([fb.obs(c) for c in SHORT_HOPS])
+    cfg = replace(HORIZON_CFG, lookahead=lookahead, **overrides)
+    ctrl = GraphPlannerController(fb, landmarks, cfg)
+    ctrl.reset(task(fb), seed=0)
+    return ctrl
+
+
+def test_lookahead_switches_to_the_next_route_stop_before_the_waypoint_is_reached():
+    fb = GridFB(horizon=4)
+    cells, waypoints = rollout(fb, short_hop_planner(fb, lookahead=True), steps=12)
+    assert cells.index(GOAL) == 10
+    assert SHORT_HOPS[waypoints[0]] == (1, 1)  # (3, 1) is 5 steps away: not trusted from START
+    # From (1, 3), (3, 1) is 4 steps away and trusted: going there directly is worth more.
+    assert SHORT_HOPS[waypoints[1]] == (3, 1)
+    # The task policy takes over once the goal is within the horizon, before (5, 2).
+    assert waypoints[cells.index((4, 1))] == -1
+
+
+def test_without_lookahead_waypoints_end_only_when_reached():
+    fb = GridFB(horizon=4)
+    cells, waypoints = rollout(fb, short_hop_planner(fb, lookahead=False), steps=12)
+    assert cells.index(GOAL) == 10
+    for t in range(1, len(waypoints)):
+        if waypoints[t] != waypoints[t - 1]:
+            assert cells[t] == SHORT_HOPS[waypoints[t - 1]]
+
+
+def test_lookahead_counts_advances():
+    fb = GridFB(horizon=4)
+    ctrl = short_hop_planner(fb, lookahead=True)
+    rollout(fb, ctrl, steps=12)
+    assert ctrl.step_info()["advances"] >= 2
+    assert ctrl.step_info()["replans"] == 1
+
+
+def test_lookahead_moves_on_only_along_trusted_edges():
+    # rho_min = 0.72 trusts edges of at most 3 steps (gamma^3 = 0.729). From (1, 3), (3, 1) is
+    # 4 steps away: FB still sees it (rho 0.66) and values it more, but the edge is not trusted.
+    fb = GridFB(horizon=4)
+    cells, waypoints = rollout(fb, short_hop_planner(fb, lookahead=True, rho_min=0.72), steps=4)
+    assert cells[1:3] == [(1, 3), (1, 2)]
+    assert [SHORT_HOPS[w] for w in waypoints[:3]] == [(1, 1), (1, 1), (3, 1)]
