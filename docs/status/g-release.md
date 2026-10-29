@@ -64,9 +64,11 @@ Last update: 2026-10-29.
 5. d-eval: an `--episodes` option for `analysis/parity.py` (default 50), so that `--smoke` can
    run the parity check with 1 episode per task.
 
-## Proposal: process files before submission (brief step 4, waits for the user)
+## Process files before submission (brief step 4)
 
-Recommendation: remove `docs/briefs/` and `docs/status/` from the submitted tree.
+Decision of the user (2026-10-29): remove `docs/briefs/` and `docs/status/` from the submitted
+tree. Before that, each owner moves a fact that is still needed into REPORT.md or design.md.
+The coordinator does the removal. Reasons:
 
 1. They describe the multi-session workflow (tabs, coordinator, approvals). REPORT.md must not
    (f-report rule 6), and a reviewer reads them as noise next to the code.
