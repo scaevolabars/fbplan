@@ -116,6 +116,8 @@ class GridMaze:
         next_states, probs: [n_states, 5, K] possible next states of each (state, action) and their
             probabilities. K = 1 for deterministic mazes and 3 for the teleport maze.
         tasks: list of (init_ij, goal_ij) maze cells of the OGBench evaluation tasks.
+        entry_states: states inside teleport-entry maze cells (empty without teleports). A move
+            into one of them lands on an exit, so the agent never stays there.
     """
 
     def __init__(self, name: str, resolution: int = 2) -> None:
@@ -138,6 +140,10 @@ class GridMaze:
         rows, cols = self.fine_rc[:, 0], self.fine_rc[:, 1]
         self.xy = np.stack([self._fine_to_world(cols), self._fine_to_world(rows)], axis=-1)
         self.next_states, self.probs = self._build_transitions()
+        self.entry_states = np.array(
+            [s for ij in _TELEPORT_ENTRIES.get(name, []) for s in self.cell_states(ij)],
+            dtype=np.int64,
+        )
 
     def _fine_to_world(self, index: np.ndarray) -> np.ndarray:
         return (index + 0.5) * self.fine_unit - MAZE_UNIT / 2 - _OFFSET
