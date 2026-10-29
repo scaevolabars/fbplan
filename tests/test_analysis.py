@@ -22,9 +22,8 @@ def _load(name: str) -> ModuleType:
     return module
 
 
-plots, tables, failures, calibration, platform_check = (
-    _load(name) for name in ("plots", "tables", "failures", "calibration", "platform_check")
-)
+SCRIPTS = ("plots", "tables", "failures", "calibration", "platform_check", "heldout_selection")
+plots, tables, failures, calibration, platform_check, heldout_selection = map(_load, SCRIPTS)
 
 
 def test_method_colors_give_every_method_a_color_and_keep_the_fixed_ones():
@@ -160,3 +159,8 @@ def test_compare_platforms_gives_successes_the_unpaired_difference_and_identical
     assert (row["linux"], row["macos"], row["episodes"]) == (0.5, 0.25, 4)
     assert row["diff"] == pytest.approx(0.25)
     assert row["same_outcome"] == 0.75 and row["same_steps"] == 0.75
+
+
+def test_select_seed_takes_the_highest_held_out_success_and_the_lower_id_on_ties():
+    assert heldout_selection.select_seed({0: 0.5, 1: 0.7, 2: 0.7, 3: 0.6}) == 1
+    assert heldout_selection.select_seed({4: 0.9, 2: 0.9}) == 2
