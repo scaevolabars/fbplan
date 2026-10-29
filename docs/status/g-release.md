@@ -138,6 +138,13 @@ Last update: 2026-10-29.
    group has successes. Fix: report the median as missing when there is no success.
 4. d-eval: the command for the table of the retrained baselines (the training seeds as a
    cluster level; `--cluster checkpoint_seed`?). I add it to the tables stage.
+5. Decision needed (A10): one owner for the trained-checkpoint helpers, which now exist in both
+   `fbplan/frozen.py` and `fbplan/learned/checkpoint.py`. Options: (a) a-frozen owns the
+   format (design.md §6 gives it "checkpoint download (frozen and trained)"; its copies also
+   refuse object arrays and check `env_name`), e-learner imports `frozen.*` and deletes its
+   copies; (b) e-learner owns them, a-frozen deletes its unused `save_trained_checkpoint` and
+   `load_trained_model`. Recommendation: (a), before the release pins the hashes. Either way,
+   rerun one retrained eval seed and check that the records are identical.
 
 ## CLI convention (X11, proposal; the owners adopt it)
 
