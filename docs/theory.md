@@ -67,7 +67,7 @@ If some w_i is never hit, `ρ = 0` and the rest of the chain drops out, which is
 The test also shows that the check is not trivial: a random policy hits w only from w itself
 (ρ = 0 everywhere else), so the option policies in the test are optimal policies for
 "indicator of w plus small noise". The upstream proxy (no subtraction in R) misses the true
-chain value by 0.5 on the medium maze in the same test.
+chain value by up to 0.56 (medium) and 0.36 (teleport) in the same test. ✓
 
 ## 5. Graph Bellman equation
 
@@ -79,10 +79,11 @@ Options: `o_w` for each landmark `w ∈ L`, and `o_∞` = "follow π_{z_r} forev
 V_H(u) = max( V_d(u),  max_{w ∈ L, w ≠ u} R(u,w) + ρ(u,w) · V_H(w) )
 ```
 (a) **Self-loops must be excluded.** `o_u` at u is empty (H = 0, ρ = 1, R = 0). With it, any
-`V(u)` above the other terms solves the equation, so the fixed point is not unique.
-Numerically, value iteration with self-loops from `V_d + 1000` stays about 1000 too high.
+`V(u)` above the other terms solves the equation, so the fixed point is not unique. ✓ (with
+self-loops, `V_H + 1000` is a fixed point too.)
 (b) **Contraction.** Without self-loops, `ρ(u,w) ≤ γ`, so the operator is a γ-contraction in
-the sup norm: one fixed point, value iteration converges from any start. ✓
+the sup norm: one fixed point, value iteration converges from any start. ✓ (20 random pairs of
+value vectors.)
 (c) **k sweeps = best chain of ≤ k switches.** `T^k V_d (u) = max over chains of length ≤ k` of
 Proposition 1. ✓ (brute force over all chains of 5 landmarks, k ≤ 3.)
 (d) **Open-loop chains are optimal among option policies.** Each option ends exactly at its
@@ -94,7 +95,8 @@ Chaining can only help when FB values or the policy π_l(·|s, z_r) are inaccura
 shortest-path problem with edge cost `−log ρ(u,w) ≥ −log γ > 0` (no zero-cost cycles).
 
 **With FB estimates.** `ρ̂` can exceed γ (or 1) for u ≠ w. Then (b) fails, and a cycle with
-`ρ̂ = 1` and `R̂ ≥ hop cost` has no unique value. Clip `ρ̂` to `[0, γ]` for u ≠ w.
+`ρ̂ = 1` and `R̂ ≥ 0` has no unique value. Clip `ρ̂` to `[0, γ]` for u ≠ w; the planner also
+distrusts every edge with a raw `ρ̂ ≥ 1` (`fbplan.graph.trusted_edges`).
 
 ## 6. Executing a plan: commit or re-plan
 
@@ -152,12 +154,16 @@ Value iteration on a proxy graph therefore produces values that cannot be interp
 
 `fbplan/tabular/` (tests: `tests/test_tabular_*.py`):
 
-- `maze.py`: discrete copies of the OGBench medium, large, giant and teleport mazes (maps checked
-  against the OGBench source). Each maze cell is split into `resolution²` states; medium at
+- `maze.py`: discrete copies of the OGBench medium, large, giant and teleport mazes (maps, tasks
+  and teleporters checked against OGBench by a test). Each maze cell is split into `resolution²` states; medium at
   resolution 2 has 104 states, as in the paper's discrete maze. Observations are AntMaze (x, y);
   5 actions (stay, ±x, ±y). The teleport maze is stochastic, as in OGBench.
-- `mdp.py`, `options.py`: exact `M^π = (I − γP_π)^{-1}`, optimal policies, option models, the
-  augmented-chain ground truth, graph value iteration, the re-planning policy.
+- `mdp.py`, `options.py`: exact `M^π = (I − γP_π)^{-1}`, optimal policies, option models from the
+  true model, the augmented-chain ground truth, the re-planning policy. Graph value iteration
+  and Q-values are the planner's own (`fbplan/graph.py`).
+- `study.py`: the planners of §9. They get `ρ̂`, `R̂` and `V_d` from the planner's
+  `fbplan/option_model.py` applied to the fake, so the study tests the same code that runs on
+  AntMaze. Code names: `v_direct` = V_d, `v_graph` = V_H, `r_before` = R.
 - `fake_fb.py`: `TabularFB` implements `FBModel`. B has orthonormal columns times √n (upstream
   convention). A latent z means the reward `r_z = B ẑ / n`; `π*_z` is its exact optimal policy and
   `F(s,z) = M^{π*_z} B / n + noise`, so `F(s,z)ᵀB(s') = M^{π*_z}(s,s')` in full rank.
@@ -166,6 +172,7 @@ Value iteration on a proxy graph therefore produces values that cannot be interp
   π_l is greedy on the noisy value `F(s',z)ᵀz` (default) or the exact `π*_z`. π_h is idealised:
   the argmax of the proxy advantage over states `0 < d(s,w) ≤ high_radius`.
 - `env.py`: an OGBench-like env and `rollout()` for any `Controller`.
+- `time_limit.py`: success within a time limit vs. the discounted value on the cell mazes (§11).
 
 Noise model note: the error on `F(s,z)ᵀz` is about `rho_noise/(1 − γ)`, while the value gap
 between neighbours is about `γ^{d−1}`. So the greedy controller fails beyond
@@ -177,16 +184,20 @@ unreliable. This mirrors a controller that is reliable only at short range.
 Setup: medium, 104 states, γ = 0.9 (ρ from 0.9 for neighbours to 0.09 for the farthest pair),
 landmarks = all states, every (start, goal) pair with a one-state goal, success = goal reached in
 100 steps, 5 noise seeds, mean ± s.e. over seeds. "Far" = 11 steps or more (ρ ≤ 0.31).
-Planners (`fbplan/tabular/study.py`) see only F, B, π_l, π_h; evaluation is exact.
+Planners (`fbplan/tabular/study.py`) see only F, B, π_l, π_h; evaluation is exact. They use the
+planner's own code (§8): `OptionModel` for `ρ̂`, `R̂`, `V_d`; `fbplan.graph` for trust (raw
+`ρ̂` in `[ρ_min, 1)`), value iteration and Q-values. R̂ variants use the planner's names:
+exact (`R` of §2), paper (the upstream proxy `F(s,z_w)ᵀz_r`, §7) and zero.
 
 - **direct**: π_l(z_r). **π_h**: the idealised baseline (subgoals within 10 = 1/(1−γ) steps).
 - **single switch**: best `R̂ + ρ̂ V_d(w)` over all landmarks, re-planned every step.
-- **chained**: graph value iteration (§5), full `R̂`. **chained R=0**: `R̂ = 0` (§5 f).
+- **chained**: graph value iteration (§5), exact `R̂`. **chained R=0**: `R̂ = 0` (§5 f).
 - **guarded**: R = 0, head min, `ρ_min = 0.4`, commit until reached (timeout: twice the
-  predicted duration `log ρ̂ / log γ`).
+  predicted duration `log ρ̂ / log γ`, plus 2 steps).
 
 Reproduce: `uv run python -m fbplan.tabular.run_study && uv run python -m fbplan.tabular.study_plots`
-(1 min on 12 cores). Tables: `docs/figures/theory/study_*.csv`.
+(14 min with 4 workers on the shared 12-core Mac; 10 CPU minutes). Tables:
+`docs/figures/theory/study_*.csv`.
 
 ### 9.1 Chaining helps when the controller fails at long range
 
@@ -199,9 +210,9 @@ Far-pair success:
 |---|---|---|---|---|
 | greedy | direct | 0.70 | 0.36 | 0.16 |
 | greedy | π_h (idealised) | 0.89 | 0.55 | 0.26 |
-| greedy | single switch | 0.80 | 0.49 | 0.23 |
+| greedy | single switch | 0.80 | 0.49 | 0.24 |
 | greedy | chained | 0.89 | 0.55 | 0.20 |
-| greedy | chained R=0 | 0.89 | 0.67 | 0.36 |
+| greedy | chained R=0 | 0.90 | 0.67 | 0.37 |
 | greedy | chained R=0, guarded | **0.90** | **0.69** | **0.46** |
 | exact | direct | 1.00 | 1.00 | 1.00 |
 | exact | chained | 0.90 | 0.60 | 0.28 |
@@ -210,7 +221,7 @@ Far-pair success:
 - With the greedy controller, chained R=0 with guards almost triples direct at noise 0.04 and
   beats the idealised π_h (0.46 vs. 0.26). At noise 0.02 the gain over π_h is small.
 - With an exact controller the direct policy is already optimal (§5 e). Planning on noisy values
-  can only lose, and the full-`R̂` planner loses a lot.
+  can only lose, and the planner with exact-mode `R̂` loses a lot.
 
 ### 9.2 The main failure is noisy R̂, not wormholes
 
@@ -221,6 +232,9 @@ profitable. Setting `R̂ = 0` restores 1.00 with the exact controller.
 
 Independent noise creates no gross wormholes: no pair has `ρ̂ > 2γ^d` at any noise level up to
 0.04 (`study_wormholes.csv`). The harm comes from many small overestimates compounded by the max.
+"Wormhole" here means `ρ̂ > 2γ^d` (`study.rho_bound_wormholes`, the true ρ is at most `γ^d`).
+d-eval's AntMaze calibration uses another definition: a trusted pair whose FB distance is
+shorter than the time to walk the geodesic at the ant's top speed (§11.2).
 
 ![calibration](figures/theory/calibration.png)
 
@@ -230,20 +244,23 @@ Independent noise creates no gross wormholes: no pair has `ρ̂ > 2γ^d` at any 
 
 Far-pair success at noise 0.04:
 
-| change | R full, greedy | R full, exact | R=0, greedy | R=0, exact |
+| change | R exact, greedy | R exact, exact | R=0, greedy | R=0, exact |
 |---|---|---|---|---|
-| plain | 0.20 | 0.28 | 0.36 | 1.00 |
-| head min | 0.29 | 0.58 | 0.28 | 1.00 |
-| ρ_min 0.6 | 0.20 | 0.28 | 0.41 | 1.00 |
-| hop cost 0.2 | 0.32 | 0.57 | 0.12 | 1.00 |
-| commit | 0.30 | 0.40 | 0.48 | 1.00 |
-| all (min, ρ_min 0.4, commit) | 0.53 | 0.79 | 0.46 | 1.00 |
+| plain | 0.20 | 0.28 | 0.37 | 1.00 |
+| head min | 0.29 | 0.58 | 0.29 | 1.00 |
+| ρ_min 0.6 | 0.21 | 0.28 | 0.42 | 1.00 |
+| hop discount 0.95 | 0.27 | 0.50 | 0.11 | 1.00 |
+| hop discount 0.8 | 0.16 | 0.83 | 0.13 | 1.00 |
+| commit | 0.31 | 0.40 | 0.50 | 1.00 |
+| all (min, ρ_min 0.4, commit) | 0.53 | 0.80 | 0.46 | 1.00 |
 
 - **Head min** counters independent errors in `R̂` (0.28 → 0.58), not shared errors (§9.5).
 - **ρ_min** matters only when hops must stay inside the controller's reliable range (R=0, greedy:
-  0.36 → 0.41; at noise 0.02, 0.89 → 0.95). With full `R̂` the chosen edges are already short.
-- **Hop cost** helps against fake `R̂` but hurts with R = 0: it pushes the plan to fewer, longer
-  hops that the controller cannot complete (0.36 → 0.12).
+  0.37 → 0.42; at noise 0.02, 0.90 → 0.95). With exact-mode `R̂` the chosen edges are already
+  short.
+- **Hop discount** (a factor on ρ̂ per hop, as in the planner) helps against fake `R̂` when the
+  controller is exact (0.28 → 0.83), but hurts with R = 0: it pushes the plan to fewer, longer
+  hops that the greedy controller cannot complete (0.37 → 0.11–0.13).
 - **Commitment** helps in every noisy case: it stops dithering between near-equal noisy plans.
   With exact values it can only lose (§6).
 
@@ -256,16 +273,16 @@ exact controller; value from the task start (V* ≈ 11).
 
 | planner | regret, exact FB | predicted − true, exact | regret, noise 0.01 | predicted − true, 0.01 |
 |---|---|---|---|---|
-| single, R full | 0.00 | 0.0 | 0.08 | 2.1 |
-| single, R proxy | 0.20 | 10.7 | 0.19 | 11.3 |
-| chained, R full | 0.00 | 0.0 | 0.41 | 6.6 |
-| chained, R proxy | 0.00 | 111.8 | 0.00 | 121.3 |
+| single, R exact | 0.00 | 0.0 | 0.08 | 2.1 |
+| single, R paper (proxy) | 0.19 | 10.7 | 0.19 | 11.3 |
+| chained, R exact | 0.00 | 0.0 | 0.41 | 6.6 |
+| chained, R paper (proxy) | 0.00 | 111.8 | 0.00 | 121.3 |
 | chained, R = 0 | 0.04 | 0.2 | 0.11 | 1.3 |
 
 - The proxy bias repeats per hop: the predicted value is 10× more wrong for chains than for one
   switch, mostly through the 2-cycles of §7. Actions suffer little here, because the inflation sits
   in the goal region, where the agent should go anyway.
-- With noise, full `R̂` makes chained plans long (9.8 hops vs. 4.2 exact) and costly (regret 0.41):
+- With noise, exact-mode `R̂` makes chained plans long (9.8 hops vs. 3.9 exact) and costly (regret 0.41):
   the same noisy-`R̂` effect as §9.2. R = 0 ignores the ±1 regions on the way and costs little.
 
 ### 9.5 Low rank: wall-blind features make wormholes
@@ -274,7 +291,7 @@ exact controller; value from the task start (V* ≈ 11).
 
 - The wall-blind basis puts 0.24 % (rank 32) and 0.41 % (rank 16) of pairs above `2γ^d`; the
   wall-aware basis almost none. The wormholes cross thin walls (calibration figure, right).
-- At rank ≤ 32 all methods lose together (far success 0.52–0.76 at rank 16, 0.86–0.97 at rank 32),
+- At rank ≤ 32 all methods lose together (far success 0.57–0.76 at rank 16, 0.86–0.97 at rank 32),
   and chaining gives no gain (direct is best at rank 16): the
   reward `P_B e_w` is blurred, so π_l(·|B(w)) goes near w, not to w. Errors shared by both heads
   are not removed by head min.
@@ -282,11 +299,13 @@ exact controller; value from the task start (V* ≈ 11).
 ## 10. Consequences for the planner (approach A)
 
 1. Exclude self-loops; clip `ρ̂` to `[0, γ]` for distinct landmarks.
-2. For goal-reaching tasks use `R̂ = 0` (shortest path on `−log ρ̂`). Use full `R̂` only for
-   general rewards, with head min and a hop cost. Never use the proxy in a graph.
+2. For goal-reaching tasks use `R̂ = 0` (shortest path on `−log ρ̂`). Use exact-mode `R̂` only
+   for general rewards, with head min and a hop discount. Never use the proxy ("paper") in a
+   graph.
 3. Choose `ρ_min` so that every hop stays in the range where π_l reliably reaches its subgoal;
    commit to w* until it is reached, with a timeout.
 4. Expect gains where π_l fails at long range, not where the direct policy already works. The
    oracle-waypoint controller (d-eval) measures exactly this headroom on AntMaze.
 5. In continuous states the chain value is approximate (§7): keep hops few and the reach radius
    small compared with the scale on which option values change.
+

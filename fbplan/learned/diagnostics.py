@@ -25,20 +25,14 @@ import numpy as np  # noqa: E402
 from fbplan import frozen  # noqa: E402
 from fbplan.contracts import normalize_z  # noqa: E402
 from fbplan.controllers.oracle import MazeGeometry  # noqa: E402
-from fbplan.learned.option_targets import direct_value  # noqa: E402
-from fbplan.learned.train_b import Split, approach_b_dir, load_value  # noqa: E402
-from fbplan.learned.value import Agent, ValueState, forward  # noqa: E402
+from fbplan.learned.checkpoint import Agent  # noqa: E402
+from fbplan.learned.train_b import Split  # noqa: E402
+from fbplan.learned.value import ValueState, load_value, multi_switch_value  # noqa: E402
 
 BIN_WIDTH = 2.0  # xy units
 
 
-@jax.jit
-def pair_values(
-    agent: Agent, value: ValueState, obs: jax.Array, z: jax.Array
-) -> tuple[jax.Array, jax.Array]:
-    """(V_1, V_H) for each (obs_i, z_i). [N] each."""
-    v1 = direct_value(forward(agent, obs, z), z)
-    return v1, v1 + value.gain(obs, z).min(axis=0)
+pair_values = jax.jit(multi_switch_value)
 
 
 def rank_correlation(x: np.ndarray, y: np.ndarray) -> float:
@@ -127,10 +121,9 @@ def main() -> None:
     print(f"{args.env}, {args.value}, {args.n} x {args.n} validation pairs")
     print("| seed | rank corr V_1 vs dist | V_H | far half: V_1 | V_H |")
     print("|---|---|---|---|---|")
-    maze = args.env.split("-")[1]
+    maze = frozen.maze_name(args.env)
     for seed in args.seeds:
-        value_dir = approach_b_dir(args.env, args.value, seed)
-        value, _ = load_value(value_dir, obs.shape[1], model.latent_dim)
+        value, _ = load_value(args.env, args.value, seed, obs.shape[1], model.latent_dim)
         v1, vh = value_grid(model.agent, value, obs[s_idx], z_goals)
         corr = [rank_correlation(v[m], geodesic[m]) for m in (finite, far) for v in (v1, vh)]
         print(f"| {seed} | {corr[0]:.3f} | {corr[1]:.3f} | {corr[2]:.3f} | {corr[3]:.3f} |")

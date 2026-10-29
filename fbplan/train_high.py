@@ -6,8 +6,11 @@ docs/design.md §2). We call the upstream `create` and `update`, so the networks
 the optimizer are the upstream code. Differences from upstream `main.py`, none of which changes
 the objective:
 - batches come from `fbplan.learned.sampling` (same distribution, sampled on the device);
-- no wandb and no evaluation during training (d-eval evaluates the saved checkpoints);
+- no wandb and no evaluation during training (fbplan.evaluate evaluates the saved pi_h);
 - logged training metrics are means over each log interval, not values of one step.
+
+The result is saved as high_actor.pkl (fbplan.frozen.save_trained_checkpoint); load it with
+`fbplan.learned.checkpoint.load_baseline_model(env, seed)`.
 
 Usage:
     uv run python -m fbplan.train_high --env antmaze-medium-navigate-v0 --seed 0
@@ -17,21 +20,22 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import pickle
-import subprocess
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from functools import partial
 from pathlib import Path
-from typing import Any
 
-import flax
 import jax
-import jax.numpy as jnp
-import numpy as np
 
 from fbplan import frozen
-from fbplan.learned.loop import run_logged
+from fbplan.learned.checkpoint import (
+    SAMPLER_STREAM,
+    Agent,
+    git_commit,
+    load_baseline_model,  # noqa: F401  fbplan.evaluate imports it from here (until it switches)
+    trained_dir,
+    with_fresh_high_actor,
+)
+from fbplan.learned.loop import run_logged, scan_updates
 from fbplan.learned.sampling import (
     HighBatchSpec,
     TrajectoryData,
@@ -39,38 +43,11 @@ from fbplan.learned.sampling import (
     sample_high_batch,
 )
 
-Agent = Any  # upstream agents.fbpiswitch.FBpiSwitchAgent
-FROZEN_MODULES = ("modules_forward_repr", "modules_backward_repr", "modules_actor")
-SAMPLER_STREAM = 1  # fold_in tag: keeps batch sampling independent of the network init key
-
 
 def baseline_dir(env_name: str, seed: int) -> Path:
-    """Folder of the retrained pi_h for one env and seed. Shared by all worktrees."""
-    default = Path.home() / ".cache" / "fbplan" / "baselines"
-    root = Path(os.environ.get("FBPLAN_BASELINE_DIR", default))
-    return root / env_name.split("-")[1] / f"seed{seed}"
-
-
-def hashable_config(config: Mapping[str, Any]) -> dict[str, Any]:
-    """Agent config with lists turned into tuples.
-
-    jit hashes the agent config (a static field). flags.json stores tuples as lists.
-    """
-    return {k: tuple(v) if isinstance(v, list) else v for k, v in config.items()}
-
-
-def with_fresh_high_actor(frozen_agent: Agent, seed: int, example_batch: dict) -> Agent:
-    """New agent: F, B and pi_l of `frozen_agent`, and a new pi_h initialized from `seed`.
-
-    Same as upstream `load_agent_from_frozen`: `create(seed)` builds all modules and the
-    optimizer state, then the frozen modules replace their fresh copies.
-    """
-    config = hashable_config(frozen_agent.config)
-    agent = type(frozen_agent).create(seed, example_batch, config)
-    params = flax.core.unfreeze(agent.network.params)
-    for name in FROZEN_MODULES:
-        params[name] = flax.core.unfreeze(frozen_agent.network.params[name])
-    return agent.replace(network=agent.network.replace(params=params))
+    """Folder of a retrained pi_h. tests/test_evaluate.py calls it from here (until it switches
+    to fbplan.learned.checkpoint.trained_dir)."""
+    return trained_dir("baselines", env_name, seed)
 
 
 @partial(jax.jit, static_argnames=("n_steps", "spec"))
@@ -78,12 +55,9 @@ def train_chunk(
     agent: Agent, data: TrajectoryData, key: jax.Array, n_steps: int, spec: HighBatchSpec
 ) -> tuple[Agent, dict[str, jax.Array]]:
     """Run `n_steps` upstream updates, each on a new batch. Returns the agent and mean metrics."""
-
-    def step(agent: Agent, step_key: jax.Array) -> tuple[Agent, dict[str, jax.Array]]:
-        return agent.update(sample_high_batch(data, step_key, spec))
-
-    agent, infos = jax.lax.scan(step, agent, jax.random.split(key, n_steps))
-    return agent, jax.tree_util.tree_map(jnp.mean, infos)
+    return scan_updates(
+        lambda a, k: a.update(sample_high_batch(data, k, spec)), agent, key, n_steps
+    )
 
 
 @partial(jax.jit, static_argnames=("spec",))
@@ -118,75 +92,27 @@ def train(
     )
 
 
-def save_checkpoint(agent: Agent, flags: dict[str, Any], out_dir: Path) -> None:
-    """Write params.pkl and flags.json in the layout of the provided checkpoints.
-
-    fbplan.frozen can then load the folder as it loads a provided one. The arrays are numpy,
-    so the pickle does not depend on the JAX version.
-    """
-    out_dir.mkdir(parents=True, exist_ok=True)
-    state = jax.tree_util.tree_map(np.asarray, flax.serialization.to_state_dict(agent))
-    with open(out_dir / "params.pkl", "wb") as f:
-        pickle.dump({"agent": state}, f)
-    (out_dir / "flags.json").write_text(json.dumps(flags, indent=2))
-
-
-def load_retrained_model(env_name: str, ckpt_dir: Path) -> frozen.FrozenFBModel:
-    """The frozen model with the pi_h saved in ckpt_dir by save_checkpoint, for evaluation.
-
-    Raises if the saved F, B or pi_l differ from the provided checkpoint, because then the file
-    belongs to another env or to modified modules.
-    """
-    provided = frozen.load_model(env_name).agent
-    state = frozen.load_numpy_pickle(ckpt_dir / "params.pkl")["agent"]
-    agent = flax.serialization.from_state_dict(provided, state)
-    for name in FROZEN_MODULES:
-        saved = jax.tree_util.tree_leaves(agent.network.params[name])
-        expected = jax.tree_util.tree_leaves(provided.network.params[name])
-        if not all(np.array_equal(a, b) for a, b in zip(saved, expected, strict=True)):
-            raise ValueError(f"{name} in {ckpt_dir} is not the provided one")
-    return frozen.FrozenFBModel(env_name, jax.device_put(agent))
-
-
-def load_baseline_model(env_name: str, seed: int) -> frozen.FrozenFBModel:
-    """The frozen model with the pi_h that `seed` retrained: a baseline row for d-eval."""
-    return load_retrained_model(env_name, baseline_dir(env_name, seed))
-
-
-def git_commit() -> str:
-    """Commit of this code, recorded with each checkpoint for reproducibility.
-
-    On a GPU instance the code arrives without .git: scripts/gpu/vast.sh writes REVISION.
-    """
-    repo = Path(__file__).resolve().parents[1]
-    if (repo / "REVISION").exists():
-        return (repo / "REVISION").read_text().strip()
-    cmd = ["git", "-C", str(repo), "rev-parse", "HEAD"]
-    return subprocess.run(cmd, capture_output=True, text=True).stdout.strip() or "unknown"
-
-
 def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--env", required=True, choices=frozen.ENV_NAMES)
-    parser.add_argument("--seed", type=int, required=True)
-    parser.add_argument("--steps", type=int, default=500_000)
-    parser.add_argument("--log-every", type=int, default=5_000)
-    parser.add_argument("--out", type=Path, help="default: baseline_dir(env, seed)")
-    parser.add_argument("--run-dir", type=Path, help="default: runs/train_high/<env>/seed<k>")
+    parser.add_argument("--seed", type=int, required=True, help="pi_h init and batch sampling")
+    parser.add_argument("--steps", type=int, default=500_000, help="number of updates")
+    parser.add_argument("--log-every", type=int, default=5_000, help="updates per CSV row")
+    parser.add_argument("--out-dir", type=Path, help="default: <cache>/baselines/<maze>/seed<k>")
+    parser.add_argument("--run-dir", type=Path, help="default: runs/train_high/<maze>/seed<k>")
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
-    short_env = args.env.split("-")[1]
-    out_dir = args.out or baseline_dir(args.env, args.seed)
-    run_dir = args.run_dir or Path("runs") / "train_high" / short_env / f"seed{args.seed}"
+    maze = frozen.maze_name(args.env)
+    out_dir = args.out_dir or trained_dir("baselines", args.env, args.seed)
+    run_dir = args.run_dir or Path("runs/train_high") / maze / f"seed{args.seed}"
     run_dir.mkdir(parents=True, exist_ok=True)
 
     train_set = frozen.load_dataset(args.env, "train")
     val_set = frozen.load_dataset(args.env, "val")
-    example_batch = {k: train_set[k][:1] for k in ("observations", "actions")}
-    agent = with_fresh_high_actor(frozen.load_model(args.env).agent, args.seed, example_batch)
+    agent = with_fresh_high_actor(frozen.load_model(args.env).agent, args.seed)
     print(json.dumps({"env": args.env, "seed": args.seed, "agent": agent.config}, default=str))
 
     agent = train(
@@ -199,15 +125,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         log_path=run_dir / "train.csv",
     )
 
-    source = frozen.checkpoint_dir(args.env)
-    flags = json.loads((source / "flags.json").read_text())
+    flags = json.loads((frozen.checkpoint_dir(args.env) / "flags.json").read_text())
     flags |= {
         "seed": args.seed,
         "train_steps": args.steps,
         "agent": dict(agent.config),
-        "retrained_high_actor": {"from": str(source), "commit": git_commit()},
+        "retrained_high_actor": {"from": f"checkpoints/{maze}", "commit": git_commit()},
     }
-    save_checkpoint(agent, flags, out_dir)
+    frozen.save_trained_checkpoint(agent, flags, out_dir)
     print(f"saved {out_dir}")
 
 

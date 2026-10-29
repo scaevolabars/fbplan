@@ -1,7 +1,7 @@
 """Tests for fbplan.frozen: checkpoint safety, model queries, env and offline data.
 
 Tests that need a checkpoint or an OGBench file skip when the file is absent.
-`uv run python -m fbplan.frozen` downloads the checkpoints; OGBench files download on first use.
+`uv run python -m fbplan.frozen --datasets antmaze-medium-navigate-v0` downloads all of them.
 """
 
 from __future__ import annotations
@@ -9,9 +9,11 @@ from __future__ import annotations
 import hashlib
 import io
 import pickle
+import re
 import urllib.request
 from pathlib import Path
 
+import flax
 import jax
 import numpy as np
 import pytest
@@ -42,10 +44,15 @@ def model() -> frozen.FrozenFBModel:
 
 @pytest.fixture(scope="module")
 def observations() -> np.ndarray:
-    """Start and goal observations of the 5 medium tasks: realistic states, no dataset needed."""
+    """Start and goal observations of the 5 medium tasks: realistic states, no dataset needed.
+
+    Resets follow the recipe of design.md §5, so the states do not depend on the test order.
+    """
     env = frozen.make_env(MEDIUM)
     obs = []
     for task_id in range(1, 6):
+        np.random.seed(task_id)
+        env.action_space.seed(task_id)
         ob, info = env.reset(seed=task_id, options={"task_id": task_id})
         obs += [ob, info["goal"]]
     return np.stack(obs).astype(np.float32)
@@ -74,6 +81,54 @@ def test_numpy_pickle_loader_rejects_other_classes(tmp_path):
 
     with pytest.raises(pickle.UnpicklingError, match="builtins.print"):
         frozen.load_numpy_pickle(path)
+
+
+def test_save_numpy_pickle_writes_jax_arrays_as_numpy(tmp_path):
+    tree = {"a": jax.numpy.arange(3.0), "b": {"c": np.ones((2, 2), np.float32)}}
+    path = tmp_path / "sub" / "tree.pkl"
+
+    frozen.save_numpy_pickle(tree, path)
+    loaded = frozen.load_numpy_pickle(path)
+
+    assert isinstance(loaded["a"], np.ndarray)
+    np.testing.assert_array_equal(loaded["a"], np.arange(3.0))
+    np.testing.assert_array_equal(loaded["b"]["c"], tree["b"]["c"])
+
+
+def test_save_numpy_pickle_refuses_what_load_numpy_pickle_cannot_read(tmp_path):
+    with pytest.raises(TypeError, match="numeric"):
+        frozen.save_numpy_pickle({"bad": object()}, tmp_path / "tree.pkl")
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_maze_name_is_the_second_part_of_a_known_env_name():
+    assert [frozen.maze_name(env) for env in frozen.ENV_NAMES] == [
+        "medium",
+        "large",
+        "giant",
+        "teleport",
+    ]
+    with pytest.raises(ValueError, match="antmaze-medium-stitch-v0"):
+        frozen.maze_name("antmaze-medium-stitch-v0")
+
+
+def test_cache_dir_is_below_home_unless_its_env_variable_is_set(monkeypatch, tmp_path):
+    for variable in ("FBPLAN_CKPT_DIR", "FBPLAN_BASELINE_DIR", "FBPLAN_APPROACH_B_DIR"):
+        monkeypatch.delenv(variable, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("FBPLAN_BASELINE_DIR", str(tmp_path / "models"))
+
+    assert (
+        frozen.cache_dir("checkpoints") == tmp_path / "home" / ".cache" / "fbplan" / "checkpoints"
+    )
+    assert frozen.cache_dir("approach_b") == tmp_path / "home" / ".cache" / "fbplan" / "approach_b"
+    assert frozen.cache_dir("baselines") == tmp_path / "models"
+    assert frozen.trained_dir("baselines/medium/seed3") == tmp_path / "models" / "medium" / "seed3"
+    with pytest.raises(ValueError, match="kind"):
+        frozen.cache_dir("runs")
+    with pytest.raises(ValueError, match="checkpoints/medium"):
+        frozen.trained_dir("checkpoints/medium")
 
 
 def test_upstream_module_imports_from_the_submodule():
@@ -112,16 +167,23 @@ def test_download_checkpoint_does_not_use_the_network_when_files_are_present(mon
     assert frozen.download_checkpoint(MEDIUM) == frozen.checkpoint_dir(MEDIUM)
 
 
-def test_checkpoint_names_outside_the_four_navigate_envs_are_refused():
-    with pytest.raises(ValueError, match="antmaze-medium-stitch-v0"):
-        frozen.checkpoint_dir("antmaze-medium-stitch-v0")
+def test_a_failed_download_leaves_no_file(monkeypatch, tmp_path):
+    class BrokenConnection(io.BytesIO):
+        def read(self, *args):
+            raise ConnectionResetError("connection lost")
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url: BrokenConnection(b"x"))
+
+    with pytest.raises(ConnectionResetError):
+        frozen._download("https://example.org/params.pkl", tmp_path / "params.pkl", "0" * 64)
+    assert list(tmp_path.iterdir()) == []
 
 
 TRAINED_KEY = "baselines/medium/seed0"
 RELEASE = "https://github.com/scaevolabars/fbplan/releases/download/trained-test"
 TRAINED_ASSETS = {
     f"{RELEASE}/baselines-medium-seed0-flags.json": b'{"seed": 0}',
-    f"{RELEASE}/baselines-medium-seed0-params.pkl": pickle.dumps({"w": np.ones(3)}),
+    f"{RELEASE}/baselines-medium-seed0-high_actor.pkl": pickle.dumps({"w": np.ones(3)}),
 }
 
 
@@ -148,6 +210,8 @@ def _pin(assets: dict[str, bytes], tag: str) -> dict[str, tuple[str, str]]:
 @pytest.fixture
 def release(monkeypatch, tmp_path) -> FakeServer:
     """One published trained checkpoint, a fake GitHub release and an empty HOME."""
+    for variable in ("FBPLAN_CKPT_DIR", "FBPLAN_BASELINE_DIR", "FBPLAN_APPROACH_B_DIR"):
+        monkeypatch.delenv(variable, raising=False)
     server = FakeServer(dict(TRAINED_ASSETS))
     monkeypatch.setattr(
         frozen, "_TRAINED_FILES", {TRAINED_KEY: _pin(TRAINED_ASSETS, "trained-test")}
@@ -157,10 +221,9 @@ def release(monkeypatch, tmp_path) -> FakeServer:
     return server
 
 
-def test_download_trained_fetches_the_pinned_release_assets(release, tmp_path):
-    target = frozen.download_trained(TRAINED_KEY, tmp_path / "ckpt")
+def test_download_trained_fetches_the_pinned_release_assets(release):
+    target = frozen.download_trained(TRAINED_KEY)
 
-    assert target == tmp_path / "ckpt"
     assert release.requested == list(TRAINED_ASSETS)
     for url, content in TRAINED_ASSETS.items():
         assert (target / url.rsplit("-", 1)[-1]).read_bytes() == content
@@ -170,32 +233,52 @@ def test_download_trained_defaults_to_the_cache_layout_of_the_trainers(release, 
     target = frozen.download_trained(TRAINED_KEY)
 
     assert target == tmp_path / "home" / ".cache" / "fbplan" / "baselines" / "medium" / "seed0"
-    assert (target / "params.pkl").exists()
+    assert (target / "high_actor.pkl").exists()
 
 
-def test_download_trained_refuses_an_asset_with_a_wrong_hash(release, tmp_path):
-    release.assets[f"{RELEASE}/baselines-medium-seed0-params.pkl"] = b"changed"
+def test_download_trained_follows_the_env_variable_of_the_kind(release, monkeypatch, tmp_path):
+    monkeypatch.setenv("FBPLAN_BASELINE_DIR", str(tmp_path / "models"))
 
-    with pytest.raises(ValueError, match="sha256"):
-        frozen.download_trained(TRAINED_KEY, tmp_path / "ckpt")
-    assert sorted(p.name for p in (tmp_path / "ckpt").iterdir()) == ["flags.json"]
+    assert frozen.download_trained(TRAINED_KEY) == tmp_path / "models" / "medium" / "seed0"
 
 
-def test_download_trained_checks_present_files_without_the_network(release, tmp_path):
-    target = frozen.download_trained(TRAINED_KEY, tmp_path / "ckpt")
+def test_download_trained_refuses_an_asset_with_a_wrong_hash(release):
+    url = f"{RELEASE}/baselines-medium-seed0-high_actor.pkl"
+    release.assets[url] = b"changed"
+
+    with pytest.raises(ValueError, match=re.escape(f"{url}: sha256")):
+        frozen.download_trained(TRAINED_KEY)
+    assert [p.name for p in frozen.trained_dir(TRAINED_KEY).iterdir()] == ["flags.json"]
+
+
+def test_download_trained_checks_present_files_without_the_network(release):
+    target = frozen.download_trained(TRAINED_KEY)
     release.requested.clear()
 
-    frozen.download_trained(TRAINED_KEY, target)
+    frozen.download_trained(TRAINED_KEY)
     assert release.requested == []
 
     (target / "flags.json").write_text('{"seed": 1}')
     with pytest.raises(ValueError, match="sha256"):
-        frozen.download_trained(TRAINED_KEY, target)
+        frozen.download_trained(TRAINED_KEY)
 
 
 def test_download_trained_refuses_an_unpublished_checkpoint(release):
     with pytest.raises(ValueError, match="baselines/medium/seed9 is not published"):
         frozen.download_trained("baselines/medium/seed9")
+
+
+def test_the_retrained_baselines_are_published_with_complete_entries():
+    baselines = {f"baselines/{maze}/seed{k}" for maze in ("medium", "large") for k in range(5)}
+
+    assert baselines <= frozen._TRAINED_FILES.keys()
+    for key, files in frozen._TRAINED_FILES.items():
+        frozen.trained_dir(key)  # raises for a malformed key
+        assert "flags.json" in files, key
+        for tag, sha256 in files.values():
+            assert tag and re.fullmatch("[0-9a-f]{64}", sha256), key
+    for key in baselines:
+        assert set(frozen._TRAINED_FILES[key]) == {"flags.json", frozen.HIGH_ACTOR_FILE}
 
 
 def test_concurrent_downloads_of_one_file_give_the_complete_file(monkeypatch, tmp_path):
@@ -222,14 +305,12 @@ def test_concurrent_downloads_of_one_file_give_the_complete_file(monkeypatch, tm
     assert [p.name for p in tmp_path.iterdir()] == ["params.pkl"]
 
 
-def test_cli_with_trained_downloads_the_frozen_and_the_trained_checkpoints(
-    release, monkeypatch, tmp_path
-):
-    frozen_assets = {
+def _serve_a_frozen_checkpoint(release, monkeypatch, tmp_path) -> None:
+    """A fake medium checkpoint on the fake server, downloaded to tmp_path / "frozen"."""
+    release.assets |= {
         frozen._DRIVE_URL.format("flags-id"): b"{}",
         frozen._DRIVE_URL.format("params-id"): b"params",
     }
-    release.assets |= frozen_assets
     monkeypatch.setattr(
         frozen,
         "_CHECKPOINT_FILES",
@@ -242,11 +323,139 @@ def test_cli_with_trained_downloads_the_frozen_and_the_trained_checkpoints(
     )
     monkeypatch.setenv("FBPLAN_CKPT_DIR", str(tmp_path / "frozen"))
 
+
+def test_cli_with_trained_downloads_the_frozen_and_the_trained_checkpoints(
+    release, monkeypatch, tmp_path
+):
+    _serve_a_frozen_checkpoint(release, monkeypatch, tmp_path)
+
     frozen.main(["--trained", MEDIUM])
 
     assert (tmp_path / "frozen" / "medium" / "params.pkl").read_bytes() == b"params"
     trained = tmp_path / "home" / ".cache" / "fbplan" / TRAINED_KEY
-    assert sorted(p.name for p in trained.iterdir()) == ["flags.json", "params.pkl"]
+    assert sorted(p.name for p in trained.iterdir()) == ["flags.json", "high_actor.pkl"]
+
+
+def test_cli_help_exits_without_an_error(capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        frozen.main(["--help"])
+
+    assert exit_info.value.code == 0
+    assert "--datasets" in capsys.readouterr().out
+
+
+def test_cli_refuses_an_unknown_env_with_a_usage_error(capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        frozen.main(["antmaze-medium-stitch-v0"])
+
+    assert exit_info.value.code == 2
+    assert "antmaze-medium-stitch-v0" in capsys.readouterr().err
+
+
+def test_cli_datasets_downloads_both_splits_of_each_env(release, monkeypatch, tmp_path):
+    for split in ("train", "val"):
+        name = frozen.dataset_path(MEDIUM, split).name
+        release.assets[f"{frozen.ogbench.utils.DATASET_URL}/{name}"] = split.encode()
+    _serve_a_frozen_checkpoint(release, monkeypatch, tmp_path)
+
+    frozen.main([MEDIUM, "--datasets", MEDIUM])
+
+    for split in ("train", "val"):
+        assert frozen.dataset_path(MEDIUM, split).read_bytes() == split.encode()
+    assert frozen.dataset_path(MEDIUM, "val").is_relative_to(tmp_path / "home")
+
+
+def _with_new_high_actor(agent):
+    """The agent with pi_h weights + 1: a stand-in for a retrained pi_h."""
+    params = flax.core.unfreeze(agent.network.params)
+    params["modules_high_actor"] = jax.tree_util.tree_map(
+        lambda x: x + 1.0, params["modules_high_actor"]
+    )
+    return agent.replace(network=agent.network.replace(params=params))
+
+
+def _trained_flags(env_name: str) -> dict:
+    """Smallest flags.json: load_trained_model reads only env_name."""
+    return {"env_name": f"ogbench-{env_name}", "seed": 7}
+
+
+def test_trained_checkpoint_round_trip_keeps_the_frozen_modules(model, monkeypatch, tmp_path):
+    monkeypatch.setenv("FBPLAN_BASELINE_DIR", str(tmp_path))
+    trained = _with_new_high_actor(model.agent)
+
+    frozen.save_trained_checkpoint(trained, _trained_flags(MEDIUM), tmp_path / "medium" / "seed7")
+    loaded = frozen.load_trained_model(MEDIUM, "baselines/medium/seed7")
+
+    assert sorted(p.name for p in (tmp_path / "medium" / "seed7").iterdir()) == [
+        "flags.json",
+        "high_actor.pkl",
+    ]
+    for name, expected in trained.network.params.items():
+        for a, b in zip(
+            jax.tree_util.tree_leaves(loaded.agent.network.params[name]),
+            jax.tree_util.tree_leaves(expected),
+            strict=True,
+        ):
+            np.testing.assert_array_equal(np.asarray(a), np.asarray(b), err_msg=name)
+
+
+def test_load_trained_model_downloads_a_missing_checkpoint(model, monkeypatch, tmp_path):
+    staging = tmp_path / "staging"
+    frozen.save_trained_checkpoint(
+        _with_new_high_actor(model.agent), _trained_flags(MEDIUM), staging
+    )
+    assets = {
+        f"{RELEASE}/baselines-medium-seed7-{p.name}": p.read_bytes() for p in staging.iterdir()
+    }
+    monkeypatch.setattr(
+        frozen, "_TRAINED_FILES", {"baselines/medium/seed7": _pin(assets, "trained-test")}
+    )
+    monkeypatch.setattr(urllib.request, "urlopen", FakeServer(assets).urlopen)
+    monkeypatch.setenv("FBPLAN_BASELINE_DIR", str(tmp_path / "models"))
+
+    loaded = frozen.load_trained_model(MEDIUM, "baselines/medium/seed7")
+
+    assert (tmp_path / "models" / "medium" / "seed7" / "high_actor.pkl").exists()
+    assert not np.allclose(
+        np.asarray(loaded.high_latent(np.zeros((1, OBS_DIM)), np.ones((1, LATENT_DIM)))),
+        np.asarray(model.high_latent(np.zeros((1, OBS_DIM)), np.ones((1, LATENT_DIM)))),
+    )
+
+
+def test_load_trained_model_refuses_a_checkpoint_of_another_env(model, monkeypatch, tmp_path):
+    monkeypatch.setenv("FBPLAN_BASELINE_DIR", str(tmp_path))
+    flags = _trained_flags("antmaze-large-navigate-v0")
+    frozen.save_trained_checkpoint(model.agent, flags, tmp_path / "medium" / "seed7")
+
+    with pytest.raises(ValueError, match="antmaze-large-navigate-v0"):
+        frozen.load_trained_model(MEDIUM, "baselines/medium/seed7")
+
+
+def test_example_batch_has_the_sizes_of_the_saved_weights(model):
+    batch = frozen.example_batch(model.agent.network.params)
+
+    assert batch["observations"].shape == (1, OBS_DIM)
+    assert batch["actions"].shape == (1, ACT_DIM)
+
+
+def test_forward_of_the_agent_is_the_model_forward(model, observations, latents):
+    """Equal up to float32 rounding: XLA fuses the jitted method differently (about 3e-6)."""
+    np.testing.assert_allclose(
+        np.asarray(frozen.forward(model.agent, observations, latents)),
+        np.asarray(model.forward(observations, latents)),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+
+def test_model_puts_a_host_agent_on_the_device(model):
+    state = frozen.load_numpy_pickle(frozen.checkpoint_dir(MEDIUM) / "params.pkl")["agent"]
+    host_agent = flax.serialization.from_state_dict(model.agent, state)
+    assert any(isinstance(x, np.ndarray) for x in jax.tree_util.tree_leaves(host_agent))
+
+    on_device = frozen.FrozenFBModel(MEDIUM, host_agent).agent
+
+    assert all(isinstance(x, jax.Array) for x in jax.tree_util.tree_leaves(on_device))
 
 
 def test_restored_parameters_equal_the_checkpoint_arrays(model):
@@ -256,7 +465,7 @@ def test_restored_parameters_equal_the_checkpoint_arrays(model):
     restored = jax.tree_util.tree_leaves_with_path(model.agent.network.params)
     expected = dict(jax.tree_util.tree_leaves_with_path(saved_params))
 
-    assert len(restored) == len(expected) == 36
+    assert {path for path, _ in restored} == set(expected)
     for path, leaf in restored:
         np.testing.assert_array_equal(np.asarray(leaf), expected[path])
 
@@ -290,19 +499,26 @@ def test_policy_outputs_have_contract_shapes_and_ranges(model, observations, lat
     np.testing.assert_allclose(np.linalg.norm(intentions, axis=-1), np.sqrt(LATENT_DIM), rtol=1e-5)
 
 
-def test_rho_of_a_state_to_itself_is_one(model, observations):
-    """rho(w, w) = F(w, z_w)^T B(w) / F(w, z_w)^T B(w) with z_w = B(w).
-
-    Numerator and denominator come from calls with a different batch order, so the test also
-    checks that the result for one row does not depend on the other rows of the batch.
-    """
+def test_forward_and_backward_of_a_row_do_not_depend_on_the_other_rows(model, observations):
+    """The planner divides F(s, z_w)^T B(w) values from different batches (rho), so a row's
+    output must not depend on the batch it is in."""
     b = np.asarray(model.backward(observations))
-    rev = slice(None, None, -1)
-    num = np.sum(np.asarray(model.forward(observations, b)) * b, axis=-1)
-    den = np.sum(np.asarray(model.forward(observations[rev], b[rev])) * b[rev], axis=-1)[:, rev]
+    order = np.random.default_rng(0).permutation(len(observations))
 
-    assert np.all(den > 0), "self successor measure F(w, z_w)^T B(w) must be positive"
-    np.testing.assert_allclose(num / den, 1.0, rtol=1e-4)
+    np.testing.assert_allclose(np.asarray(model.backward(observations[order])), b[order], rtol=1e-6)
+    np.testing.assert_allclose(
+        np.asarray(model.forward(observations[order], b[order])),
+        np.asarray(model.forward(observations, b))[:, order],
+        rtol=1e-5,
+        atol=1e-6,
+    )
+
+
+def test_self_successor_measure_is_positive(model, observations):
+    """F(w, z_w)^T B(w) with z_w = B(w) is the denominator of rho(s, w)."""
+    b = np.asarray(model.backward(observations))
+
+    assert np.all(np.sum(np.asarray(model.forward(observations, b)) * b, axis=-1) > 0)
 
 
 def test_forward_ignores_the_scale_of_z(model, observations, latents):
@@ -314,36 +530,12 @@ def test_forward_ignores_the_scale_of_z(model, observations, latents):
             np.testing.assert_allclose(scaled, reference, rtol=1e-4, atol=1e-4)
 
 
-def test_low_action_is_deterministic_at_zero_temperature(model, observations, latents):
-    without_seed = np.asarray(model.low_action(observations, latents))
-    for seed in (1, 2):
-        with_seed = model.low_action(observations, latents, 0.0, jax.random.PRNGKey(seed))
-        np.testing.assert_array_equal(np.asarray(with_seed), without_seed)
-
-
-def test_sampling_follows_the_seed(model, observations, latents):
-    def sample(seed: int) -> np.ndarray:
-        return np.asarray(model.low_action(observations, latents, 1.0, jax.random.PRNGKey(seed)))
-
-    np.testing.assert_array_equal(sample(0), sample(0))
-    assert not np.allclose(sample(0), sample(1))
-
-
-def test_sampling_without_a_seed_is_an_error(model, observations, latents):
-    with pytest.raises(ValueError, match="seed"):
-        model.low_action(observations, latents, temperature=1.0)
-    with pytest.raises(ValueError, match="seed"):
-        model.high_latent(observations, latents, temperature=1.0)
-
-
 def test_baseline_policy_matches_upstream_sample_actions(model, observations):
-    """pi_l(s, pi_h(s, z_r)) at temperature 0 equals upstream FBpiSwitchAgent.sample_actions.
+    """pi_l(s, pi_h(s, z_r)) equals upstream FBpiSwitchAgent.sample_actions at temperature 0.
 
-    The test uses a z_r of norm sqrt(d). Upstream passes z_r to pi_h without normalizing it,
-    and the real z_r is a little shorter (see the task latent test), so with the real z_r the
-    two paths differ slightly: high_latent normalizes every input, as the contract says.
-    Both paths use full float32 matmuls: on an Ampere GPU the default (TF32) gives errors of
-    about 1.6e-3.
+    With a z_r of norm sqrt(d): for the real z_r the two paths differ on purpose (see
+    FrozenFBModel.infer_task_latent). Both paths use full float32 matmuls: on an Ampere GPU the
+    default (TF32) gives errors of about 1.6e-3.
     """
     z_r = normalize_z(np.random.default_rng(1).normal(size=LATENT_DIM), LATENT_DIM)
     z_r = z_r.astype(np.float32)
@@ -373,9 +565,7 @@ def test_infer_task_latent_is_stable_across_calls(model):
 
 def test_task_latent_points_along_the_sum_of_b_over_goal_states(model):
     """z_r = normalize_z(mean(r * B(s))) with r = 1 within the goal radius of the first 100k
-    validation states. Its norm is a little below sqrt(d): upstream averages twice (uniform
-    softmax weights 1/n, then a mean), so the raw vector is tiny and the 1e-8 of normalize_z
-    is not negligible. Only the direction is checked here."""
+    validation states. Its norm is below sqrt(d), see FrozenFBModel.infer_task_latent."""
     _skip_without_dataset(MEDIUM, "val")
     env = frozen.make_env(MEDIUM)
     env.reset(options={"task_id": 1})
@@ -390,7 +580,8 @@ def test_task_latent_points_along_the_sum_of_b_over_goal_states(model):
     cosine = expected @ z_r / (np.linalg.norm(expected) * np.linalg.norm(z_r))
     assert len(goal_obs) > 0
     np.testing.assert_allclose(cosine, 1.0, rtol=1e-5)
-    assert np.linalg.norm(z_r) <= np.sqrt(LATENT_DIM)
+    # The upstream value (0.98 sqrt(d) for this task), neither the raw 1e-7 nor exactly sqrt(d).
+    assert 0.75 < np.linalg.norm(z_r) / np.sqrt(LATENT_DIM) < 0.99
 
 
 def test_task_latents_differ_between_tasks(model):
@@ -401,11 +592,13 @@ def test_task_latents_differ_between_tasks(model):
 
 def test_make_env_gives_the_upstream_eval_env():
     env = frozen.make_env(MEDIUM)
-    ob, info = env.reset(seed=0, options={"task_id": 1})
     maze = env.unwrapped
+    for seed in (0, 1):  # goal noise is off: every reset puts the goal at the task's cell centre
+        ob, info = env.reset(seed=seed, options={"task_id": 1})
+        np.testing.assert_array_equal(
+            maze.cur_goal_xy, maze.ij_to_xy(maze.task_infos[0]["goal_ij"])
+        )
 
-    assert maze._add_noise_to_goal is False
-    np.testing.assert_array_equal(maze.cur_goal_xy, maze.ij_to_xy(maze.task_infos[0]["goal_ij"]))
     assert ob.shape == (OBS_DIM,) and info["goal"].shape == (OBS_DIM,)
     assert env.action_space.shape == (ACT_DIM,)
     assert env.spec.max_episode_steps == 1000

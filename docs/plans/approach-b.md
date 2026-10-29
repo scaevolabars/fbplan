@@ -125,7 +125,7 @@ so we compare the spread of `α·A` with the upstream run before training (logge
 The variants are in §3: B-clean (only the critic changes), B-wide, B-region.
 
 The checkpoint has the layout of a provided one (`params.pkl` with a new `modules_high_actor`),
-so d-eval evaluates it with the baseline controller, loaded as `train_high.load_baseline_model`
+so d-eval evaluates it with the baseline controller, loaded as `fbplan.learned.checkpoint.load_baseline_model`
 loads a retrained baseline.
 
 ## 5. Guards against error growth over hops

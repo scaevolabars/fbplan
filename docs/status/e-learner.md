@@ -75,6 +75,58 @@
   `ρ_max ∈ {0.9, 1.0}` tests it. Exact `R` is noisy (10–90 %: −8.8 to +29), which supports
   `R = 0` for goals. One-hop gain with `R = 0` is positive on 26 % of pairs.
 
+- First review (g-release, E1-E14, X3, X9, X12) and a-frozen's 3 requests: done, see
+  "Review findings" below. Refactor check: short CPU runs of every training command give
+  bit-identical parameters before (f1ae57d) and after (2ec73f9); only the logged `adv`,
+  `adv_std` and `saturated` of the policy stage change (E6).
+- Trained-modules format (a-frozen requests 1-3): `high_actor.pkl` (2.69 MB) + `flags.json` with
+  paths relative to `~/.cache/fbplan`; loaders call `frozen.download_trained` for a missing file.
+  Exported: medium and large baselines seeds 0-4, approach B `value-single` seeds 0-4. For each
+  medium seed, the loaded `pi_h` and frozen modules equal the old full state bit for bit.
+- Large baseline seeds 0-4 trained (16:11-17:55 on 58234389, code a189a49), pulled, exported.
+- `value-single` seeds 0-4 trained (16:20-18:10, code a189a49), pulled, exported. Check of V_H
+  against the maze geodesic (300 x 300 validation pairs, all 5 seeds agree):
+  - long range: median V_1 at 20-24 xy units 7.7, V_H 16.3; 91 % of these pairs gain > 1.
+    V_H falls from 53 to 13 over the maze, V_1 from 53 to 3.7 (the expected shape);
+  - ordering: the rank correlation with distance is not better. Pooled: V_1 -0.59, V_H
+    -0.55; far half: both -0.35. Per goal (mean over 300 goals): V_1 -0.61, V_H -0.56 to -0.57,
+    V_H better for 13-17 % of goals only. So the gain lifts far values but does not point the
+    way better. Likely cause: the 0.9 expectile over noisy targets also collects noise (plan §2,
+    "a max over w collects the noise"). The policy runs, then their evaluation, test whether it
+    matters for control; candidate fixes after that: expectile 0.7, rho_cap 1.0 (planned
+    ablations, now with their own folders).
+  Commands (CPU, after pull and export):
+  `uv run python -m fbplan.learned.diagnostics --env antmaze-medium-navigate-v0 --value value-single --seeds 0 1 2 3 4`;
+  the per-goal numbers came from the same functions in a scratch script (not committed).
+
+## Review findings, first pass (E1-E14, X3, X9, X12)
+
+| Item | What I did |
+|---|---|
+| E1 M | `VAST_LABEL` is required, no default; comments name no account, person or tab |
+| E2 M | `value.switch_target` is a pure function; a test iterates it with a hop cost and a valid mask and matches graph value iteration (`tests/test_learned_option_targets.py`) |
+| E3 M | one formula `ValueState.value(v1, s, z)`; stage 2 and the diagnostic use it |
+| E4 M | one `SAMPLER_STREAM` and `Agent`; folders, writer, reader, example batch and `forward` come from `fbplan.frozen` (a-frozen's X8/X9 helpers, adopted in the second pass). Batched B waits for c-planner (X4, marked TODO) |
+| E5 M | raw network output `delta`, `gain = softplus(delta)`, `delta_network` |
+| E6 S | logged `adv`, `adv_std`, `saturated` count valid edges only |
+| E7 S | `value --name`, `policy --name/--value-name`; defaults keep the main folders; test |
+| E8 S | `loop.scan_updates`, used by train_high and both B stages |
+| E9 S | `Split` is a pytree, `Stage` one static config; `train_policy` split into helpers |
+| E10 S | help texts; choices from the `Literal` types; `train_high --out` is now `--out-dir` (X11) |
+| E11 S | docstrings on the listed functions and classes |
+| E12 S | `jq` listed; `push`/`pull` use `FBPLAN_CKPT_DIR`, `FBPLAN_BASELINE_DIR`, `FBPLAN_APPROACH_B_DIR` |
+| E13 S | formula test removed; `advantage_stds` and `calibrate_alpha` tested against direct computations |
+| E14 N | `run_seeds.sh` is 100755 in git; comment reworded; tests pass separate arrays |
+| X3 | B's cap is `rho_cap` (CLI `--rho-cap`); exported flags rename `rho_max` |
+| X4 (mine) | `region_latents` in `learned/sampling.py` is now `trajectory_window_latents` |
+| X9, X12 | `fbplan.frozen` writes and reads `high_actor.pkl` (`save_trained_checkpoint`, `load_trained_model`); my code keeps only keys, the fresh `pi_h`, `V_H` files and export in `fbplan/learned/checkpoint.py`; `fbplan.learned` no longer imports `train_high` |
+| X14 | my real-checkpoint tests use the session fixtures `medium_model` and `medium_val` of `tests/conftest.py` |
+
+Temporary, until d-eval switches (request 1): `train_high.load_baseline_model`,
+`train_high.baseline_dir` and `train_b.load_b_model` stay importable there. Bug fixed (found by a-frozen, 2637e0f): the loader
+called `download_trained(key, folder)`; the test now runs the real downloader with a fake
+`urlopen`. After adopting a-frozen's helpers, short runs are again bit-identical to the reference.
+
 ## GPU time and cost
 
 vast.ai, a shared team account, label `fbplan-gpu`. Times in MSK, 2026-10-29.
@@ -93,7 +145,34 @@ What ran on 58234389:
 | 15:20 | 15:41 | push of B1 code, 271 tests on the instance (2 GPU-only failures, below) |
 | 15:45 | 16:11 | push of the self-loop fix (code a189a49), 271 of 272 tests pass (c-planner's GPU one fails) |
 | 16:11 | 16:18 | stage 1 as 15 runs: large baselines + value-single + value-region. GPU out of memory: a B run holds 2.5 GB (large baseline 0.86 GB), 15 runs need 29.6 GB of 24. 5 value runs crashed; I stopped all 10 value runs, kept the large ones, moved the logs to `runs/oom-attempt-1611/` |
-| 16:20 | | large baselines (since 16:11) + value-single seeds 0-4 (10 runs, 17 GB). Queue `queue-b1` then runs, one group of 5 at a time: value-region, policy clean, wide, region (two B groups need 25.2 GB) |
+| 16:20 | 18:10 | large baselines (16:11-17:55) + value-single seeds 0-4 (10 runs, 17 GB). Queue `queue-b1` then runs, one group of 5 at a time: value-region, policy clean, wide, region (two B groups need 25.2 GB) |
+| 18:10 | | value-region seeds 0-4 (queue-b1) |
+| 18:58 | | ablations approved (coordinator for the user): queue `runs/queue-ablations.sh` (below) holds queue-b1, then runs value expectile 0.7, resumes queue-b1 (policy clean, wide, region), then value rho cap 1.0 |
+
+The ablation queue. The instance runs code a189a49, which has no `--name`; each ablation writes
+below its own `FBPLAN_APPROACH_B_DIR` root, so it cannot replace `value-single`. queue-b1 is a
+tmux pane, and tmux resumes a stopped pane, so the queue stops the tmux server too (its training
+processes write to files and keep running; checked). Started with
+`setsid nohup bash runs/queue-ablations.sh > runs/queue-ablations.log 2>&1 < /dev/null &`:
+
+```
+Q=37429 T=24127   # queue-b1 shell, tmux server
+kill -STOP $T; kill -STOP $Q
+while pgrep -f "python -m fbplan[.]learned[.]train_b value"; do sleep 60; done
+FBPLAN_APPROACH_B_DIR=~/.cache/fbplan/approach_b/ablations/expectile0.7 bash scripts/gpu/run_seeds.sh \
+  runs/train_b/medium/value-single-expectile0.7 "0 1 2 3 4" fbplan.learned.train_b value \
+  --env antmaze-medium-navigate-v0 --latents single --expectile 0.7
+kill -CONT $Q; kill -CONT $T
+while kill -0 $Q; do sleep 60; done
+FBPLAN_APPROACH_B_DIR=~/.cache/fbplan/approach_b/ablations/rhocap1.0 bash scripts/gpu/run_seeds.sh \
+  runs/train_b/medium/value-single-rhocap1.0 "0 1 2 3 4" fbplan.learned.train_b value \
+  --env antmaze-medium-navigate-v0 --latents single --rho-max 1.0
+```
+
+Same runs with the current code (bit-identical, see the refactor check), per seed k:
+`uv run python -m fbplan.learned.train_b value --env antmaze-medium-navigate-v0 --seed k --latents single --expectile 0.7 --name value-single-expectile0.7`
+and `... --rho-cap 1.0 --name value-single-rhocap1.0`. After the pull, the folders move to
+`approach_b/medium/value-single-expectile0.7/` and `.../value-single-rhocap1.0/` and are exported.
 
 Launch details (not in a script, so recorded here): every B group runs as
 `env XLA_PYTHON_CLIENT_ALLOCATOR=platform bash scripts/gpu/run_seeds.sh runs/train_b/medium/<name>
@@ -102,24 +181,44 @@ The allocator setting changes memory handling only. It did not lower the 2.5 GB,
 
 ## Next
 
-- Ask the user about the next GPU jobs (large baselines, B1 medium) or destroy instance 58234389.
-- B1 GPU runs on medium (ask the user first): `value --latents single` seeds 0-4, then
-  `policy --variant clean` and `wide`, then the region pair.
+- Queue on 58234389 (approved jobs): value-region (running since 18:10), value expectile 0.7,
+  policy clean, wide, region, value rho cap 1.0; one group of 5 seeds each, about 55 min per
+  group, end about 00:30 MSK. Then pull, export, destroy the instance; record the cost.
+- After each value ablation: the geodesic check against V_1. If expectile 0.7 orders states
+  clearly better than V_1, propose a clean policy run on it and ask the user first.
+- Evaluation of the B variants by `fbplan.evaluate --checkpoint` (d-eval).
+- Switch to the shared helpers when they are public (requests 2 and 4).
 
 ## Blockers
 
-- None for Phase 1. Approach B waits for the user's approval of the plan.
+- None.
 
 ## Requests to the coordinator
 
-For a-frozen (`fbplan/frozen.py`). Updated after reading a-frozen's work in progress:
+For d-eval:
 
-1. Done without a change in a-frozen: `train_high` uses `load_model(env).agent`, and
-   `fbplan.train_high.load_baseline_model(env, seed)` gives d-eval an `FBModel` with a retrained
-   `π_h`. This needs `FrozenFBModel` and `load_numpy_pickle` to stay public.
-2. Done on main: `upstream_module`. My tests use it; no `sys.path` changes left.
-3. `load_dataset(...)["terminals"]` = 1 at the last state of each trajectory (non-compact OGBench
-   layout), as upstream `GCDataset` expects. (Checked on medium: 1000 trajectories of 1000 steps, every end marked.)
+1. Load trained models with `fbplan.frozen.load_trained_model(env, key)`, key from
+   `fbplan.learned.checkpoint.trained_key` (or `load_baseline_model` / `load_b_model` there),
+   in `fbplan/evaluate.py`, and `fbplan.learned.checkpoint.trained_dir(...) / "high_actor.pkl"`
+   in `tests/test_evaluate.py`. Then I remove `train_high.load_baseline_model`,
+   `train_high.baseline_dir` and `train_b.load_b_model`.
+
+For a-frozen:
+
+2. Done: `forward`, `example_batch`, `save_numpy_pickle`, `maze_name`, `trained_dir`,
+   `save_trained_checkpoint`, `load_trained_model` are public, and my code uses them.
+3. Ready to publish now: `~/.cache/fbplan/baselines/{medium,large}/seed{0..4}/` with
+   `high_actor.pkl` and `flags.json` (keys `baselines/<maze>/seed<k>`; `params.pkl` there is the
+   old full state, not for upload). Approach B folders follow after the queue.
+
+For c-planner:
+
+4. A public batched-B helper (review X4); `train_b.latent_table` will use it.
+
+For g-release:
+
+5. Optional (X14): a fixture for a small upstream agent in `tests/conftest.py`; three of my test
+   files build one each. The real-model fixtures are in use.
 
 For the coordinator: on the GPU (full float32 precision) c-planner's
 `test_planner_with_region_latents_solves_every_task_of_the_exact_tabular_maze` solved 13 of 15

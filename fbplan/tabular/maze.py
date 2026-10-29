@@ -164,7 +164,12 @@ class GridMaze:
         return np.array([ij[1] * MAZE_UNIT - _OFFSET, ij[0] * MAZE_UNIT - _OFFSET])
 
     def centre_state(self, ij: tuple[int, int]) -> int:
-        """The state of maze cell `ij` that contains its centre (lower-left of the 4 for even k)."""
+        """The state of maze cell `ij` at its centre.
+
+        For odd k it is the state that contains the centre. For even k the centre is the shared
+        corner of 4 states; this is the one on the +x, +y side (the centre is its lower-left
+        corner).
+        """
         k = self.resolution
         return int(self._state_of_fine[ij[0] * k + k // 2, ij[1] * k + k // 2])
 

@@ -215,6 +215,24 @@ for tuning), 300 landmarks from the train split:
 - The planner is far below the baseline on this set (68 against 92). The landmark set also moves
   it by several points (see "After the merge").
 
+## CI fix: ties between options (2026-10-29)
+
+CI (ubuntu-24.04, x86_64) failed `test_planner_with_region_latents_solves_every_task_of_the_exact_tabular_maze`
+with 13 of 15; it passed on macOS arm64. Cause: exact ties. With region latents, rho to a region
+counts the hit one step before w, so in the exact tabular maze a landmark behind the agent can
+have exactly the same Q as one ahead (task 2 at (13, 13): Q = 2.1523… for both). `argmax` then
+followed the last bits, which depend on the CPU and BLAS build; on x86 the agent turned back and
+forth between two cells for 200 steps. Reproduced in Docker (linux/amd64: 11/15) and on the Mac
+by perturbing F by 1e-12 (13/15 for 4 of 5 seeds).
+
+Fix (`graph.best_options`, used by value iteration and the controller): Q values within 1e-9
+relative are ties; the task policy wins a tie with the landmarks (as before, now with a
+tolerance), and among tied landmarks the one with the largest V_H wins (the most progress),
+then the lowest index. The look-ahead moves on at a tie. The region test now also runs with F
+perturbed by 1e-12 (5 cases); all pass on the Mac and on linux/amd64 (Docker). On the real
+model the rule changes nothing: eval seed 0 of `results/medium/planner/l0.csv` rerun with the
+fix gives identical records (250 of 250).
+
 ## Time-boxed fixes: near-goal circling and route switching (2026-10-29)
 
 Approved by the user through the coordinator: about 3 hours, tuning only on my own dev
