@@ -1,8 +1,9 @@
 # Report: planning over sequences of intentions with frozen FB representations
 
 Status: draft. Sections 2–6 and the medium results of approach A are complete. Sections and table
-rows marked *(pending)* wait for final runs. Notation: `docs/design.md` §3. Every number names the
-committed file it comes from. pp = percentage points; CI = 95 % confidence interval.
+rows marked *(pending)* wait for final runs. Notation: `docs/design.md` §3; names that differ
+between the report and the code: Appendix. Every number names the committed file it comes from.
+pp = percentage points; CI = 95 % confidence interval.
 
 ## 1. Summary *(pending)*
 
@@ -196,7 +197,7 @@ gives `B(w*)` to `π_h` as its task; `replan_every_step` drops the commitment.
 |---|---|---|
 | `R̂ = 0` for goal reaching | `R̂` is a difference of two noisy values, and the max collects its noise | tabular §3.1 (0.28 → 1.00 with exact `π_l`); medium ablation *(pending)* |
 | raw `ρ̂ ≥ 1` is untrusted | `ρ ≤ γ < 1` for `u ≠ w` (§3), so `ρ̂ ≥ 1` is an FB error and a free hop | theory; medium ablation *(pending)* |
-| xy cap of 6 units | wormholes survive any `ρ_min` (§8.3). The maze distance is never shorter than the xy distance, so the cap removes only edges that are long in every metric, and it limits a wormhole hop to 6 units | wormhole maps (§8.3); medium ablation *(pending)* |
+| xy cap of 6 units | wormholes survive any `ρ_min` (§8.3). The maze distance is never shorter than the xy distance, so the cap removes only edges that are long in every metric, and it limits a wormhole hop to 6 units | at `ρ_min` 0.3 it removes 42 % of the wormholes on medium and 64 % on large, all the long ones (§8.3); medium ablation *(pending)* |
 | min over the 2 F heads | pessimism against independent errors | tabular §3.1; lowers the AntMaze wormhole count by a fifth to a quarter (§8.3) |
 | commit until within 3 xy units, with look-ahead | commitment stops dithering between near-equal noisy plans. A rule `ρ̂ ≥ ρ_reached` often does not fire, because FB `ρ̂` near a waypoint stays below about 0.9 | tabular §3.1 (0.36 → 0.48); medium ablation *(pending)* |
 | single-state landmark latents | region latents make `ρ̂` higher and flatter, so it separates near and far landmarks less | 5 eval seeds × 3 landmark sets: region −12.3 pp, single-state −7.7 pp against the baseline (§7.1) |
@@ -452,26 +453,38 @@ exact maze distance; the min over the 2 heads (`analysis/calibration.py`):
   about 30 xy units, and the upper quartile reaches the cap from about 20 units. This is the regime
   in which chaining short edges can help, if the short edges are reliable.
 
-**Wormholes.** A wormhole is a trusted pair (`0.3 ≤ raw ρ̂ < 1`) whose FB distance is shorter than
-the time the ant needs to walk the maze distance at its top speed (99th percentile of the step
-length in the data). Counts from the figure titles (`results/figures/wormholes_*.png`):
+**Wormholes.** A wormhole is a trusted pair (`ρ_min ≤ raw ρ̂ < 1`) whose FB distance is shorter
+than the time the ant needs to walk the maze distance at its top speed (99th percentile of the
+step length in the data). This is not the tabular definition of §3.1 (Appendix). Counts for the
+400 states, min over heads (`results/calibration/wormholes_<env>_min.csv`):
 
-| Env | min over heads | mean over heads |
-|---|---|---|
-| medium | 3,385 (2.1 % of all pairs) | 4,289 |
-| large | 3,992 (2.5 % of all pairs) | 5,380 |
+| Env | `ρ_min` | trusted pairs | of which raw `ρ̂ ≥ 1` | wormholes (raw `ρ̂ < 1`) | share of trusted | within the xy cap of 6 |
+|---|---|---|---|---|---|---|
+| medium | 0.3 | 62,200 | 1,118 | 3,385 | 5.4 % | 1,965 |
+| medium | 0.5 | 28,962 | 1,118 | 3,353 | 11.6 % | 1,965 |
+| medium | 0.7 | 12,146 | 1,118 | 2,997 | 24.7 % | 1,965 |
+| large | 0.3 | 38,359 | 1,170 | 3,992 | 10.4 % | 1,420 |
+| large | 0.5 | 17,856 | 1,170 | 3,411 | 19.1 % | 1,420 |
+| large | 0.7 | 8,343 | 1,170 | 2,707 | 32.4 % | 1,420 |
 
 | Medium, 200 longest wormholes | Large, 200 longest wormholes |
 |---|---|
 | ![Wormholes on medium](results/figures/wormholes_antmaze-medium-navigate-v0_min.png) | ![Wormholes on large](results/figures/wormholes_antmaze-large-navigate-v0_min.png) |
 
-- Many wormholes cross the whole maze. A max over routes exploits exactly these pairs.
-- The min over the 2 heads lowers the count by only a fifth to a quarter (medium 4,289 → 3,385;
-  large 5,380 → 3,992). Most wormholes survive it, so most of these errors are shared by the
-  heads, as with the wall-blind low-rank features of the tabular study (§3.1, result 4), and
-  unlike independent noise.
-- A higher `ρ_min` does not remove them *(pending: counts per `ρ_min`)*. This is why A uses the xy
-  cap (§4).
+- **Many wormholes cross the whole maze** (longest: 28.1 xy units of maze distance on medium,
+  48.9 on large). A max over routes exploits exactly these pairs.
+- **A higher `ρ_min` does not remove them.** From `ρ_min` 0.3 to 0.7 the trusted pairs drop by
+  80 % on medium, but the wormholes drop by only 12 % (large: 78 % and 32 %). Their share of the
+  trusted pairs grows from 5.4 % to 24.7 % (large: 10.4 % to 32.4 %). The wormholes sit at high
+  `ρ̂`. This is why A uses an xy cap instead of a higher `ρ_min` (§4).
+- **The xy cap removes the long wormholes, not all of them.** It leaves 1,965 of 3,385 on medium
+  and 1,420 of 3,992 on large, all at most 6 xy units long, so a wormhole hop can no longer jump
+  across the maze. *(pending: whether the remaining ones cross a wall.)*
+- **The head min removes few.** With the mean over heads there are 4,289 (medium) and 5,380
+  (large) wormholes at `ρ_min` 0.3 (`results/calibration/wormholes_<env>_mean.csv`). The min
+  lowers the count by only a fifth to a quarter, so most of these errors are shared by the heads,
+  as with the wall-blind low-rank features of the tabular study (§3.1, result 4), and unlike
+  independent noise.
 - *Hypothesis:* in the maps, many wormholes meet at a few target states. A target-side error would
   explain this. `ρ̂(s,w)` divides by `F(w,z_w)ᵀB(w)`, so an underestimated denominator inflates
   `ρ̂` from every source at once. If this holds, a guard on the target (distrust landmarks with a
@@ -579,3 +592,42 @@ Next steps that the evidence suggests:
 
 Commands for every table and figure: `README.md`, section "Reproduce". The time-to-goal figure
 and table of §8.4: `uv run python analysis/report_figures.py`.
+
+## Appendix: notation and names in the code
+
+Symbols and parameters whose names differ between the report, approach A, approach B and the
+tabular code:
+
+| Report | Meaning | Approach A | Approach B | Tabular code |
+|---|---|---|---|---|
+| raw `ρ̂(s,w)`; `ρ̂` clipped | FB estimate of `E[γ^H]`; values use the clipped one | `OptionTable.rho_raw`; `.rho`, clipped to `[0, γ]` | `OptionTerms.rho_raw`; `.rho`, capped at 0.9 | `rho_hat` |
+| raw `ρ̂ < 1` (trust bound, A) | an edge with raw `ρ̂ ≥ 1` is untrusted | `PlannerConfig.rho_max = 1.0` | samples with raw `ρ̂ ≥ 1` are dropped (`OptionTerms.valid`) | – |
+| `ρ ≤ 0.9` (value cap, B) | cap on `ρ` in the targets: a 0.9-contraction | – | `OptionConfig.rho_max = 0.9` | – |
+| `ρ_min` | lower trust bound | `PlannerConfig.rho_min = 0.3` | – | `PlannerConfig.rho_min` (0.4 in the guarded planner) |
+| exact `R` | `F(s,z_w)ᵀz_r − ρ·F(w,z_w)ᵀz_r` | `edge_reward="exact"` | `edge_reward="exact"`; also Gaussian latents under the default `"goal_zero"` | `reward="full"` ("R=full"); `high_advantage="full"` |
+| the proxy | `R` without `−ρ·F(w,z_w)ᵀz_r`, as upstream `π_h` | `edge_reward="paper"` | `edge_reward="paper"` | `reward="proxy"`; `high_advantage="proxy"` |
+| `R̂ = 0` | goal reaching: shortest path on `−log ρ̂` | `edge_reward="zero"` (default) | `edge_reward="goal_zero"` (default): 0 for goal latents | `reward="zero"` ("R=zero", "chained R=0") |
+| `V_d(u) = F(u,z_r)ᵀz_r` | direct value: switch to the task policy now | `direct`, `OptionModel.direct_value` | `V_1(s,z)`, `direct_value`, for any latent `z` | `v_direct`, `v_d`; `v_final` is the value of the last policy of a chain |
+| `V_H(u)`, §3–4 | graph value over landmarks, for one task `z_r` | `graph.value_iteration` → `GraphSolution.values` | – | `v_graph`, `graph_value_iteration` |
+| `V_H(s,z)`, §5 | learned multi-switch value, any state and latent | – | `ValueState.value` = `V_1` + softplus(gain) | – |
+| `Δ_θ`, `Δ̄` | residual network of `V_H` and its EMA target | – | `gain_network`; `ValueState.gain` returns softplus(gain) per head | – |
+| wormhole, §8.3 | trusted pair, raw `ρ̂ < 1`, FB distance shorter than the walk at top speed | `analysis/calibration.py:wormhole_mask` | – | – |
+| wormhole, §3.1 | `ρ̂ > 2γ^d`, `d` = shortest path in steps (the true `ρ ≤ γ^d`) | – | – | `fbplan/tabular/study.py:wormhole_mask` |
+
+The two wormhole definitions both flag a `ρ̂` that the maze does not allow, but their counts are
+not comparable.
+
+Methods: name in the report, `--method` of `fbplan.evaluate`, and the `method` column of the CSV
+(the `Controller.name`):
+
+| Report | `--method` and options | CSV `method` | Results |
+|---|---|---|---|
+| baseline | `baseline` | `baseline` | `results/medium/baseline.csv` |
+| baseline_raw | `baseline_raw` | `baseline_raw` | `results/medium/baseline_raw.csv` |
+| non-hier | `nonhier` | `nonhier` | `results/medium/nonhier.csv` |
+| oracle | `oracle` | `oracle` | `results/medium/oracle.csv` |
+| planner | `planner --opt landmarks.seed=k` | `graph_planner` | `results/medium/planner/l<k>.csv` |
+| planner_high | `planner_high --opt landmarks.seed=k` | `graph_plus_high` | `results/medium/planner_high/l<k>.csv` |
+| planner, region latents | `planner --opt landmarks.latent=region landmarks.seed=k` | `graph_planner` (another `config_hash`) | `results/medium/planner_region/l<k>.csv` |
+| retrained baseline | `baseline --checkpoint retrained:<seed>` | `baseline`, `checkpoint_kind` = `retrained` | *(pending)* |
+| B-clean, B-wide, B-region | `baseline --checkpoint b:<variant>:<seed>` | `baseline`, `checkpoint_variant` = the variant | *(pending)* |
