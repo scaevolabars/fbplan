@@ -1,56 +1,465 @@
 # Report: planning over sequences of intentions with frozen FB representations
 
-Status: skeleton. Sections marked *(pending)* wait for final runs. Notation: `docs/design.md` §3.
+Status: draft. Sections 2–6 are complete. Sections and table rows marked *(pending)* wait for
+final runs. Notation: `docs/design.md` §3. Every number names the committed file it comes from.
+pp = percentage points; CI = 95 % confidence interval.
 
 ## 1. Summary *(pending)*
 
-The result first: success on `antmaze-medium-navigate-v0` of each method against the baseline,
-with the paired difference and its 95 % CI; then large, giant and teleport.
+Written last: success on `antmaze-medium-navigate-v0` of each method against the baseline, with
+the paired difference and its CI; then large, giant and teleport; then the main reason for each
+result.
 
 ## 2. Setting
 
-- Frozen: forward `F(s,z)` (2 heads), backward `B(s)`, low-level policy `π_l(a|s,z)` and the
-  baseline high-level policy `π_h(z|s,z_r)` of FB π-Switch (`third_party/ssm`, arXiv 2605.13207).
-- `π_h` picks one intention `z` at every step. Its training target looks one switch ahead:
-  "follow `π_{B(w)}` until `w`, then the task policy".
-- Constraints: no generative model of states or trajectories, no new environment interaction
-  for training, offline OGBench data only.
+**Task.** OGBench AntMaze navigation: a quadruped ant must reach a goal position in a maze.
+The main env is `antmaze-medium-navigate-v0`; large, giant and teleport (stochastic teleporters)
+are bonus envs. Each env has 5 evaluation tasks, each a start cell and a goal cell. An episode
+lasts at most 1000 steps and succeeds when the ant reaches the goal radius (OGBench's
+`info["success"]`).
+
+**Given and frozen.** One FB π-Switch checkpoint per env, training seed 0 (`third_party/ssm`,
+arXiv 2605.13207):
+
+| Module | Role | Detail |
+|---|---|---|
+| `B(s)` | backward representation | `d = 128`; latents are normalized to norm `√d` |
+| `F(s,z)` | forward representation | 2 ensemble heads; `F(s,z)ᵀB(s') ≈ M^{π_z}_s(s')` |
+| `π_l(a∣s,z)` | low-level policy | acts toward the intention `z` |
+| `π_h(z∣s,z_r)` | high-level policy, **the baseline** | picks a new intention at every step |
+
+The discount is γ = 0.99 (giant: 0.995). The task latent `z_r = mean(r·B(s))` over 100k relabeled
+validation states is a mean of `B` over the goal ball. Upstream gives this latent to `π_h`
+without normalizing it, and a double average in upstream `infer_latent` leaves its norm below
+`√d`. Our baseline normalizes it to `√d`, the norm that `π_h` saw in training (§6).
+
+**What the baseline already does.** `π_h` is trained with AWR on the proxy advantage
+
+```
+Â(s,w,z) = F(s,z_w)ᵀz + ρ(s,w)·F(w,z)ᵀz − F(s,z)ᵀz,     z_w = B(w)
+```
+
+for subgoals `w` on the trajectory of `s` at a geometric offset with mean `1/(1−γ) = 100` steps.
+So `π_h` looks **one switch** ahead: "follow `π_{z_w}` until `w`, then follow `π_z` forever".
+The proxy drops the term `−ρ(s,w)·F(w,z_w)ᵀz` of the paper's Eq. (5), on purpose (paper Sec. 6).
+At test time `π_h` re-selects at every step, so the executed behaviour does chain many switches,
+but each choice is valued as if it were the last switch.
+
+**Goal.** A high-level mechanism that values a **sequence** of intentions and beats `π_h` on long
+horizons. Constraints: no generative model of states or trajectories; no new environment
+interaction for training (offline OGBench data only); `F`, `B` and `π_l` stay frozen.
+
+**Two approaches.**
+
+- **A** (§4), no training: a graph over dataset landmarks whose edges are FB option models; value
+  iteration at test time; waypoint execution with `π_l`.
+- **B** (§5), offline training: a learned multi-switch value `V_H(s,z)` replaces the one-switch
+  value in the AWR advantage of `π_h`; the test-time controller stays the baseline's.
 
 ## 3. From one switch to a chain of switches
 
-Option model from FB, the chain formula by the strong Markov property, the graph Bellman
-equation over options, the γ-contraction for distinct landmarks, and the error bound for
-continuous states. Full derivation and the exact tabular checks: `docs/theory.md`.
+Derivations, assumptions and the exact checks: `docs/theory.md`. Each property below is checked
+to 1e-8 on exact tabular copies of the medium and teleport mazes (`tests/test_tabular_theory.py`).
+
+**Option model.** The option `o_w` is "follow `π_l(·∣s,z_w)` with `z_w = B(w)` fixed until `w` is
+hit"; `H` is the hitting time. With `M ≈ FᵀB`:
+
+```
+ρ(s,w) = E[γ^H]                  ≈ F(s,z_w)ᵀB(w) / F(w,z_w)ᵀB(w)
+R(s,w) = E[Σ_{t<H} γ^t r(s_t)]   ≈ F(s,z_w)ᵀz_r − ρ(s,w)·F(w,z_w)ᵀz_r
+```
+
+Both follow from the strong Markov property at `H` (`docs/theory.md` §2). Both are invariant to the
+scale of `B(w)`. For `s ≠ w`, `H ≥ 1`, so `ρ(s,w) ≤ γ`.
+
+**One switch** (paper, Theorem 1): `V(s; w → π) = R(s,w) + ρ(s,w)·V^π(w)`.
+
+**A chain.** At `H` the agent is exactly at `w`, so the switch formula applies again at `w`
+(Proposition 1, by induction):
+
+```
+V(s; w_1,…,w_k → π) = R(s,w_1) + ρ(s,w_1)·V(w_1; w_2,…,w_k → π)
+```
+
+**Graph Bellman equation** over a landmark set `L` (Proposition 2), with `V_d(u) = F(u,z_r)ᵀz_r`:
+
+```
+V_H(u) = max( V_d(u),  max_{w∈L, w≠u} R(u,w) + ρ(u,w)·V_H(w) )
+```
+
+| Property | Consequence for the methods |
+|---|---|
+| A self-loop (`ρ = 1`, `R = 0`) makes every larger `V_H(u)` a fixed point | exclude `w = u` |
+| Without self-loops `ρ ≤ γ`, so the operator is a γ-contraction | clip `ρ̂` to `[0, γ]` for `u ≠ w`; value iteration converges from any start |
+| `k` sweeps from `V_d` give the best chain of at most `k` switches | value iteration searches over chains, not over single switches |
+| Open-loop chains are optimal among option policies | a route of landmarks is enough |
+| If `π_{z_r}` is optimal, `V_H = V*` | **chaining can only help where FB values or `π_l(·∣s,z_r)` are inaccurate** |
+| Goal reaching: `R = 0` off the goal | `V_H` is a shortest path with edge cost `−log ρ(u,w)` |
+| With exact values, re-planning at every step is never worse than commitment (option interruption, Sutton, Precup and Singh 1999) | commitment is only a defence against noisy values |
+
+**Continuous states.** A single state is hit with probability 0. The option then ends on a ball
+around `w`, and the next option starts at the entry point, not at `w`. The chain formula becomes
+approximate. Its error grows with the number of hops and with the change of option values inside
+the ball (bound in `docs/theory.md` §7). So hops should be few and the reach radius small.
+
+**The dropped term in a chain.** The proxy values the time after `w` twice: in `F(s,z_w)ᵀz` and
+again in `ρ·V(w)`. For one switch this is one bias term. In a chain it repeats at every hop, and
+two neighbouring landmarks inside a rewarding region form a 2-cycle that the proxy values at
+`ρV/(1−ρ)`. On the tabular maze with region rewards and exact FB, the predicted value of the best
+chain is wrong by 111.8 with the proxy and by 0.0 with the exact `R`; a single switch with the
+proxy is wrong by 10.7 (`docs/figures/theory/study_reward.csv`). So the proxy must not be used in
+a graph.
+
+### 3.1 When does chaining help? The tabular study
+
+`fbplan/tabular/` builds a fake FB model on the 104-state medium maze (γ = 0.9) with exact
+successor measures and controlled errors: independent noise on `ρ̂` per head, and a controller
+`π_l` that is either exact or greedy on the noisy `F(s,z)ᵀz`. The greedy controller is reliable
+only at short range, as a learned `π_l` may be. Success means the goal is reached in 100 steps;
+all start–goal pairs; 5 noise seeds (`docs/theory.md` §9).
+
+Success on far pairs (11 steps or more), noise std 0.04 on `ρ̂`
+(`docs/figures/theory/study_noise.csv`):
+
+| Planner | greedy `π_l` | exact `π_l` |
+|---|---|---|
+| direct, `π_l(z_r)` | 0.16 | 1.00 |
+| idealised one-switch `π_h` | 0.26 | 0.95 |
+| single switch, re-planned | 0.23 | 0.91 |
+| chained, FB `R̂` | 0.20 | 0.28 |
+| chained, `R̂ = 0` | 0.36 | 1.00 |
+| chained, `R̂ = 0`, guards (head min, `ρ_min` 0.4, commit) | **0.46** | 1.00 |
+
+![Success against distance in the tabular study](docs/figures/theory/success_vs_distance.png)
+
+Four results set the design of A and B:
+
+1. **Chaining helps when `π_l` fails at long range.** With the greedy controller, the guarded
+   chained planner reaches 0.46, against 0.26 for the idealised `π_h` and 0.16 for the direct
+   policy. With an exact controller the direct policy is already optimal, and planning on noisy
+   values can only lose.
+2. **The main failure is a noisy `R̂`, not wormholes.** `R̂` is a difference of two noisy values,
+   and for goal reaching the true `R` is about 0. The max over landmarks picks the largest noise
+   at every hop. With the exact controller, `R̂ = 0` lifts the chained planner from 0.28 to 1.00.
+3. **Guards** (far pairs, noise 0.04, `docs/figures/theory/study_guards.csv`): the min over the 2
+   heads helps against independent errors in `R̂` (full `R̂`, exact `π_l`: 0.28 → 0.58).
+   Commitment helps in every noisy case (`R̂ = 0`, greedy: 0.36 → 0.48). A cost per hop hurts with
+   `R̂ = 0` (0.36 → 0.12): it pushes the plan to fewer, longer hops that the controller cannot
+   complete.
+4. **Wormholes come from wall-blind features, not from independent noise.** Independent noise up
+   to 0.04 puts no pair above `2γ^d`. A low-rank `B` with a wall-blind (cosine) basis does: 0.41 %
+   of pairs at rank 16 and 0.24 % at rank 32 (`docs/figures/theory/study_wormholes.csv`). The two
+   heads share such errors, so the head min does not remove them.
+
+**Prediction for AntMaze.** A chained planner can beat `π_h` only if (a) `π_l` or the one-switch
+value fails at long range, and (b) FB `ρ̂` is accurate at short range and free of wall-blind
+errors. §8 measures both.
 
 ## 4. Approach A: landmark graph planner
 
-Landmarks, trusted edges, value iteration, waypoint execution, and the guards against wormholes
-with the evidence for each (`docs/design.md` §4.A).
+No training. Code: `fbplan/landmarks.py`, `fbplan/option_model.py`, `fbplan/graph.py`,
+`fbplan/controllers/planner.py`.
+
+```
+once per env:   training split ─► 300 landmarks ─► edge table ρ̂(u,w) ─► trusted edges
+once per task:  z_r ─► V_d(u) = F(u,z_r)ᵀz_r ─► value iteration ─► V_H(u), route from each landmark
+during the episode:
+                s ─► w* = argmax over trusted edges s→w of ρ̂(s,w)·V_H(w), or the task policy
+                commit to w* until reached ─► a = π_l(a | s, B(w*))
+```
+
+**Landmarks.** 300 states by farthest-point sampling on xy, from a random pool of 100k training
+states. A landmark is a full observation, with the pose and the joint velocities of the ant.
+Its latent is `B(w)` of that one state. Option: a region latent, the mean of `B` over the pool
+states within 0.5 xy units.
+
+**Edges.** For each landmark pair, `ρ̂(u,w)` per F head, then the min over the 2 heads. Values use
+`ρ̂` clipped to `[0, γ]` for `u ≠ w` (contraction, §3). An edge `u → w` is **trusted** when:
+
+- `0.3 ≤ raw ρ̂(u,w) < 1` (at γ = 0.99, `ρ = 0.3` is about 120 steps), and
+- the xy distance from `u` to `w` is at most 6 units (1.5 maze cells).
+
+**Values.** Goal reaching uses `R̂ = 0`. Value iteration then solves
+`V_H(u) = max(V_d(u), max_w ρ̂(u,w)·V_H(w))` over trusted edges: a shortest path on `−log ρ̂` that
+ends with the task policy.
+
+**Execution.** At a re-plan the agent scores the trusted edges from its own state with the same
+rules, `Q(s,w) = ρ̂(s,w)·V_H(w)`, and picks `w* = argmax_w Q(s,w)`, or the task policy if
+`V_d(s)` is higher. It acts with `π_l(·∣s,B(w*))` and commits to `w*` until it is within 3 xy
+units of `w*`, for at most 100 steps. Look-ahead: at each step it moves on to the next stop of the
+route when `Q(s,next) ≥ Q(s,w*)` and the edge `s → next` is trusted. Variants: `planner_high`
+gives `B(w*)` to `π_h` as its task; `replan_every_step` drops the commitment.
+
+**Each guard and its evidence.**
+
+| Guard | Reason | Evidence |
+|---|---|---|
+| `R̂ = 0` for goal reaching | `R̂` is a difference of two noisy values, and the max collects its noise | tabular §3.1 (0.28 → 1.00 with exact `π_l`); medium ablation *(pending)* |
+| raw `ρ̂ ≥ 1` is untrusted | `ρ ≤ γ < 1` for `u ≠ w` (§3), so `ρ̂ ≥ 1` is an FB error and a free hop | theory; medium ablation *(pending)* |
+| xy cap of 6 units | wormholes survive any `ρ_min` (§8.3). The maze distance is never shorter than the xy distance, so the cap removes only edges that are long in every metric, and it limits a wormhole hop to 6 units | wormhole maps (§8.3); medium ablation *(pending)* |
+| min over the 2 F heads | pessimism against independent errors | tabular §3.1; lowers the AntMaze wormhole count by a fifth to a quarter (§8.3) |
+| commit until within 3 xy units, with look-ahead | commitment stops dithering between near-equal noisy plans. A rule `ρ̂ ≥ ρ_reached` often does not fire, because FB `ρ̂` near a waypoint stays below about 0.9 | tabular §3.1 (0.36 → 0.48); medium ablation *(pending)* |
+| single-state landmark latents | region latents make `ρ̂` higher and flatter, so it separates near and far landmarks less | 5-seed evaluation of both *(pending)* |
+
+The xy position is part of the observation, so the cap uses no privileged information. Two FB-only
+guards stay as ablations: `two_way`, which uses `min(ρ̂(u,w), ρ̂(w,u))` (maze dynamics are nearly
+reversible, FB errors often are not), and a cost per hop.
+
+**Tuning.** The guards were chosen on medium, on start states outside the evaluation episodes but
+on the same 5 tasks. Large uses the same settings without change.
 
 ## 5. Approach B: learned multi-switch value
 
-`V_H(s,z)` by expectile regression on chained option targets, then AWR for a new `π_h` with the
-baseline network and controller. Variants clean, wide and region (`docs/plans/approach-b.md`).
+Code: `fbplan/learned/`. Plan: `docs/plans/approach-b.md`.
+
+**Idea.** The baseline's AWR advantage values a subgoal `w` with a one-switch value: "follow
+`π_{z_w}` until `w`, then `π_z` forever". B learns `V_H(s,z)`, the value when the agent may switch
+again at `w`, and again after that, and puts it into the same AWR recipe. The actor network, the
+data, the spread of the AWR weights and the test-time controller stay as in the baseline. So
+"B-clean against the retrained baseline" measures the effect of the multi-switch value and nothing
+else. B needs no graph and no landmarks at test time, and it is defined for any task latent `z`.
+
+```
+offline data ─► (s, w, g, z) batches ─► ρ, R, V_1 from frozen F and B ─► targets y(s,w,z)
+stage 1:  V_H(s,z)      ◄── expectile regression on y
+stage 2:  π_h(z_w|s,z)  ◄── AWR with weight exp(min(α·[y − V_H(s,z)], 5))
+test:     baseline controller: z_w = π_h(s, z_r) at every step, a = π_l(a | s, z_w)
+```
+
+**Critic.** Per sample, with the min over the 2 F heads:
+
+```
+ρ(s,w)   = min_h F_h(s,z_w)ᵀz_w / F_h(w,z_w)ᵀz_w,     capped at ρ_max = 0.9
+V_1(s,z) = min_h F_h(s,z)ᵀz                            value of never switching again
+V_H(s,z) = V_1(s,z) + softplus(Δ_θ(s,z))               so V_H ≥ V_1 by construction
+y(s,w,z) = R(s,w;z) + ρ(s,w)·[V_1(w,z) + softplus(min_j Δ̄_j(w,z))]
+```
+
+`R = 0` for goal latents, as in A, and the exact `R` for Gaussian latents. `Δ_θ` is the upstream
+`GCValue` network (3 × 512, LayerNorm, 2 heads), and `Δ̄` is its EMA target (rate 0.005). The loss
+is the expectile loss with τ = 0.9 on `y − V_H(s,z)`: an in-sample soft max over the sampled `w`,
+as in IQL.
+
+**Sampling** (offline data only). `s` is uniform over the dataset. `w` is on the trajectory of `s`
+at a geometric offset with mean 100 steps, as upstream. `g` is a future state of the same
+trajectory (70 %) or a random dataset state (30 %). `z` is `B(g)` (50 %) or Gaussian (50 %), as
+upstream. All latents are normalized to norm `√d`.
+
+**Actor.** The upstream `GCActor`, trained with AWR toward `normalize(B(w))`, with the advantage
+`A = y − V_H(s,z)` and `V_H` frozen. The AWR temperature α makes the spread of `α·A` equal to that
+of the upstream run (upstream α = 0.1), so the weighting is as sharp as in the baseline.
+
+**Guards against error growth over hops.**
+
+| Guard | Effect |
+|---|---|
+| `ρ ≤ 0.9` | the hop-level Bellman operator is a 0.9-contraction: a target error ε grows to at most 10ε (a clip at γ would allow 100ε) |
+| `w` only from the trajectory of `s` | the data shows every edge `(s,w)`, so no wormhole edge enters the targets |
+| samples with raw `ρ̂ ≥ 1` are dropped | as in A: such edges are FB errors |
+| min over the F heads, expectile instead of a hard max, clipped double target | pessimism against noise in `ρ̂` and in `V_H` |
+| residual form `V_1 + softplus(Δ_θ)` | `V_H` starts at the one-switch value; the gain is learned only where switching helps in the data |
+
+**Variants.** Each changes one thing against the row above it.
+
+| Variant | Subgoal and goal latents | Goals for `π_h` | Measures |
+|---|---|---|---|
+| retrained baseline | `B(·)` of one state | upstream | reference |
+| B-clean | as the baseline | as the baseline | the critic only |
+| B-wide | as the baseline | + 30 % random dataset goals | goals across trajectories |
+| B-region | mean of `B` over ±5 trajectory steps | as the baseline | the latent type (own `V_H`) |
+
+**Limits by design.** Stitching across trajectories comes only from the generalization of
+`V_H(w,z)`, as in IQL and HIQL: no training pair has a `w` from another trajectory. `π_h`
+regresses onto `B(w)`, so if good subgoals lie in two directions, the mean lies between them.
+A diagnostic controller, B-argmax (A's controller with `V_H` in place of graph value iteration),
+separates the quality of the critic from that of the actor.
 
 ## 6. Evaluation protocol
 
-Paired start states, 5 tasks × 50 episodes × 5 eval seeds, retrained baselines as a training
-seed factor, stratified bootstrap CIs, McNemar tests, and the parity check against upstream
-`evaluate` (`docs/design.md` §5).
+**Episodes.** 5 tasks × 50 episodes × 5 eval seeds = 1,250 episodes per method and env. Episode
+length 1000, deterministic actions (temperature 0), success as defined by OGBench at the last step.
+
+**Paired start states.** The reset seed of an episode is
+`SeedSequence([eval_seed, task_id, episode])`. OGBench draws the start noise from the global NumPy
+RNG, and the goal also depends on the action-space RNG, so the loop seeds all three:
+`np.random.seed(s); env.action_space.seed(s); env.reset(seed=s, options={"task_id": t})`.
+All methods see the same 1,250 start and goal states. An episode replays exactly:
+`analysis/failures.py` replays each failure and checks its outcome.
+
+**Methods.**
+
+| Row | What it is |
+|---|---|
+| baseline | the provided `π_h`, with `z_r` normalized to norm `√d` before `π_h` |
+| retrained baseline | 5 `π_h` seeds that we trained on the frozen `F`, `B`, `π_l` with the upstream recipe (500k steps), so the CI includes training variance |
+| upstream | upstream `evaluate` on the provided checkpoint: raw `z_r` and unseeded resets, so it is compared unpaired |
+| non-hier | `π_l(·∣s,z_r)` alone, without a high level |
+| oracle (privileged) | `π_l` toward a waypoint 2 cells ahead on the true shortest path, with a region-mean waypoint latent (radius 0.5); a reference, not a bound (§8.2) |
+| A, B | §4 and §5 |
+
+*(pending: the choice between the normalized and the raw `z_r` for the main baseline row. The
+normalized `z_r` is the current choice; on medium the two do not differ significantly, §8.1.)*
+
+**Statistics** (`fbplan/stats.py`, `analysis/tables.py`). Overall success is the mean over tasks of
+the per-task success, as in OGBench. CIs are percentile intervals from 10,000 bootstrap resamples,
+stratified by task. A paired comparison resamples episode pairs within each task and gives an exact
+McNemar test on the discordant pairs. The retrained baselines are pooled with a cluster bootstrap
+over checkpoints. A difference whose CI contains 0 is called not significant.
+
+**Parity with upstream.** Our loop with the provided `π_h`, against upstream `evaluate`:
+−2.2 pp, CI [−5.3, +1.0], unpaired, 2,500 episodes (`results/medium/baseline.csv`,
+`results/medium/upstream.csv`). The CI contains 0: our loop reproduces the upstream evaluation
+within noise.
+
+**Physics.** MuJoCo is pinned to 3.1.6, the version that replays the dataset transitions exactly,
+so `π_l` acts in the physics that produced its training data
+(`tests/test_frozen.py::test_eval_env_reproduces_the_dataset_dynamics`).
 
 ## 7. Results *(pending)*
 
 ### 7.1 Medium (required)
-### 7.2 Large
-### 7.3 Giant and teleport
 
-## 8. Analysis *(pending)*
+Success (%) with 95 % CI, 1,250 episodes per row (`results/medium/*.csv`, `analysis/tables.py`):
 
-- Why the provided checkpoints score below the paper numbers, and what we ruled out.
-- Headroom on medium: the privileged oracle and the failure classes (flips are a `π_l` failure).
-- FB distance calibration and wormholes on medium and large.
-- Why approach A executes its routes worse than `π_h`.
-- What the learned `V_H` gains over the one-switch value, by distance.
+| Method | task 1 | task 2 | task 3 | task 4 | task 5 | all |
+|---|---|---|---|---|---|---|
+| baseline | 81.6 | 84.4 | 76.0 | 62.8 | 84.4 | **77.8** [75.6, 80.1] |
+| upstream (unpaired) | 81.6 | 86.4 | 77.2 | 68.0 | 86.8 | 80.0 [77.8, 82.2] |
+| non-hier | 76.4 | 85.6 | 74.8 | 6.4 | 80.8 | 64.8 [62.7, 66.8] |
+| oracle (privileged) | 81.6 | 88.4 | 88.8 | 74.8 | 86.4 | 84.0 [82.0, 86.0] |
+| retrained baseline (5 seeds) | | | | | | *(pending)* |
+| A: planner | | | | | | *(pending)* |
+| A: planner, region latents | | | | | | *(pending)* |
+| A: planner_high | | | | | | *(pending)* |
+| B-clean | | | | | | *(pending)* |
+| B-wide | | | | | | *(pending)* |
+| B-region | | | | | | *(pending)* |
+
+Per-task CIs are about ±5 pp.
+
+Paired difference against the baseline (same 1,250 start states):
+
+| Method | difference (pp) [CI] | success only with the method | success only with the baseline | McNemar p |
+|---|---|---|---|---|
+| non-hier | −13.0 [−16.2, −10.0] | 151 | 314 | 3e-14 |
+| oracle (privileged) | +6.2 [+3.1, +9.2] | 230 | 153 | 1e-4 |
+| A and B rows | *(pending)* | | | |
+
+### 7.2 Large *(pending)*
+
+### 7.3 Giant and teleport *(pending)*
+
+## 8. Analysis
+
+### 8.1 The gap to the paper's numbers
+
+The paper reports 87 ± 6 % on medium (5 training seeds). With the provided checkpoint we measure
+77.8 % [75.6, 80.1] with our loop and 80.0 % [77.8, 82.2] with upstream `evaluate`
+(`results/medium/baseline.csv`, `results/medium/upstream.csv`).
+
+Ruled out:
+
+- **The restore.** The restored parameters equal the checkpoint arrays bit for bit
+  (`tests/test_frozen.py::test_restored_parameters_equal_the_checkpoint_arrays`).
+- **Our evaluation loop.** It matches upstream `evaluate` within noise (§6, parity).
+- **The physics.** The evaluation env replays the dataset transitions exactly (§6).
+
+Still possible: (1) the provided checkpoint is one training seed, and the paper's ± 6 shows a wide
+spread between seeds; (2) the paper's evaluation differs from upstream `main.py`. The retrained
+`π_h` seeds test the `π_h` part of (1) *(pending)*. They keep `F`, `B` and `π_l` of seed 0, so a
+gap in those modules would remain. All our comparisons are paired on the same frozen modules, so
+the gap does not bias them.
+
+The upstream row uses the raw `z_r`, so the parity check also compares the two task latents: on
+medium they do not differ significantly. Large *(pending)*.
+
+### 8.2 Headroom on medium
+
+**A high level matters on medium mainly for task 4.** Without a high level, `π_l(z_r)` scores
+−13.0 pp [−16.2, −10.0] against the baseline (p = 3e-14). Almost all of the loss is on task 4:
+6.4 % against 62.8 %. On the other 4 tasks the direct policy is within 6 pp of `π_h`.
+
+**Perfect routing gives +6 pp.** The privileged oracle routes on the true maze map and scores
+84.0 % [82.0, 86.0], +6.2 pp [+3.1, +9.2] over the baseline (p = 1e-4). Its gain is on tasks 3
+and 4 (+12.8 and +12.0 pp). This estimates what a high-level method can gain with this `π_l` on
+medium. It is a reference, not a bound: another waypoint rule changes it by a large amount (next
+paragraph).
+
+**The waypoint latent matters more than the route.** Oracle variants on the same 250 episodes of
+eval seed 0 (`results/medium/oracle_sweep/*.csv`; the baseline scores 76.4 % on these episodes,
+`results/medium/baseline.csv`; CIs about ±5 pp):
+
+| Waypoint latent | 1 cell ahead | 2 cells ahead | 3 cells ahead |
+|---|---|---|---|
+| `B(w)` of one state | 44.8 | 56.4 | 65.2 |
+| mean of `B` within 0.5 xy units | 80.8 | 86.4 | 78.0 |
+| mean of `B` within 1.0 xy units | 87.2 | 76.0 | 74.8 |
+| mean of `B` within 1.5 xy units | 80.8 | 80.0 | 80.0 |
+
+With the true shortest path, single-state waypoint latents lose 11–32 pp against `π_h`;
+region-mean latents are level with it or above it. *Hypothesis:* `B(w)` of one state encodes the
+full observation of `w`, with the joint angles and the velocities, so `π_l(·∣s,B(w))` tries to
+reach that exact pose, which is slower and less stable than passing near `w`. A region mean
+averages the pose out and keeps mostly the position. The test-time `z_r` is also a mean over the
+goal ball. This matters for approach A, whose default landmark latent is the single state (§4).
+
+**Failure classes.** *(pending: the share of baseline, oracle and non-hier failures in which the
+ant flips over, a `π_l` failure that no high-level choice can repair; the rest move at the time
+limit or are stuck.)* If flips do not depend on the high-level choice, this share limits what a
+high-level method can recover on medium.
+
+### 8.3 FB distance calibration and wormholes
+
+For 400 validation states (159,600 ordered pairs), the FB distance `−log ρ̂ / −log γ` against the
+exact maze distance; the min over the 2 heads (`analysis/calibration.py`):
+
+| Medium | Large |
+|---|---|
+| ![FB calibration on medium](results/figures/calibration_antmaze-medium-navigate-v0_min.png) | ![FB calibration on large](results/figures/calibration_antmaze-large-navigate-v0_min.png) |
+
+- **`ρ̂` carries distance information at short and medium range.** On medium the median FB
+  distance grows with the maze distance over the whole maze.
+- **The spread is wide at every distance.** A band of pairs sits at the cap (`ρ̂` near 0) at all
+  distances, short ones included: some short edges are missing from the graph.
+- **On large, FB loses distance information at long range.** The median stops growing beyond
+  about 30 xy units, and the upper quartile reaches the cap from about 20 units. This is the regime
+  in which chaining short edges can help, if the short edges are reliable.
+
+**Wormholes.** A wormhole is a trusted pair (`0.3 ≤ raw ρ̂ < 1`) whose FB distance is shorter than
+the time the ant needs to walk the maze distance at its top speed (99th percentile of the step
+length in the data). Counts from the figure titles (`results/figures/wormholes_*.png`):
+
+| Env | min over heads | mean over heads |
+|---|---|---|
+| medium | 3,385 (2.1 % of all pairs) | 4,289 |
+| large | 3,992 (2.5 % of all pairs) | 5,380 |
+
+| Medium, 200 longest wormholes | Large, 200 longest wormholes |
+|---|---|
+| ![Wormholes on medium](results/figures/wormholes_antmaze-medium-navigate-v0_min.png) | ![Wormholes on large](results/figures/wormholes_antmaze-large-navigate-v0_min.png) |
+
+- Many wormholes cross the whole maze. A max over routes exploits exactly these pairs.
+- The min over the 2 heads lowers the count by only a fifth to a quarter (medium 4,289 → 3,385;
+  large 5,380 → 3,992). Most wormholes survive it, so most of these errors are shared by the
+  heads, as with the wall-blind low-rank features of the tabular study (§3.1, result 4), and
+  unlike independent noise.
+- A higher `ρ_min` does not remove them *(pending: counts per `ρ_min`)*. This is why A uses the xy
+  cap (§4).
+- *Hypothesis:* in the maps, many wormholes meet at a few target states. A target-side error would
+  explain this. `ρ̂(s,w)` divides by `F(w,z_w)ᵀB(w)`, so an underestimated denominator inflates
+  `ρ̂` from every source at once. If this holds, a guard on the target (distrust landmarks with a
+  low `F(w,z_w)ᵀB(w)`) would remove many wormholes with one test per landmark. Not tested yet.
+
+### 8.4 Route execution of approach A *(pending)*
+
+Needs the 5-seed results of A, its ablations, route plots and failure classes. Hypotheses to test:
+(1) single-state waypoint latents slow `π_l` down near each waypoint (§8.2); (2) on large, re-plans
+switch between near-equal routes around a loop; (3) near the goal, landmark values can beat the
+direct value, and the agent circles the goal.
+
+### 8.5 What the learned `V_H` gains over the one-switch value *(pending)*
+
+Needs `V_H(s,B(g))` and `V_1(s,B(g))` against the maze distance, and the clip rates of `ρ`.
 
 ## 9. What worked and what did not *(pending)*
 
