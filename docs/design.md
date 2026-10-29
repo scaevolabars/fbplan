@@ -112,12 +112,21 @@ guards of approach A are in §4.
   - An edge longer than `max_edge_xy = 6` xy units is untrusted (wormhole guard). The xy position
     is part of the observation, so this guard uses no privileged data. `two_way = True`
     (`min(ρ(u,w), ρ(w,u))`) is an FB-only alternative for the report.
-  - A waypoint counts as reached within `reached_xy = 1.5` xy units. Near a waypoint FB `ρ` peaks
-    at about 0.9, so a rule `ρ ≥ ρ_reached` often fails to fire.
+  - A waypoint counts as reached within `reached_xy = 3.0` xy units, with look-ahead along the
+    route: the agent moves on to the next route stop when `Q(s, next) ≥ Q(s, current)` and the
+    edge `s → next` is trusted. Neither change alone helps much; together they lift the planner
+    from 56/100 to 79/100 on held-out medium episodes. Near a waypoint FB `ρ` peaks at about 0.9,
+    so a rule `ρ ≥ ρ_reached` often fails to fire.
+  - Landmark latents are single-state `B(w)` by default. Region means (`landmarks.latent=region`)
+    are an option: they did not help the planner (59/100 against 68/100), although they help the
+    oracle. Both are evaluated with 5 eval seeds.
   - The same rules apply to the landmark graph and to the first hop from `s`.
 - **B. Learned multi-switch value (second).** Fit `V_H(s,z)` offline by expectile regression
   on `R(s,w) + ρ(s,w)·V̄_H(w,z)`, then train a new `π_h` with AWR on that advantage.
   Works for any reward and needs no graph at test time. B can distill A.
+  Plan: `docs/plans/approach-b.md`, approved by the user on 2026-10-29 with one change:
+  B-clean uses single-state latents `B(w)` as upstream, so that only the critic changes;
+  region latents are a separate variant. Distillation of A (stage B2) waits until B1 shows a gain.
 
 ## 5. Evaluation protocol
 
@@ -134,9 +143,10 @@ guards of approach A are in §4.
 - Statistics: mean success with 95 % stratified bootstrap CI; paired test over episodes.
 - Diagnostics: oracle-waypoint controller (shortest path on the true maze map, privileged). It is
   a reference, not a strict upper bound: with single-state waypoints it scores below the baseline,
-  and with region-mean waypoint latents it scores about 4 points above it (one eval seed). On
-  medium, 70–80 % of failures are the ant flipping over (a `π_l` failure), so the headroom for any
-  high-level method is small there; FB distance calibration
+  and with region-mean waypoint latents it scores 84.0 % against 77.8 % for the baseline on
+  medium (+6.2 points, 5 eval seeds, paired, p = 1e-4). On medium, 71 % of baseline failures are
+  the ant flipping over (a `π_l` failure), so the headroom for any high-level method is small
+  there; FB distance calibration
   (`−log ρ / −log γ` against maze geodesic distance); wormhole count; route plots.
 
 ## 6. Components
