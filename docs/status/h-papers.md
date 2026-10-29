@@ -21,9 +21,13 @@ the FB π-Switch paper's future work). Brief: `docs/briefs/hypotheses.md`.
 - `docs/hypotheses/h-papers.md`: gate G0, 5 ranked hypotheses (H1 recorded-route tracking first,
   P 0.10), 17 rejected ideas, a one-block summary per paper.
 
+- G0 answered by the coordinator (d-eval 36a10c0): on 10 eval seeds the oracle is +1.0 pp
+  [−1.2, +3.2] over `baseline_raw` on medium, so H1–H3 are dropped on medium by the fixed reading.
+  The same gate for large is in design.md §8; d-eval runs it.
+
 ## Next
 
-- None. Waiting for the coordinator.
+- None. The coordinator closed this session (2026-10-30).
 
 ## Blockers
 
@@ -31,8 +35,5 @@ the FB π-Switch paper's future work). Brief: `docs/briefs/hypotheses.md`.
 
 ## Requests to the coordinator
 
-- G0 (h-papers.md §2): run the privileged oracle on medium eval seeds 5–9 on Linux (1,250
-  episodes, under 0.5 CPU h), so that the headroom bound uses the final protocol. On eval seeds
-  0–4 `baseline_raw` was +3.8 pp above `baseline`, on seeds 5–9 +0.3 pp; on the held-out goals the
-  oracle is +4.0 pp [+0.3, +7.7] above `baseline`. The reading is fixed in §2.
-- If H1 goes ahead: c-planner builds the controller (data-certified routes, about 100 lines).
+- None open. G0: answered (measured by d-eval).
+- If the large gate opens H1: c-planner builds the controller (data-certified routes, about 100 lines).

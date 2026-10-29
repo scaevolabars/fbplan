@@ -122,6 +122,11 @@ seeds 5–9 on Linux (1,250 episodes, under 0.5 CPU h; command as `results/mediu
 
 The same holds for any other route or waypoint method (A, act-ahead).
 
+**Result (coordinator, 2026-10-30; d-eval commit 36a10c0, `results/medium_10seeds/oracle.csv`).**
+On 10 eval seeds the oracle is +3.1 pp over `baseline` and +1.0 pp [−1.2, +3.2] over
+`baseline_raw`. By the reading above (≤ +1 pp), H1–H3 are dropped on medium. The coordinator fixed
+the same gate for large in design.md §8; d-eval runs it.
+
 ## 3. Hypotheses, ranked by expected value
 
 Expected value = P(gain by the rule) × size / cost. The probabilities are my judgement from §1
