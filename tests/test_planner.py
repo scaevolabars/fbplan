@@ -13,6 +13,8 @@ from fbplan.controllers.planner import (
 )
 from fbplan.landmarks import LandmarkConfig
 from fbplan.option_model import OptionModelConfig
+from fbplan.tabular.env import rollout as rollout_tabular
+from fbplan.tabular.fake_fb import FakeFBConfig, TabularFB
 
 START, GOAL = (1, 4), (5, 4)  # the two bottom ends of the U maze, 10 steps apart
 # With horizon 4, edges are trusted up to 4 steps (gamma^4 = 0.656); a waypoint counts as
@@ -340,3 +342,46 @@ def test_replan_every_step_rescores_all_landmarks_at_each_step():
     cells, _ = rollout(fb, ctrl, steps=12)
     assert cells.index(GOAL) == 10
     assert ctrl.step_info()["replans"] == 12
+
+
+class TaskPolicy:
+    """pi_l(a | s, z_r): the task policy alone, for comparison."""
+
+    name = "task_policy"
+
+    def __init__(self, fb: TabularFB) -> None:
+        self.fb = fb
+
+    def reset(self, task: TaskSpec, seed: int) -> None:
+        self.z_r = task.z_r
+
+    def act(self, obs: np.ndarray) -> np.ndarray:
+        return np.asarray(self.fb.low_action(obs[None], self.z_r[None]))[0]
+
+    def step_info(self) -> dict[str, float | int | str]:
+        return {}
+
+
+def successes(ctrl, fb: TabularFB, episodes: int = 3) -> int:
+    """Successes over the 5 OGBench tasks of fb's maze, `episodes` start states each."""
+    return sum(
+        rollout_tabular(ctrl, fb, task_id, seed=ep, max_steps=200).success
+        for task_id in range(1, 6)
+        for ep in range(episodes)
+    )
+
+
+def test_planner_solves_every_task_of_the_exact_tabular_medium_maze():
+    fb = TabularFB()
+    assert successes(GraphPlannerController(fb, fb.maze.xy), fb) == 15
+
+
+def test_planner_beats_the_task_policy_under_fb_noise_on_the_tabular_maze():
+    # b-theory's study (docs/theory.md §9.1): with a greedy controller on noisy F, the task
+    # policy fails at long range and chaining short trusted edges recovers part of it.
+    planner_wins, direct_wins = 0, 0
+    for seed in range(3):
+        fb = TabularFB(FakeFBConfig(rho_noise=0.02, seed=seed))
+        planner_wins += successes(GraphPlannerController(fb, fb.maze.xy), fb)
+        direct_wins += successes(TaskPolicy(fb), fb)
+    assert planner_wins >= direct_wins + 10

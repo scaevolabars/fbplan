@@ -3,6 +3,8 @@ import pytest
 from planner_fakes import GridFB
 
 from fbplan.option_model import OptionModel, OptionModelConfig
+from fbplan.tabular.fake_fb import TabularFB
+from fbplan.tabular.options import hitting_discount
 
 START, FAR_END = (1, 4), (5, 4)  # the two bottom ends of the U maze, 10 steps apart
 
@@ -135,3 +137,14 @@ def test_unknown_config_values_are_rejected():
 
 def test_default_edge_reward_is_zero_for_goal_reaching():
     assert OptionModelConfig().edge_reward == "zero"
+
+
+def test_rho_is_the_exact_hitting_discount_on_the_tabular_medium_maze():
+    fb = TabularFB()  # b-theory's exact fake: full rank, no noise
+    om = OptionModel(fb, OptionModelConfig())
+    states = fb.maze.xy
+    targets = [0, 37, fb.maze.n_states - 1]
+    t = om.pair_table(states, om.targets(states[targets]))
+    for j, w in enumerate(targets):
+        exact = hitting_discount(fb.maze, fb.policy(fb.backward(states[[w]])[0]), w, fb.discount)
+        np.testing.assert_allclose(t.rho[:, j], exact, atol=1e-9)
