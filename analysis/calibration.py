@@ -25,11 +25,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
-from fbplan.option_model import OptionModel, OptionModelConfig  # noqa: E402
 from matplotlib.patches import Rectangle  # noqa: E402
 
 from fbplan.controllers.oracle import MazeGeometry  # noqa: E402
 from fbplan.frozen import load_dataset, load_model, make_env  # noqa: E402
+from fbplan.option_model import OptionModel, OptionModelConfig  # noqa: E402
 
 INK, MUTED, GRID, ACCENT, WARN = "#0b0b0b", "#52514e", "#e4e3df", "#2a78d6", "#e34948"
 Y_CAP = 600  # steps; larger FB distances (and rho = 0) are drawn at the cap

@@ -23,7 +23,7 @@ import pandas as pd
 
 from fbplan.contracts import EpisodeRecord
 from fbplan.evaluate import write_csv
-from fbplan.frozen import _upstream, load_model, make_env
+from fbplan.frozen import load_model, make_env, upstream_module
 from fbplan.stats import load_results, summary_table, unpaired_comparison
 
 
@@ -37,7 +37,7 @@ def upstream_episodes(
     goal = np.asarray(env.unwrapped.task_infos[task_id - 1]["goal_xy"])
     np.random.seed(10_000 * rep + task_id)
     start = time.perf_counter()
-    _, trajs, _ = _upstream("utils.evaluation").evaluate(
+    _, trajs, _ = upstream_module("utils.evaluation").evaluate(
         agent=model.agent, env=env, task_id=task_id, inferred_latent=z_r,
         num_eval_episodes=n_episodes, num_video_episodes=0, eval_temperature=0,
     )
