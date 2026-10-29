@@ -24,8 +24,9 @@ REMOTE_DIR=fbplan
 # Our instances carry a fixed label (VAST_LABEL); commands refuse any other label.
 LABEL=${VAST_LABEL:-fbplan-gpu}
 SSH_PUBKEY=${SSH_PUBKEY:-$HOME/.ssh/id_rsa.pub}
-# jaxlib 0.10.2 ships CUDA 12.9 libraries; an older driver may fail to run them.
-GPU_QUERY=${GPU_QUERY:-'gpu_name in ["RTX 4090", "RTX 3090", "RTX A6000", "L40S"] num_gpus=1 reliability>0.98 cuda_vers>=12.8 disk_space>=40 inet_down>=200 direct_port_count>=1'}
+# jaxlib 0.10.2 ships CUDA 12.9 libraries; an older driver may fail to run them. Hosts in CN
+# are excluded: setup downloads from PyPI, GitHub and the OGBench server, which can be slow there.
+GPU_QUERY=${GPU_QUERY:-'gpu_name in ["RTX 4090", "RTX 3090", "RTX A6000", "L40S"] num_gpus=1 reliability>0.98 cuda_vers>=12.8 disk_space>=40 inet_down>=200 direct_port_count>=1 geolocation notin [CN]'}
 # The CUDA image sets NVIDIA_DRIVER_CAPABILITIES; JAX brings its own CUDA libraries via pip.
 IMAGE=${IMAGE:-nvidia/cuda:12.8.1-base-ubuntu22.04}
 # Instances are short-lived: keep their host keys out of the main known_hosts file.
