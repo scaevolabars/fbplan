@@ -1,6 +1,6 @@
 # Status: f-report
 
-Last update: 2026-10-30, 01:53. Branch merged with `main` at 4c2ee44.
+Last update: 2026-10-30, 02:03. Branch merged with `main` at 4c2ee44.
 
 ## Done
 
@@ -147,7 +147,8 @@ Last update: 2026-10-30, 01:53. Branch merged with `main` at 4c2ee44.
     and +4.2 pp against `baseline`**, so it passes the letter of the rule. The report states it
     with three limits: 8 B tests against raw (Holm needs p < 0.006); +2.2 pp [−0.7, +5.3],
     p = 0.16 on eval seeds 5–9 alone; seed 2 is the second-sharpest temperature, so 2× and H1
-    decide the cause. Question to the coordinator below.
+    decide the cause. Coordinator's answer (option A): shown as a pass at the edge with the
+    limits and a multiplicity statement (Holm-adjusted p 0.37 over the 8 B tests).
   - §8.6 (new): the hypothesis tests with the readings of design.md §8 (T1–T4, 2×, H1), a short
     summary of the three hypothesis files, and T1 filled: no ensemble passes `baseline_raw`
     (best +0.5 pp, B-region); B-region ensemble − retrained ensemble +3.0 pp [+0.9, +5.3]
@@ -204,15 +205,11 @@ with the giant wording adjusted to the Linux giant runs (oracle +2.0 pp, signifi
 - d-eval (optional, item 4): the medium oracle on eval seeds 5–9 (1,250 episodes), so the
   headroom bound of §8.2 pairs with the 10-seed baseline rows. With 5 eval seeds the normalized
   baseline sat 1.4 pp below its 10-seed value, so the oracle's +4.2 pp against it may shrink.
-- QUESTION FOR COORDINATOR (01:53): with 10 eval seeds, the held-out-selected B-clean seed 2
-  passes the letter of the gain rule: +2.2 pp [+0.1, +4.3], p = 0.047 against `baseline_raw`, and
-  +4.2 pp [+2.1, +6.4] against `baseline`. Limits: 8 B tests against raw under the final protocol
-  (Holm needs p < 0.006); on eval seeds 5–9 alone +2.2 pp [−0.7, +5.3], p = 0.16; seed 2 has the
-  second-sharpest temperature, so the edge may be sharpness. Options: (A) report it as passing the
-  rule at the edge, with these limits, and keep B's conclusion open until 2× and H1 land (as the
-  report says now); (B) treat only the pooled rows and the ensembles as the tests of the final
-  protocol, and the selected seed as descriptive; (C) apply a Holm correction over the B tests,
-  so nothing passes. Recommendation: A.
+- Answered (coordinator, 2026-10-30): option A plus a multiplicity statement. The report shows the
+  selected B-clean seed as a pass at the edge, with the three limits, and adds: 8 B tests on the
+  final protocol; P(at least one p ≤ 0.05 | no effect, 8 independent tests) = 0.34; Holm-adjusted
+  p of the smallest (McNemar 0.0466) = 0.37, no pass. B's conclusion stays open until 2× and H1.
+- d-eval: the oracle request (eval seeds 5–9) was routed by the coordinator.
 - d-eval: in `analysis/plots.py`, the two teleport-aware oracles get red and green (a pair that
   colour-blind readers confuse) and no "(privileged)" label; please add `oracle_teleport` to the
   privileged set and give it fixed colours (it is the method name of both CSVs).

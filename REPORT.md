@@ -34,8 +34,9 @@ The same commands on macOS (arm64) are a reproducibility check, in `results/maco
 - **Approach B (learned multi-switch critic, §5): no gain so far; the conclusion waits for one
   experiment and its control.** With 10 eval seeds, the three B families gain +0.5 to +1.5 pp over
   5 retrained baselines and score −0.6 to −1.6 pp against `baseline_raw`, all not significant
-  (§7.1). The B-clean seed selected on held-out goals is +2.2 pp [+0.1, +4.3] (p = 0.047) against
-  `baseline_raw`: at the edge, one of 8 B tests, and not significant on the new eval seeds alone.
+  (§7.1). The B-clean seed selected on held-out goals passes the rule at the edge: +2.2 pp
+  [+0.1, +4.3] (p = 0.047) against `baseline_raw`. It is one of 8 B tests (Holm-adjusted p 0.37),
+  and it is not significant on the new eval seeds alone.
   The learned `V_H` raises long-range values but orders states no better than the one-switch
   value, at expectile 0.9 or 0.7. The training seeds split into two significantly different
   groups, which follow the AWR temperature, not the critic (§8.5). An experiment at matched,
@@ -510,22 +511,29 @@ on `results/medium_10seeds/`):
 | B-wide | 86.5, 84.0, 84.8, 82.0, 83.3 | seed 0 | 82.2 % | +1.8 [−1.2, +4.9] / +3.4 [+1.3, +5.6] | +0.2 [−2.9, +3.1] / +1.8 [−0.4, +3.9] |
 | B-region | 86.0, 87.8, 86.3, 86.5, 85.7 | seed 1 | 79.1 % | +0.6 [−2.4, +3.7] / +0.3 [−1.9, +2.5] | −1.0 [−4.1, +2.0] / −1.4 [−3.5, +0.8] |
 
-With 5 eval seeds, as the rule was first applied, no selected seed passes `baseline_raw`. With
-the 10 eval seeds of the final protocol, the selected B-clean seed is significant against both
-baseline rows, at the edge: +2.2 pp [+0.1, +4.3] (p = 0.047) against `baseline_raw` and +4.2 pp
-[+2.1, +6.4] against `baseline`. Three limits:
+With 5 eval seeds, as the rule was first applied, no selected seed passes `baseline_raw`. **With
+the 10 eval seeds of the final protocol, the selected B-clean seed passes the rule of §6, at the
+edge:** +2.2 pp [+0.1, +4.3] (p = 0.047) against `baseline_raw` and +4.2 pp [+2.1, +6.4] against
+`baseline`. Three limits:
 
-- **Many tests.** Under the final protocol, 8 B rows are tested against `baseline_raw`: 3 pooled
-  families, 3 selected seeds and 2 ensembles (§8.6). One passes, at p = 0.047. A Holm correction
-  over these 8 would need p < 0.006.
+- **Many tests.** Under the final protocol, 8 tests of B ran against `baseline_raw`: 3 pooled
+  families, 3 selected seeds and 2 ensembles (§8.6). If B had no effect, 8 independent tests would
+  give at least one p ≤ 0.05 with probability 1 − 0.95⁸ = 0.34 (the 8 share episodes and seeds,
+  so this is only a rough figure). So one p of about 0.05 is what chance alone often gives. The
+  selected seed has the smallest p of the 8 (McNemar 0.0466; the next is 0.11, and the 3 pooled CIs
+  contain 0). Its Holm-adjusted p over the 8 is 8 × 0.0466 = 0.37, which does not pass.
 - **Fresh eval seeds alone do not confirm it.** The seed's result on eval seeds 0–4 was known when
   the 10-seed protocol was fixed. On the new eval seeds 5–9 alone, it scores +2.2 pp [−0.7, +5.3]
   (p = 0.16) against `baseline_raw`: the same size, not significant on its own.
 - **The cause is open.** The selected seed has the second-sharpest AWR temperature of B-clean
-  (§8.5). So its edge may come from sharper weighting, not from the multi-switch critic. The
-  experiment at 2× sharpness and its control separate the two (§8.6).
+  (0.195; §8.5). So its edge may come from sharper weighting, not from the multi-switch critic.
+  The experiment at 2× sharpness gives every B seed one shared temperature, 0.210, between those
+  of the two sharpest seeds (0.195 and 0.229; `docs/status/e-learner.md`). So it tests whether the
+  pass of one seed holds for all 5 seeds. Its control H1 then tells whether the critic or the
+  temperature carries it (§8.6).
 
-So this row does not yet show a gain of chaining; its reading waits for that experiment. The
+So the row is a pass by the rule, but not yet a gain of chaining; its reading waits for that
+experiment. The
 selection itself is also noisy: the held-out success of one seed has a standard error of about
 1.4 points, and retrained seeds 0 and 3 differ by 0.1 point. Pooled over the seeds, B-clean is
 level with the retrained baselines on the held-out goals: −0.7 pp [−3.8, +2.4]
@@ -1001,8 +1009,9 @@ as far as the oracle's waypoints: +3.2 pp, not significant. So the hypothesis is
 
 No pooled B family gains by the rule of §6. With 10 eval seeds, B-clean and B-region gain +1.5 pp
 over the retrained baselines and score −0.6 pp against `baseline_raw`, all CIs containing 0
-(§7.1). The B-clean seed selected on held-out goals is +2.2 pp [+0.1, +4.3] (p = 0.047) against
-`baseline_raw`: significant at the edge, with the limits listed in §7.1. Three findings bear on
+(§7.1). The B-clean seed selected on held-out goals passes the rule at the edge: +2.2 pp
+[+0.1, +4.3] (p = 0.047) against `baseline_raw`, with the limits listed in §7.1 (Holm-adjusted p
+over the 8 B tests: 0.37). Three findings bear on
 these results. One controlled experiment and its control decide how to read them (end of this
 section).
 
@@ -1137,7 +1146,7 @@ never on the eval tasks.
 | T2, log-ratio advantage | the baseline `π_h` retrained (5 seeds) with a log-ratio proxy advantage, whose scale does not shrink with the goal distance | a pass is a `π_h` training improvement, not a gain of chaining | *(pending)* |
 | T3, time-aware trap avoidance (teleport) | a penalty on the trap latent in the intention, only where a walk still fits in the time left; weight and radius chosen on teleport held-out goals | a pass is a gain of a sequence-aware high level over the one-switch baseline on teleport | *(pending)* |
 | T4, raw input path | the T1 ensembles with the raw `z_r` at the input of each `π_h`, as `baseline_raw` | a gain if a B ensemble beats both baseline rows; chaining if it also beats the retrained ensemble on the same path; all rows reported | *(pending)* |
-| 2× sharpness | both families retrained with AWR weights twice as sharp as upstream; B with one temperature for all seeds (§8.5) | B beats both → chaining at matched sharpness; both rise → a `π_h` tuning effect; neither → B stays negative | *(pending)* |
+| 2× sharpness | both families retrained with AWR weights twice as sharp as upstream; B with one temperature for all seeds, 0.210, near that of the selected B-clean seed, so it also tests whether that seed's pass holds for all seeds (§7.1, §8.5) | B beats both → chaining at matched sharpness; both rise → a `π_h` tuning effect; neither → B stays negative | *(pending)* |
 | H1, control of 2× | B-clean at the same 2× temperature with `V_H = V_1` | B at 2× ≈ H1 → the critic adds nothing | *(pending)* |
 
 **T1: no gain; the chaining condition holds for B-region.** Each ensemble is one controller,
@@ -1183,7 +1192,7 @@ evaluated on the 2,500 episodes of the final protocol (`results/medium_10seeds/e
 | Giant and teleport | teleport: an exact maximiser of `E[γ^H]` takes the teleporter and succeeds about half the time, and every method stays far below that, the teleport-aware oracle included (21.4 %), and 54–65 % of the learned agents' episodes end in the trap; giant: the walks fit in 1000 steps only at a fast pace, and every method stays below 3 % | §7.3 |
 | Each guard of A on the real model | `R̂ = 0`, the look-ahead and the reach radius matter; the xy cap matters on large only; the head min, commitment, route following and `two_way` show no effect on medium; no single change beats the defaults | §4 |
 | Acting like the oracle on A's route (act-ahead) | +3.2 pp over `planner_high` (not significant); level with `baseline`, below `baseline_raw` and the oracle | §8.4 |
-| Approach B (B-clean, B-wide, B-region) | **no gain so far**: pooled +0.5 to +1.5 pp over the retrained baselines and −0.6 to −1.6 pp against `baseline_raw` (10 eval seeds, all CIs contain 0); the held-out-selected B-clean seed is +2.2 pp [+0.1, +4.3] (p = 0.047) against `baseline_raw`, at the edge, among 8 B tests and not confirmed on the new eval seeds alone; conclusion pending (AWR sharpness at 2× and its control) | §7.1, §8.5 |
+| Approach B (B-clean, B-wide, B-region) | **no gain so far**: pooled +0.5 to +1.5 pp over the retrained baselines and −0.6 to −1.6 pp against `baseline_raw` (10 eval seeds, all CIs contain 0); the held-out-selected B-clean seed passes the rule at the edge, +2.2 pp [+0.1, +4.3] (p = 0.047) against `baseline_raw`, but it is one of 8 B tests (Holm-adjusted p 0.37) and not significant on the new eval seeds alone; conclusion pending (AWR sharpness at 2× and its control) | §7.1, §8.5 |
 | B's critic `V_H` | lifts long-range values (median 16.4 against 7.8 at 20–24 xy units) but orders states no better than `V_1`, at expectile 0.9 or 0.7 | §8.5 |
 | B's training seeds | split into two significantly different groups (B-clean 81.2–82.7 % and 76.5–77.0 %), which follow the AWR temperature, calibrated per seed from one noisy batch, not the critic | §7.1, §8.5 |
 | Test-time ensembles of 5 `π_h` seeds (T1) | **no gain**: the best, B-region, is +0.5 pp against `baseline_raw`; it beats the retrained ensemble by +3.0 pp [+0.9, +5.3], but the CI covers only the episodes, and B-region also changes the latent type | §8.6 |
