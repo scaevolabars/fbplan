@@ -124,6 +124,9 @@ guards of approach A are in §4.
 - **B. Learned multi-switch value (second).** Fit `V_H(s,z)` offline by expectile regression
   on `R(s,w) + ρ(s,w)·V̄_H(w,z)`, then train a new `π_h` with AWR on that advantage.
   Works for any reward and needs no graph at test time. B can distill A.
+  Plan: `docs/plans/approach-b.md`, approved by the user on 2026-10-29 with one change:
+  B-clean uses single-state latents `B(w)` as upstream, so that only the critic changes;
+  region latents are a separate variant. Distillation of A (stage B2) waits until B1 shows a gain.
 
 ## 5. Evaluation protocol
 
