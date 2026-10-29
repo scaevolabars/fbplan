@@ -8,7 +8,7 @@ import pytest
 from gymnasium.spaces import Box
 from gymnasium.wrappers import TimeLimit
 
-from fbplan import evaluate, frozen, train_high
+from fbplan import evaluate, frozen
 from fbplan.contracts import TaskSpec
 from fbplan.controllers import resolve_controller
 from fbplan.evaluate import (
@@ -28,7 +28,7 @@ from fbplan.evaluate import (
     task_latent,
     write_csv,
 )
-from fbplan.learned import train_b
+from fbplan.learned import checkpoint as trained
 from fbplan.maze import MazeGeometry
 from fbplan.stats import CHECKPOINT_DEFAULTS, load_results
 
@@ -227,10 +227,10 @@ def test_checkpoint_load_calls_the_loader_of_its_kind(monkeypatch):
     calls = []
     monkeypatch.setattr(evaluate, "load_model", lambda env: calls.append(("provided", env)))
     monkeypatch.setattr(
-        train_high, "load_baseline_model", lambda env, seed: calls.append(("retrained", env, seed))
+        trained, "load_baseline_model", lambda env, seed: calls.append(("retrained", env, seed))
     )
     monkeypatch.setattr(
-        train_b, "load_b_model", lambda env, variant, seed: calls.append(("b", env, variant, seed))
+        trained, "load_b_model", lambda env, variant, seed: calls.append(("b", env, variant, seed))
     )
     for spec in ("provided", "retrained:3", "b:wide:1"):
         Checkpoint.parse(spec).load("env")
@@ -373,7 +373,7 @@ def test_task_latent_infers_eval_tasks_upstream_and_heldout_goals_the_same_way(m
 
 
 def test_cli_runs_a_heldout_goal_with_a_retrained_checkpoint(medium_model, tmp_path):
-    if not (train_high.baseline_dir(MEDIUM, 0) / "params.pkl").exists():
+    if not (trained.trained_dir("baselines", MEDIUM, 0) / "high_actor.pkl").exists():
         pytest.skip("retrained medium baseline seed 0 absent")
     out = tmp_path / "retrained.csv"
     task_id = HELDOUT_OFFSET + 1

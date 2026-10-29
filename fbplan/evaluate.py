@@ -44,11 +44,10 @@ import gymnasium as gym
 import numpy as np
 import pandas as pd
 
-from fbplan import train_high
 from fbplan.contracts import Controller, EpisodeRecord, FBModel, TaskSpec
 from fbplan.controllers import ALIASES, resolve_controller
 from fbplan.frozen import ENV_NAMES, load_dataset, load_model, make_env, upstream_module
-from fbplan.learned import train_b
+from fbplan.learned import checkpoint as trained
 from fbplan.maze import Cell, MazeGeometry
 from fbplan.stats import CHECKPOINT_DEFAULTS, summary_table
 
@@ -66,8 +65,9 @@ class Checkpoint:
 
     provided: the paper's checkpoint (fbplan.frozen.load_model).
     retrained: pi_h retrained with the upstream recipe from training seed `seed`
-        (fbplan.train_high.load_baseline_model).
-    b: approach B pi_h of `variant` from training seed `seed` (fbplan.learned.train_b).
+        (fbplan.learned.checkpoint.load_baseline_model).
+    b: approach B pi_h of `variant` from training seed `seed`
+        (fbplan.learned.checkpoint.load_b_model).
     """
 
     kind: CheckpointKind = "provided"
@@ -103,9 +103,9 @@ class Checkpoint:
     def load(self, env_name: str) -> FBModel:
         """The frozen model with this pi_h."""
         if self.kind == "retrained":
-            return train_high.load_baseline_model(env_name, self.seed)
+            return trained.load_baseline_model(env_name, self.seed)
         if self.kind == "b":
-            return train_b.load_b_model(env_name, self.variant, self.seed)
+            return trained.load_b_model(env_name, self.variant, self.seed)
         return load_model(env_name)
 
     def columns(self) -> dict[str, object]:
