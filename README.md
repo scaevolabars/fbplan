@@ -11,17 +11,18 @@ Status: work in progress. Design and notation: `docs/design.md`.
 ```bash
 git clone --recurse-submodules https://github.com/scaevolabars/fbplan.git && cd fbplan
 uv sync
-uv run python -m fbplan.frozen --trained   # checkpoints, hash-checked (see below)
+uv run python -m fbplan.frozen --trained --datasets antmaze-medium-navigate-v0
 uv run pytest
 ```
 
-`fbplan.frozen` downloads the 4 provided frozen checkpoints (73 MB) and every
-trained checkpoint that this repository publishes as a release asset (retrained `π_h`,
-approach B), so a machine without a GPU can evaluate them. OGBench datasets download to
-`~/.ogbench/data` on first use. Tests never download data: a test that needs a checkpoint or a
-dataset skips, and `pytest` lists the skipped tests. The first evaluation on medium downloads
-the medium validation split (24 MB); after it, only tests that need other files skip.
-CI (`.github/workflows/ci.yml`) runs `ruff check` and `pytest` on CPU, without data.
+`fbplan.frozen` downloads the 4 provided frozen checkpoints (73 MB). With `--trained` it also
+gets every trained checkpoint that this repository publishes as a release asset (retrained
+`π_h`, approach B; none is published yet), so a machine without a GPU can evaluate them. Both
+kinds are checked against pinned sha256 sums. With `--datasets` it also gets the medium train
+and val splits (270 MB) into `~/.ogbench/data`; other datasets download on first use. Tests
+never download data: a test that needs a checkpoint or a dataset skips, and `pytest` lists the
+skipped tests. CI (`.github/workflows/ci.yml`) runs `ruff check` and `pytest` on CPU, without
+data.
 
 On a Linux machine with CUDA, `uv sync` installs the CUDA build of JAX. uv is the primary way to
 set up; `devbox.json` only provides the pinned uv (`devbox run setup`, `devbox run test`).
@@ -53,7 +54,7 @@ scripts/reproduce.sh train         # retrain pi_h and approach B (Linux with a G
 
 | Stage | What it does | Output |
 |---|---|---|
-| `checkpoints` | downloads the frozen and the published trained checkpoints (sha256-checked) | `~/.cache/fbplan/` |
+| `checkpoints` | downloads the frozen and the published trained checkpoints (sha256-checked) and the medium datasets | `~/.cache/fbplan/`, `~/.ogbench/data/` |
 | `train` | retrains `π_h` and approach B, 5 seeds each; not in the default (about 1 h per job on an RTX 3090) | `~/.cache/fbplan/`, `runs/train_*/` |
 | `eval` | every run in the table at the top of the script: 5 tasks × 50 episodes per eval seed, paired start states | `results/<maze>/*.csv` |
 | `tables` | success with 95 % CIs, paired tests against the baseline, failure classes; `analysis/report_figures.py` (time to goal, report §8.4) | `results/<maze>/tables.md`, `docs/figures/report/` |
@@ -66,8 +67,9 @@ and the parity check) takes about 4 h (estimate from these run times). `--worker
 number of evaluation processes (default 4). `--smoke` uses medium only, the first run of each
 result group, one eval seed, two episodes per task and 10 training steps; it writes to
 `runs/smoke/` and leaves `results/`, `docs/figures/` and the trained models unchanged. It also
-prints how many of its episodes equal the committed ones: resets are seeded, so on the same
-machine all of them do. With devbox: `devbox run reproduce` and `devbox run smoke`.
+prints how many of its episodes equal the committed ones: resets are seeded, so on the
+platform of the committed CSVs all of them do. With devbox: `devbox run reproduce` and
+`devbox run smoke`.
 
 **Single runs.** One evaluation (all methods use this loop); `--out runs/...` keeps the
 committed CSVs unchanged:
