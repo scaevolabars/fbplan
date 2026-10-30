@@ -1,6 +1,6 @@
 # Status: f-report
 
-Last update: 2026-10-30, 04:30. Branch merged with `main` at 2626146.
+Last update: 2026-10-30, 05:25. Branch merged with `main` at 8b4795f.
 
 ## Done
 
@@ -219,6 +219,35 @@ Last update: 2026-10-30, 04:30. Branch merged with `main` at 2626146.
     then the FB arm h-papers H2), §11 (large and held-out commands; 2× on 10 seeds), appendix (T2,
     recorded route).
   - §1 is unchanged on purpose (coordinator); the status line says what it does not yet include.
+- After the merge of 8b4795f (wave 3: large replication, H1 on medium; c-planner's note on the
+  oracle; design.md §8 fixes the medium replication; coordinator: finishing phase, write the H1
+  section, §9, §10, then §1 after the medium replication):
+  - §8.7 rewritten as the H1 section: what it is (recorded-walk edges, xy weights, route re-planned
+    every step; region latent of the route ahead as the intention; `π_l` or `π_h` acts; selected
+    `window` K 150 on medium, so `π_h` is not used there; `high` K 150 on large), why it is a
+    sequence of intentions, a table of what FB contributes (goal landmark by `F`, intentions by
+    `B`, the executor) and what it does not (edges, weights, route; chain value, `ρ̂`, `V_H`).
+  - Results, all seed sets: medium 0–9 83.8 %, +3.3 pp [+1.2, +5.4] (p 0.0027) against
+    `baseline_raw`, +5.3 against `baseline`, +2.2 [+0.2, +4.3] (p 0.037) against the oracle; no
+    task below `baseline`. Large 0–9 +3.5 (passes), 10–19 +1.8 (p 0.16, does not confirm), 0–19
+    +2.7 (p 0.004). Medium 10–19 pending. Held-out grids of both mazes in one table: the
+    configurations differ little (medium all six within 2.5 pp).
+  - New from my checks: on medium the gain shrinks on the new eval seeds (against raw: 0–4
+    +4.0 pp, p 0.010; 5–9 +2.6 pp, p 0.11). Not faster: median steps of successes 371 against 364
+    (medium). Large 20 eval seeds: `baseline` − `baseline_raw` +2.0 pp [+0.3, +3.7], p 0.023 (§6).
+  - c-planner's oracle note in §8.7: on large tasks 2, 4, 5 (same cells) H1 − oracle −1.5 pp; on
+    tasks 1, 3 (another equally short path) +7.9 pp; `π_h` adds +1.8 pp (n.s.) on held-out goals.
+    The paired split is recomputed from the committed CSVs with a task filter; the cell check
+    itself is c-planner's scratch script (named as such). "Matches the oracle" on large; above it
+    on medium.
+  - Multiplicity: about 21 candidate tests on 10 eval seeds; medium pass Holm-adjusted p ≤
+    21 × 0.0027 = 0.057 (P of a p this small by chance 0.055); large ≤ 0.17.
+  - §7.1 (H1 row and paragraph), §7.2 (replication table), §6 (large 20 seeds), §8.2 (room for route
+    following, not for the oracle), §8.4, §9 (H1 row: worked on medium, not confirmed on large),
+    §10 (limits; next steps: medium replication, FB arm H2, forced-oracle check, distil H3), §11,
+    appendix, status line. §1 untouched until the medium replication lands.
+  - Not renumbered: H1 stays in §8.7, because the hypothesis files cite REPORT section numbers
+    about 60 times; §1 will point to §8.7.
 - Private defense sheet for the reviewer call (coordinator request): written outside the
   repository, not committed; updated for B, the seed selection, the ablations, giant, and the
   10-seed protocol and T1.
@@ -230,8 +259,8 @@ Last update: 2026-10-30, 04:30. Branch merged with `main` at 2626146.
 
 | # | Result | Report section | Owner | Expected place |
 |---|---|---|---|---|
-| 1 | wave 3 (R): the recorded route and both baseline rows on large eval seeds 10–19 | §8.7, §7.2, §9, then §1 | d-eval | `results/large/` |
-| 2 | wave 3 (M): the recorded route on medium (held-out grid, then eval seeds 0–9) | §8.7, §7.1, §9, then §1 | c-planner, d-eval | `results/medium/` |
+| 1 | medium replication: the recorded route (`window`, K 150) and both baseline rows on medium eval seeds 10–19 | §8.7, §7.1, §9, §10, then §1 | d-eval | `results/medium_seeds10-19/` (expected) |
+| 2 | optional: c-planner's route-cell check committed (`analysis/planner_routes.py`), so §8.7 cites a committed file for "same cells" | §8.7 | c-planner | `analysis/` |
 | 3 | route plots of A on medium and large, committed | §8.4 point 8 | c-planner | `docs/figures/report/` or c-planner's results |
 | 4 | non-hier and approach A on eval seeds 5–9 (optional) | §7.1 | d-eval | `results/medium_10seeds/` |
 | 5 | giant: optional `baseline_raw` | §7.3 | d-eval | `results/giant/` |
@@ -239,13 +268,14 @@ Last update: 2026-10-30, 04:30. Branch merged with `main` at 2626146.
 | 7 | whether the wormholes that the xy cap leaves cross a wall (a column of the calibration CSV) | §8.3, §4 | d-eval | `results/calibration/` |
 
 Every needed result has an owner. The central finding (no measurable room for a high level with
-this `π_l`) now holds for the privileged oracle only: on large the recorded route passes the bar
-(§8.7). §1 still states the old wording; it is rewritten after wave 3 (coordinator).
+this `π_l`) now holds for the privileged oracle only: the recorded route passes the bar on medium
+and matches or beats the oracle (§8.7). §1 still states the old wording; it is rewritten when the
+medium replication lands (coordinator).
 
 ## Next
 
-- When wave 3 lands: (R) and (M) rows in §8.7 by the readings of design.md §8, the large table of
-  §7.2 with eval seeds 0–9, 10–19 and 0–19, §9, §10; then §1, written last.
+- When the medium replication lands: its row in §8.7 by the reading of design.md §8, medium
+  eval seeds 10–19 and 0–19 in §7.1 and §8.7, §9, §10; then §1, written last.
 - Then the other items above.
 - Merge `main` when new results are merged.
 

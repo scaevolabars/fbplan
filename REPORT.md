@@ -1,10 +1,10 @@
 # Report: planning over sequences of intentions with frozen FB representations
 
-Status: draft. Pending: wave 3, the replication of the recorded-route controller on new large
-eval seeds and its test on medium (§8.7), and two small items (route plots of A, §8.4; a
-wall-crossing count, §8.3). §1 does not yet include T2, the 10-seed rows of the 2× experiment, the
-10-seed rows on large and the recorded-route controller (§7.2, §8.5–§8.7); it is rewritten after
-wave 3.
+Status: draft. Pending: the replication of the recorded-route controller on medium eval seeds
+10–19 (§8.7), and two small items (route plots of A, §8.4; a wall-crossing count, §8.3). §1 does
+not yet include T2, the 10-seed rows of the 2× experiment and on large, and the recorded-route
+controller, which passes on medium (§7.1, §7.2, §8.5–§8.7); it is rewritten when the medium
+replication lands.
 Notation: `docs/design.md` §3; names that differ between the report and the code: Appendix. Every
 number names the committed file it comes from. pp = percentage points; CI = 95 % confidence
 interval.
@@ -367,7 +367,9 @@ the final protocol adds eval seeds 5–9 for both baseline rows, the retrained b
 families, the oracle and every later candidate: 2,500 episodes per run (`results/medium_10seeds/`;
 fixed in `docs/design.md` §8 before those runs). On teleport, both baseline rows and test T3 also
 have 10 eval seeds (`results/teleport_10seeds/`); on large, both baseline rows, the oracle and the
-recorded-route controller (`results/large_10seeds/`, §7.2). The 95 % CI of one paired difference is about ±3.2 pp with 5
+recorded-route controller (`results/large_10seeds/`, §7.2). The replications of the recorded
+route add eval seeds 10–19 for it and both baseline rows (`results/large_seeds10-19/`; medium
+*(pending)*). The 95 % CI of one paired difference is about ±3.2 pp with 5
 eval seeds and about ±2.2 pp with 10 (§7.1). Episode length 1000, deterministic actions
 (temperature 0), success as defined by OGBench at the last step.
 
@@ -401,6 +403,7 @@ baselines. `baseline_raw` follows upstream. Neither row is the stronger one on e
 |---|---|---|
 | medium, 10 eval seeds | +2.0 [−0.2, +4.2], p = 0.07 | not significant; `baseline_raw` is higher |
 | medium, 5 eval seeds | +3.8 [+0.7, +6.8], p = 0.02 | `baseline_raw` |
+| large, 20 eval seeds | −2.0 [−3.7, −0.3], p = 0.023 | `baseline` |
 | large, 10 eval seeds | −2.2 [−4.6, +0.2], p = 0.085 | not significant; `baseline` is higher |
 | large, 5 eval seeds | −2.3 [−5.6, +1.0], p = 0.19 | not significant; `baseline` is higher |
 | teleport, 10 eval seeds | −2.5 [−4.4, −0.6], p = 0.011 | `baseline` |
@@ -447,8 +450,9 @@ Medium has two sets of runs:
 
 - **Final protocol, 10 eval seeds** (2,500 episodes per run, `results/medium_10seeds/`): both
   baseline rows, the oracle, the retrained baselines and the three B families; also the families
-  at 2× AWR sharpness (§8.5) and the hypothesis tests T1, T2 and T4 (§8.6). Eval seeds 0–4 are
-  the runs in `results/medium/`; eval seeds 5–9 ran on the same code.
+  at 2× AWR sharpness (§8.5), the hypothesis tests T1, T2 and T4 (§8.6) and the recorded-route
+  controller (§8.7). Eval seeds 0–4 are the runs in `results/medium/`; eval seeds 5–9 ran on the
+  same code.
 - **5 eval seeds** (1,250 episodes per run, `results/medium/`): non-hier and approach A. They are
   paired with the baseline rows on the same 5 eval seeds.
 
@@ -465,6 +469,7 @@ cluster bootstrap over the seeds). Bold: the higher baseline row.
 | B-clean (5 seeds) | 82.9 | 85.9 | 77.2 | 65.8 | 87.5 | 79.9 [77.5, 82.2] |
 | B-wide (5 seeds) | 81.0 | 82.3 | 79.5 | 65.9 | 85.8 | 78.9 [75.4, 82.0] |
 | B-region (5 seeds) | 80.6 | 84.1 | 79.2 | 67.0 | 88.4 | 79.9 [78.2, 81.4] |
+| recorded route (H1, `window`, `K` 150) | 80.0 | 91.0 | 89.2 | 71.0 | 87.6 | 83.8 [82.3, 85.1] |
 
 Paired differences (pp) with CI and McNemar p, on the same 2,500 start states (`--reference
 baseline baseline_raw baseline_retrained`). "Pooled" bootstraps over the training seeds of both
@@ -474,6 +479,7 @@ sides and over episodes:
 |---|---|---|---|
 | baseline_raw | +2.0 [−0.2, +4.2], p = 0.07 | – | |
 | oracle (privileged) | +3.1 [+0.9, +5.3], p = 0.007 | +1.0 [−1.2, +3.2], p = 0.37 | |
+| **recorded route (H1)** | +5.3 [+3.2, +7.4], p = 9e-7 | **+3.3 [+1.2, +5.4], p = 0.003** | |
 | retrained, pooled | −0.1 [−2.3, +2.2] | −2.1 [−4.3, +0.1] | – |
 | retrained, seeds 0–4 | −1.9 to +1.7, all p ≥ 0.11 | −3.9 to −0.4; seeds 2 and 3 significant (p ≤ 0.003) | – |
 | B-clean, pooled | +1.4 [−1.5, +4.3] | −0.6 [−3.5, +2.2] | +1.5 [−1.4, +4.4] |
@@ -483,13 +489,19 @@ sides and over episodes:
 | B-region, pooled | +1.4 [−1.0, +3.7] | −0.6 [−2.9, +1.7] | +1.5 [−0.8, +3.8] |
 | B-region, seeds 0 / 1 / 2 / 3 / 4 | +3.5 / +0.7 / +1.8 / −1.2 / +2.4; seeds 0 and 4 significant | +1.5 / −1.4 / −0.2 / −3.3 / +0.3; seed 3 significantly below | |
 
+**The recorded-route controller passes the rule of §6.** It is +5.3 pp above `baseline` and
++3.3 pp above `baseline_raw`, both significant, and +2.2 pp [+0.2, +4.3] (p = 0.037) above the
+privileged oracle. It is the only method on medium that passes. Its route comes from recorded
+trajectories, not from FB values; it is one method among many tests, and a replication on eval
+seeds 10–19 runs now (§8.7).
+
 **The two baseline rows do not differ significantly with 10 eval seeds.** `baseline_raw` is
 +2.0 pp higher (p = 0.07). With 5 eval seeds the gap was +3.8 pp [+0.7, +6.8] (p = 0.02). On the
 new eval seeds 5–9 alone it is +0.3 pp [−2.6, +3.4] (`analysis/tables.py` on the rows of
 `results/medium_10seeds/` with eval seeds 5–9). So most of the 5-seed gap was noise. The rule of
 §6 does not change: a gain must be significant against both rows.
 
-**No pooled family gains.** No family of 5 training seeds differs significantly from either
+**No pooled `π_h` family gains.** No family of 5 training seeds differs significantly from either
 baseline row or from the retrained baselines. B-clean and B-region gain +1.5 pp over the retrained
 baselines, the controlled reference of B (same recipe, input path and number of seeds), and B-wide
 +0.5 pp; all CIs contain 0. On task 4, where a high level matters most (§8.2), B-clean scores
@@ -587,7 +599,8 @@ baseline baseline_raw`). "Pooled" bootstraps over landmark sets and over episode
 | region latents, sets 0 / 1 / 2 | −18.3 / −4.9 / −13.2, all p ≤ 0.006 | −22.1 / −8.6 / −17.0, all p ≤ 4e-7 |
 
 **Even the privileged oracle does not pass `baseline_raw`:** +1.0 pp [−1.2, +3.2], p = 0.37, with
-10 eval seeds (+0.5 pp with 5). §8.2 discusses what this means.
+10 eval seeds (+0.5 pp with 5). §8.2 discusses what this means. The recorded route, which has no
+map, does pass it (above).
 
 **Approach A is below both baselines on medium.** Every variant on every landmark set is
 significantly below `baseline_raw`. Against the normalized baseline, only `planner_high` on set 0
@@ -613,15 +626,30 @@ baseline_raw oracle`). Eval seeds 0–4 of the baseline rows and the oracle are 
 | oracle (privileged) | +1.2 [−1.3, +3.8], p = 0.37 | +3.4 [+0.8, +5.9], p = 0.011 | – |
 | recorded route | **+3.5 [+0.9, +6.0], p = 0.009** | **+5.6 [+3.2, +8.1], p = 2e-5** | +2.2 [−0.4, +4.9], p = 0.10 |
 
-- **The bar on large is the normalized baseline.** The two rows do not differ significantly, and
-  `baseline` is higher (+2.2 pp, p = 0.085).
+- **The bar on large is the normalized baseline.** With 10 eval seeds `baseline` is higher by
+  +2.2 pp (p = 0.085); with the 20 eval seeds of the replication below, by +2.0 pp [+0.3, +3.7]
+  (p = 0.023).
 - **The oracle does not pass it:** +1.2 pp [−1.3, +3.8]. It gains 7.0–10.4 pp on tasks 2, 4 and 5,
   but loses 20.8 pp on task 3, where `π_h` succeeds in 75 % of the episodes.
-- **The recorded-route controller passes the rule of §6:** +3.5 pp against `baseline` and +5.6 pp
-  against `baseline_raw`, both significant. It is the only method of this report that does. It is
-  also ahead of the oracle, but not significantly. Its route comes from recorded trajectories,
-  not from FB values, and it is one pass among many tests; a replication on new eval seeds runs
-  next (§8.7).
+- **The recorded-route controller passes the rule of §6 on eval seeds 0–9:** +3.5 pp against
+  `baseline` and +5.6 pp against `baseline_raw`, both significant. It is level with the oracle
+  (+2.2 pp, not significant).
+
+**Replication on eval seeds 10–19** (fixed in `docs/design.md` §8 before the run;
+`results/large_seeds10-19/`, 2,500 paired episodes per row; eval seeds 0–19 joins both seed sets
+of each row; no oracle run on eval seeds 10–19):
+
+| Eval seeds | baseline | baseline_raw | recorded route | against baseline | against baseline_raw |
+|---|---|---|---|---|---|
+| 0–9 | **37.7** | 35.5 | 41.2 | **+3.5 [+0.9, +6.0], p = 0.009** | +5.6 [+3.2, +8.1], p = 2e-5 |
+| 10–19 | **37.5** [35.8, 39.2] | 35.6 [34.0, 37.4] | 39.3 [37.5, 41.1] | **+1.8 [−0.7, +4.4], p = 0.16** | +3.7 [+1.2, +6.2], p = 0.005 |
+| 0–19 | **37.6** [36.4, 38.8] | 35.6 [34.4, 36.8] | 40.2 [39.0, 41.6] | **+2.7 [+0.9, +4.5], p = 0.004** | +4.7 [+2.9, +6.5], p = 5e-7 |
+
+- **The replication does not confirm the pass on large.** The fixed rule asks for a significant
+  gain against both rows on eval seeds 10–19 alone; against `baseline` it is +1.8 pp (p = 0.16).
+  Pooled over the 20 eval seeds the gain is +2.7 pp [+0.9, +4.5]. Per task on eval seeds 10–19:
+  task 2 +15.8 pp, task 1 +5.0, tasks 4 and 5 +1.2 and +2.2, task 3 −15.0 (64.2 % against
+  79.2 %); the pattern of eval seeds 0–9 repeats (§8.7).
 
 **Rows with 5 eval seeds.** Success (%) with 95 % CI, 1,250 episodes per row (`results/large/`,
 same commands). The baseline rows and the oracle on the same 5 eval seeds are shown for reference.
@@ -843,20 +871,21 @@ the choice of intentions, bounds giant. On teleport the walking route that avoid
 scores below the baseline, and the trap caps an exact maximiser of `E[γ^H]` at about 50 %.
 
 This does not say that chaining cannot help in principle. The tabular study shows that it helps
-when `π_l` fails at long range and FB is accurate at short range (§3.1). It says that with the
-oracle's executor the frozen `π_l`, not the choice of intentions, limits success: on medium most
-failures are flips (below), and on large and giant most failures are episodes still moving at the
-time limit (§7.2, §7.3). Approach B gives a second, weaker test of the same room: a learned
-multi-switch critic also gains nothing measurable, and at matched AWR sharpness it adds nothing
-(§7.1, §8.5).
+when `π_l` fails at long range and FB is accurate at short range (§3.1). Most failures are of a
+kind that a choice of intentions can repair only in part: on medium most failures are flips
+(below), and on large and giant most are episodes still moving at the time limit (§7.2, §7.3).
+Approach B gives a second, weaker test of the same room: a learned multi-switch critic also gains
+nothing measurable, and at matched AWR sharpness it adds nothing (§7.1, §8.5).
 
 The oracle is a reference, not a bound. Another waypoint rule changes its success by a large amount
 (next paragraph), so a better rule could find room that this one misses. In the sweep below, the
-best cell (82.4 %) is within noise of the chosen one (80.4 %) on the same 250 episodes. On large,
-a method without the map does find room: the recorded-route controller, which gives `π_h` a
-sequence of nearby targets along a route of recorded states, passes the bar (+3.5 pp, p = 0.009)
-and is ahead of the oracle (+2.2 pp [−0.4, +4.9], p = 0.10; §8.7). So the oracle's lack of room
-holds for the oracle's kind of high level, not for every high level.
+best cell (82.4 %) is within noise of the chosen one (80.4 %) on the same 250 episodes. A method
+without the map does find room: the recorded-route controller, which gives the executor a moving
+target along a route of recorded states, passes the bar on medium (+3.3 pp, p = 0.003) and is
+above the oracle there (+2.2 pp [+0.2, +4.3], p = 0.037). On large it passed on eval seeds 0–9 and
+matches the oracle, but its replication did not confirm the pass (§8.7). On large the difference
+to the oracle lies in the choice between equally short paths, not in a shorter route (§8.7). So
+the oracle's lack of room holds for the oracle, not for route following in general.
 
 **The waypoint latent matters more than the route.** Oracle variants on the 250 episodes of eval
 seed 0 (`results/medium/oracle_sweep/*.csv`, `analysis/tables.py`; on these episodes the baseline
@@ -1045,7 +1074,8 @@ option off):
 So acting like the oracle recovers 3.2 of the 7.4 points between `planner_high` and the oracle,
 not significantly, and leaves A level with the normalized baseline and below the stronger one.
 The rest of the gap lies in the route or in details of the oracle's executor; these runs cannot
-split it. On large, the same executor on a route of recorded walks passes the bar (§8.7).
+split it. On a route of recorded walks the same executor passes the bar on large eval seeds 0–9,
+and on medium a `π_l` executor on such a route passes it (§8.7).
 *(pending: route plots.)*
 
 **Region latents: good for acting, bad for planning (hypothesis).** Region-mean waypoint latents
@@ -1318,121 +1348,202 @@ seeds, 2,500 episodes per row (trap shares by the rule of §7.3, `docs/theory.md
   the baseline's episodes end in the trap, weight 0.5 loses 7.1 pp (`docs/theory.md` §11.4).
 - So on teleport a high level that steers away from the trap does not help with this `π_l`.
 
-### 8.7 Recorded-route tracking: the one method that passes (large)
+### 8.7 Recorded-route tracking (H1): the method that passes the rule
 
-One method passes the rule of §6: a controller that tracks a route of recorded states on large.
-It came from a fourth search for hypotheses, through the papers of the assignment
-(`docs/hypotheses/h-papers.md`, hypothesis H1; code `fbplan.controllers.planner:make_recorded_route`,
-`docs/status/c-planner.md`). It is one pass among many tests. A replication on new eval seeds and
-a test on medium run next, and they decide how strong the claim is.
+One method passes the rule of §6: recorded-route tracking, hypothesis H1 of
+`docs/hypotheses/h-papers.md` (code `fbplan.controllers.planner:make_recorded_route`,
+`docs/status/c-planner.md`). On medium, the main maze, it scores 83.8 %, +3.3 pp [+1.2, +5.4]
+(p = 0.003) above the bar, `baseline_raw`, and +2.2 pp (p = 0.037) above the privileged oracle.
+On large it passed on eval seeds 0–9, but the replication on eval seeds 10–19 did not confirm it.
+It is one method among many tests, its route does not use FB values, and a replication on medium
+eval seeds 10–19 runs now *(pending)*.
 
-**Method.** Three points describe it:
+**What it is.**
 
-- **The route comes from recorded trajectories, not from FB values.** The landmarks are 300 train
-  states, by farthest-point sampling on xy, as in approach A. An edge `u → w` exists when one
-  train trajectory passes within 0.5 xy units of `u` and later within 0.5 of `w`, at most `K`
-  steps later. Its weight is its xy length. The first hop from the agent's state follows the same
-  rule from the train states within 0.5 xy units of it. The route is the shortest path to the goal
-  landmark, planned again at every step.
-- **FB gives only the goal landmark and the executor.** The goal landmark is the landmark with the
-  largest `min_h F_h(w,z_r)ᵀz_r`. On the 10 large held-out goals it lies 0.82 xy units from the
-  goal at the median and 3.25 at most (a privileged check, not used for any choice).
-- **`π_h` executes a sequence of nearby targets.** The selected executor gives `π_h` the
-  region-mean latent (radius 0.5) of the route point 8 xy units ahead as its task, in place of
-  `z_r`. When that point would lie past the goal landmark, `π_h` gets `z_r`. So `π_h` picks its
-  intentions toward a near target, and the target moves along the route.
+- **Landmarks:** 300 train states, by farthest-point sampling on xy, as in approach A.
+- **Edges from recorded walks:** an edge `u → w` exists when one train trajectory passes within
+  0.5 xy units of `u` and later within 0.5 of `w`, at most `K` steps later. Its weight is its xy
+  length. The first hop from the agent's state follows the same rule from the train states within
+  0.5 xy units of it.
+- **Route:** the shortest path over these edges to the goal landmark, planned again at every step.
+- **Intention:** a region-mean latent (the mean of `B` over the train states within 0.5 xy units)
+  of points along the route ahead. Three forms: `point`, the point 8 xy units ahead; `window`, the
+  normalized mean of the unit latents of the points 4, 8 and 12 xy units ahead; `high`, the point
+  8 xy units ahead given to `π_h` as its task in place of `z_r`. When the points lie past the goal
+  landmark, the intention is `z_r`.
+- **Executor:** `π_l` acts on the intention (`point`, `window`), or `π_h` picks the intention from
+  the target and `π_l` acts on it (`high`). The selected forms differ by maze: `window` with
+  `K` 150 on medium, so `π_l` acts and `π_h` is not used; `high` with `K` 150 on large.
 
-Why it was tested: approach A loses mostly time, and on A's own route an oracle-like executor
+**Why it is a sequence of intentions.** The route fixes an ordered sequence of targets from the
+agent to the goal. The executor always acts on the targets just ahead, so over an episode the
+agent follows a chain of intentions to the goal. The chain is planned as a whole and planned
+again at every step. This is the structure of approach A (§4), with two changes: the edges come
+from recorded walks instead of FB `ρ̂`, and the intention is a region latent of points along the
+walk instead of the latent of one landmark.
+
+**What FB contributes, and what it does not:**
+
+| Part | Source |
+|---|---|
+| edges, their weights and the route | recorded train trajectories and the xy position in the observation; no FB value |
+| goal landmark | `F`: the landmark with the largest `min_h F_h(w,z_r)ᵀz_r`; on the held-out goals it lies 0.93 (medium) and 0.82 (large) xy units from the goal at the median, 2.12 and 3.25 at most (privileged check in `docs/status/c-planner.md`, not used for any choice) |
+| intentions | `B`: region-mean latents of the route points |
+| execution | `π_l`, or `π_h` and `π_l`, frozen |
+| chain value (§3), `ρ̂`, `V_H` | not used |
+
+So this method does not test FB chaining in the sense of §3–§5: no FB value orders the
+sequence. Its FB arm, FB `ρ̂` as the weight of the recorded edges (hypothesis H2 of
+`h-papers.md`), did not run. `F`, `B`, `π_l` and `π_h` stay frozen; the method uses the train
+observations, their order in time and the xy position (approach A also uses xy, for its edge
+cap), and no map.
+
+**Why it was tested.** Approach A loses mostly time, and on A's own route an oracle-like executor
 recovered only 3.2 of the 7.4 points between `planner_high` and the oracle on medium (point 8 of
-§8.4). That act-ahead executor is the selected executor here: `π_h` on the route point 8 xy units
-ahead. Only the route differs (FB `ρ̂` there, recorded walks here), but the two ran on different
-mazes, so they are not compared. A's FB edges have wormholes (§8.3). A recorded walk cannot be a
-wormhole. With xy weights, routes over recorded edges are 0–2 % longer than the maze shortest path
-between the same end landmarks, at the median, on medium and large (offline check M2 of
-`h-papers.md`, by a script outside the repository). `F`, `B`, `π_l` and `π_h` stay frozen. The
-controller uses the train observations, their order in time and the xy position in the observation
-(approach A also uses xy, for its edge cap), and no map.
+§8.4). That act-ahead executor is the `high` form here, on A's FB route. A's FB edges have
+wormholes (§8.3); a recorded walk cannot be one. With xy weights, routes over recorded edges are
+0–2 % longer than the maze shortest path between the same end landmarks, at the median, on medium
+and large (offline check M2 of `h-papers.md`, by a script outside the repository).
 
-**Protocol, fixed in advance** (`docs/design.md` §8, entries "Gate G0" and "H1 on large"):
+**Protocol, fixed in advance** (`docs/design.md` §8: "Gate G0", "H1 on large", "H1 result and
+wave 3", "Wave 3 results and the medium replication"):
 
-1. **Gate G0.** On large, the 10-seed oracle is +1.2 pp [−1.3, +3.8] above the bar (`baseline`,
-   37.7 %; §7.2). By the fixed table, this middle band sends route methods to a held-out check
-   first. On medium the oracle's +1.0 pp fell in the lowest band, so route methods were first
-   dropped there.
-2. **Held-out check.** 6 configurations, on the 10 large held-out goals only (600 paired episodes
-   per row, with the oracle and `baseline` on the same episodes): executor `point` (`π_l` on the
-   route point 8 xy units ahead), `window` (`π_l` on the mean of the unit latents of the points
-   4, 8 and 12 xy units ahead) or `high` (`π_h`, as above), each with `K` = 60 or 150. Select the
-   highest success; ties go to the simpler configuration. The method is falsified if the selected
-   one is more than 2 pp below the oracle or not above `baseline`.
-3. **Final run.** The selected configuration on the 5 large eval tasks, 10 eval seeds, paired
-   against both baseline rows. The rule of §6 decides.
+1. **Gate G0.** The 10-seed oracle is +1.0 pp above the bar on medium (lowest band: route methods
+   dropped there) and +1.2 pp [−1.3, +3.8] on large (middle band: a held-out check first).
+2. **Held-out check on large.** 6 configurations (`point`, `window`, `high` × `K` 60, 150) on the
+   10 large held-out goals, 600 paired episodes per row, with the oracle and `baseline` on the same
+   episodes. Select the highest success; ties go to the simpler configuration (`point`, `window`,
+   `high`, then the smaller `K`). Falsified if the selected one is more than 2 pp below the oracle
+   or not above `baseline`.
+3. **Final run on large:** the selected configuration on eval seeds 0–9, paired against both rows;
+   the rule of §6 decides.
+4. **Wave 3**, because many tests had run: (R) the same configuration on large eval seeds 10–19,
+   confirmed if it beats both rows there alone, paired, p < 0.05; (M) on medium, the same grid,
+   tie rule and falsification rule on the medium held-out goals, then the selected configuration
+   on medium eval seeds 0–9. G0 had dropped route methods on medium, but H1 was ahead of the
+   oracle on large, so the oracle did not bound H1.
+5. **Medium replication:** the medium configuration on eval seeds 10–19, with the same
+   confirmation rule as (R). The report shows eval seeds 0–9, 10–19 and 0–19 for both mazes.
 
-Held-out check, success (%) (`results/large/planner_ablations/h1_heldout/`; `analysis/tables.py
---reference baseline oracle`; on the same episodes `baseline` scores 53.3 % and the oracle 53.0 %):
+**Held-out checks**, success (%) on the same 600 episodes per maze
+(`results/<env>/planner_ablations/h1_heldout/`; `analysis/tables.py --reference baseline
+oracle`):
 
-| Executor | `K` = 60 | `K` = 150 |
-|---|---|---|
-| `point`: `π_l` on the point 8 xy units ahead | 52.0 | 57.0 |
-| `window`: `π_l` on the points 4, 8, 12 xy units ahead | 57.7 | 56.8 |
-| `high`: `π_h` with the point 8 xy units ahead as its task | 57.0 | **58.8** (selected) |
+| Configuration | large, `K` 60 | large, `K` 150 | medium, `K` 60 | medium, `K` 150 |
+|---|---|---|---|---|
+| `point`: `π_l` on the point 8 xy units ahead | 52.0 | 57.0 | 88.7 | 88.3 |
+| `window`: `π_l` on the points 4, 8, 12 xy units ahead | 57.7 | 56.8 | 88.2 | **88.8** (selected) |
+| `high`: `π_h` with the point 8 xy units ahead as its task | 57.0 | **58.8** (selected) | 88.8 | 86.3 |
+| `baseline` | 53.3 | | 86.0 | |
+| oracle (privileged) | 53.0 | | 87.7 | |
 
-- **Not falsified.** The selected configuration, `high` with `K` 150, is +5.5 pp [+0.3, +10.7]
-  (p = 0.045) above `baseline` and +5.8 pp [+0.7, +11.0] above the oracle on these episodes.
-- **The held-out gain does not rest on one configuration.** Five of the six are 3.5–5.5 pp above
-  `baseline` (each not significant alone); only `point` with `K` 60 is below it (−1.3 pp). The
-  `π_l` executors are close to the `π_h` one, so the held-out goals do not separate the executors.
+- **Not falsified on either maze.** Large: the selected configuration is +5.5 pp [+0.3, +10.7]
+  (p = 0.045) above `baseline` and +5.8 pp above the oracle. Medium: +2.8 pp [−0.7, +6.3]
+  (p = 0.14) above `baseline` and +1.2 pp above the oracle.
+- **The held-out goals do not separate the configurations.** On medium all six lie within 2.5 pp;
+  `window` with `K` 150 and `high` with `K` 60 tie at 533 of 600, and the tie rule selects
+  `window`. On large five of the six lie within 2 pp. So the choice of executor and `K` matters
+  little; the route is common to all six.
 
-**Final run: a pass by the rule of §6** (§7.2; `results/large/planner_ablations/h1_eval/high_k150.csv`).
-The recorded route scores 41.2 % [39.4, 43.0] on 2,500 paired episodes, against 37.7 % for
-`baseline` (+3.5 pp [+0.9, +6.0], p = 0.009) and 35.5 % for `baseline_raw` (+5.6 pp [+3.2, +8.1],
-p = 2e-5).
+**Results on the eval tasks**, paired on the same episodes as the baseline rows
+(`results/medium/planner_ablations/h1_eval/window_k150.csv` with `results/medium_10seeds/`;
+`results/large/planner_ablations/h1_eval/high_k150.csv` with `results/large_10seeds/`;
+`results/large_seeds10-19/`; `analysis/tables.py --reference baseline baseline_raw oracle`; for
+eval seeds 0–19 both seed sets of each row together). Bold: the comparison against the bar.
 
-- **Per task** (paired McNemar p against `baseline`): it gains on tasks 1, 2 and 4 (+6.4, +13.4 and
-  +6.8 pp; p = 0.035, 4e-5 and 0.016), is level on task 5 (+0.6 pp) and loses on task 3 (−9.8 pp,
-  p = 0.001). On task 3 every waypoint method loses (§7.2); the recorded route loses less than the
-  oracle (−20.8 pp).
-- **Both halves of the eval seeds agree:** +3.2 pp on eval seeds 0–4 (p = 0.09) and +3.8 pp on
-  eval seeds 5–9 (p = 0.049).
-- **It is not faster.** Successful episodes take 642 steps at the median, against 617 for
-  `baseline` and 635 for the oracle. The extra successes are long episodes.
-- **Against the privileged oracle** it is +2.2 pp [−0.4, +4.9], p = 0.10: ahead, but not
-  significantly. Why a route of recorded states does as well as the true route is not measured.
-  *Hypothesis:* recorded walks follow the paths on which `π_l` was trained, while the oracle's
-  waypoints follow the centres of the maze cells.
+| Maze, eval seeds | recorded route | against `baseline` | against `baseline_raw` | against the oracle | reading |
+|---|---|---|---|---|---|
+| medium, 0–9 | 83.8 [82.3, 85.1] | +5.3 [+3.2, +7.4], p = 9e-7 | **+3.3 [+1.2, +5.4], p = 0.003** | +2.2 [+0.2, +4.3], p = 0.037 | passes |
+| medium, 10–19 | *(pending)* | | | no run | replication |
+| large, 0–9 | 41.2 [39.4, 43.0] | **+3.5 [+0.9, +6.0], p = 0.009** | +5.6 [+3.2, +8.1], p = 2e-5 | +2.2 [−0.4, +4.9], p = 0.10 | passes |
+| large, 10–19 | 39.3 [37.5, 41.1] | **+1.8 [−0.7, +4.4], p = 0.16** | +3.7 [+1.2, +6.2], p = 0.005 | no run | does not confirm |
+| large, 0–19 | 40.2 [39.0, 41.6] | **+2.7 [+0.9, +4.5], p = 0.004** | +4.7 [+2.9, +6.5], p = 5e-7 | – | for information |
 
-**What the pass means.**
+On the same seeds the baseline rows score: medium 0–9 78.4 % and 80.5 %; large 0–9 37.7 % and
+35.5 %; large 10–19 37.5 % and 35.6 %; large 0–19 37.6 % and 35.6 %. The oracle scores 81.5 %
+(medium) and 38.9 % (large) on eval seeds 0–9.
 
-- **It is a gain of a sequence of intentions, but not of FB chaining.** A high level that gives
-  `π_h` a sequence of nearby targets along a recorded route beats the one-switch `π_h` on large.
-  No FB value enters the route. The FB arm of the same controller (FB `ρ̂` as the weight of the
-  recorded edges, hypothesis H2 of `h-papers.md`) did not run.
-- **It qualifies the central finding.** The oracle has no measurable room (§8.2), but the oracle
-  is a reference, not a bound: on large a method without the map passes the bar and is ahead of
-  the oracle.
-- **It is one pass among many tests.** About 20 candidate tests ran under the rule of §6 on
-  10 eval seeds: 12 of B (§7.1), the 2 retrained ensembles (T1, T4), the baseline at 2× pooled and
-  selected, T2 pooled and selected, T3, and this one. This one has the smallest p against its bar
-  (0.0087). If no method had an effect, at least one of 20 independent tests would give a p this
-  small with probability 1 − (1 − 0.0087)²⁰ = 0.16, and the Holm-adjusted p over the 20 is at
-  most 20 × 0.0087 = 0.17. So the pass alone is not a confirmed gain. Unlike the B seed of §7.1,
-  its configuration was chosen on held-out goals before any eval-task result, and five of its six
-  held-out configurations were above `baseline`.
+- **Medium: a pass, with no task below `baseline`.** Per task against `baseline`: +5.4, +3.8,
+  +9.2, +6.0 and +2.2 pp. Against the bar the gain is on tasks 2 and 3 (+5.2 pp, p = 0.018;
+  +9.0 pp, p = 1e-4); tasks 1, 4 and 5 lie between −1.2 and +3.2 pp, not significant. Against the
+  oracle it gains on task 2 (+4.4 pp, p = 0.033).
+- **On medium the gain is smaller on the new eval seeds.** Against `baseline_raw`: +4.0 pp
+  (p = 0.010) on eval seeds 0–4 and +2.6 pp [−0.4, +5.6] (p = 0.11) on eval seeds 5–9. The gap
+  between the two baseline rows shrank in the same way (§6). The replication on eval seeds 10–19
+  decides.
+- **Large: a pass on eval seeds 0–9, not confirmed on eval seeds 10–19.** By the fixed reading the
+  replication fails: on eval seeds 10–19 the method beats `baseline_raw` but not the bar
+  (`baseline`, +1.8 pp, p = 0.16). Pooled over the 20 eval seeds it is +2.7 pp [+0.9, +4.5] above
+  the bar. The per-task pattern repeats: task 2 +13.4 and +15.8 pp, task 3 −9.8 and −15.0 pp (eval
+  seeds 0–9 and 10–19). The first estimate passed a test, so it is likely too high; the effect on
+  large is smaller than +3.5 pp, if it is there.
+- **It is not faster.** Median steps of successful episodes: medium 371 (`baseline` 364,
+  `baseline_raw` 370, oracle 385); large 642 (`baseline` 617, oracle 635). It gains by reaching the
+  goal more often, not sooner.
 
-**Wave 3, fixed before any of its results** (`docs/design.md` §8, "H1 result and wave 3"):
+**Why it does as well as the privileged oracle** (c-planner's analysis on large,
+`docs/status/c-planner.md`, "H1 against the privileged oracle on large"). The two controllers
+differ in the route (the oracle: a fixed order between equally short cell paths on the true map;
+H1: the shortest path over recorded edges), in the target (the oracle: the centre of the cell
+2 cells ahead, which jumps one cell at a time; H1: a point along the walks, which moves with the
+agent) and, on large, in the executor.
 
-| Step | What runs | Reading | Result |
+- **Where both follow the same cells, they score the same.** c-planner checked the cells of H1's
+  planned route against the oracle's (a scratch script, not in the repository): on large eval
+  tasks 2, 4 and 5 the route passes through exactly the oracle's cells; on tasks 1 and 3 it takes
+  another cell path of the same length. Split this way (after the fact), on eval seeds 0–9:
+
+  | Large tasks | H1 − oracle | oracle − `baseline` | H1 − `baseline` |
+  |---|---|---|---|
+  | 2, 4, 5 (same cells) | −1.5 [−4.9, +1.8] | +8.5 [+5.1, +11.7] | +6.9 [+3.7, +10.2] |
+  | 1, 3 (another shortest path) | +7.9 [+3.6, +12.1] | −9.6 [−13.6, −5.6] | −1.7 [−5.7, +2.3] |
+
+  (`analysis/tables.py --reference baseline oracle` on the rows of those tasks.) On task 3 the
+  oracle scores 54.2 %, H1 65.2 % and `baseline` 75.0 %.
+- **`π_h` is not the cause.** On the large held-out episodes `π_l` alone on H1's target (`point`,
+  `K` 150) is +4.0 pp [−0.8, +9.0] above the oracle; `π_h` adds +1.8 pp [−3.3, +7.2]. On medium
+  the selected executor is `π_l`.
+- **H1's path choice is not a designed advantage.** Its order between equally short paths comes
+  from the xy lengths through the landmarks, so it depends on where the landmarks lie. Not tested:
+  the oracle forced through H1's cells on tasks 1 and 3.
+- **Medium was not analysed this way.** There H1 is +2.2 pp above the oracle (p = 0.037), with
+  `π_l` as the executor.
+
+So the privileged oracle is not an upper bound for route following. It is one route follower,
+with a fixed order between equally short paths and targets at cell centres. On large the fair
+summary is "H1 matches the oracle without the map"; on medium it is above it.
+
+**What the pass means.** A sequence of intentions, planned over the offline data and executed by
+the frozen `π_l`, beats the one-switch `π_h` on medium, by the rule of §6. It is not a gain of FB
+chaining: the order of the sequence comes from recorded walks and xy lengths, and FB supplies the
+goal landmark, the intentions and the executor. The oracle part of the central finding (§8.2)
+holds for the oracle only.
+
+**Caveats.**
+
+- **One method among many tests.** About 21 candidate tests ran under the rule of §6 on 10 eval
+  seeds: 12 of B (§7.1), the 2 retrained ensembles (T1, T4), the baseline at 2× pooled and
+  selected, T2 pooled and selected, T3, and H1 on large and on medium. The medium pass has the
+  smallest p against its bar (0.0027): if no method had an effect, at least one of 21 independent
+  tests would give a p this small with probability 0.055, and its Holm-adjusted p is at most
+  21 × 0.0027 = 0.057. The large pass (0.0087) has a Holm-adjusted p of at most
+  20 × 0.0087 = 0.17. So neither pass survives a correction over all tests on its own; the
+  replications on new eval seeds are the confirmatory tests.
+- **The large replication did not confirm it** (above).
+- **The route comes from the data, not from FB values** (above).
+- **Small differences between configurations,** one landmark set (seed 0) and one FB model per
+  maze.
+- **It loses on large task 3** (−9.8 and −15.0 pp), as every waypoint method does there (§7.2).
+- **The goal landmark depends on `F`.** A goal landmark far from the goal would send the route to
+  the wrong place; on the held-out goals it lies within 2.12 (medium) and 3.25 (large) xy units.
+
+**Wave 3 and the medium replication** (readings fixed in `docs/design.md` §8 before each result):
+
+| Step | What ran | Reading | Result |
 |---|---|---|---|
-| (R) replication | the same code and configuration (`high`, `K` 150) on large eval seeds 10–19 (new episodes), with both baseline rows, on one platform | confirmed if it beats both rows there, paired, p < 0.05; the report shows eval seeds 0–9, 10–19 and 0–19 | *(pending)* |
-| (M) medium | the same grid and tie rule on the medium held-out goals; the falsification rule against the medium oracle and `baseline`; then the selected configuration on medium eval seeds 0–9 | the rule of §6 decides | *(pending)* |
-
-Gate G0 had dropped route methods on medium because the oracle had no room there. The recorded
-route is ahead of the oracle on large, so the oracle does not bound it, and (M) tests it on medium
-too.
-
-**Limits.** One maze so far, with one landmark set (seed 0) and one FB model. It loses 9.8 pp on
-task 3. The goal landmark depends on FB: on the large held-out goals it lies within 3.25 xy units
-of the goal, but a worse goal landmark would send the route to the wrong place.
+| (R) large replication | `high`, `K` 150 on large eval seeds 10–19, with both rows | confirmed if it beats both rows there, p < 0.05 | **not confirmed**: +1.8 pp (p = 0.16) against `baseline`, +3.7 pp (p = 0.005) against `baseline_raw` |
+| (M) medium | held-out grid and rules, then the selected configuration on eval seeds 0–9 | not falsified on held-out goals; then the rule of §6 | **passes**: `window`, `K` 150; +3.3 pp (p = 0.003) against the bar |
+| medium replication | `window`, `K` 150 on medium eval seeds 10–19, with both rows | confirmed if it beats both rows there, p < 0.05 | *(pending)* |
 
 ## 9. What worked and what did not
 
@@ -1440,7 +1551,7 @@ of the goal, but a worse goal landmark would send the route to the wrong place.
 |---|---|---|
 | Chain formula, graph Bellman equation, contraction, option interruption | hold exactly on tabular mazes | `tests/test_tabular_theory.py`, to 1e-8 |
 | `R̂ = 0` and guards in the tabular study | chaining beats the idealised `π_h` when `π_l` fails at long range (0.46 against 0.26) | §3.1 |
-| Room for the privileged oracle with this `π_l` | **none measurable** on medium and large: the oracle gains +1.0 pp and +1.2 pp against the stronger baseline (10 eval seeds), both not significant; on giant +2.0 pp at 2.5 % success; on teleport the walking route scores below the baseline. The oracle is not a bound: the recorded route is ahead of it on large | §8.2, §8.7 |
+| Room for the privileged oracle with this `π_l` | **none measurable** on medium and large: the oracle gains +1.0 pp and +1.2 pp against the stronger baseline (10 eval seeds), both not significant; on giant +2.0 pp at 2.5 % success; on teleport the walking route scores below the baseline. The oracle is not a bound: the recorded route is above it on medium (p = 0.037) and level with it on large | §8.2, §8.7 |
 | Paired evaluation | paired tests resolve differences of about 3 pp with 5 eval seeds and about 2 pp with 10; parity with upstream holds; Mac and Linux agree on success rates | §6, §7.1 |
 | Two baseline rows | neither is the stronger one on every maze (medium: raw +2.0 pp with 10 eval seeds, p = 0.07, after +3.8 pp with 5; large: normalized +2.2 pp, p = 0.085; teleport: normalized +2.5 pp; all with 10 eval seeds) | §6 |
 | Retrained baselines | the provided `π_h` is a typical seed (retrained 76.6–80.1 %, pooled −0.1 pp against it, 10 eval seeds) | §7.1, §8.1 |
@@ -1458,7 +1569,7 @@ of the goal, but a worse goal landmark would send the route to the wrong place.
 | Test-time ensembles of 5 `π_h` seeds (T1, T4) | **no gain**: at most +0.5 pp against `baseline_raw` on either input path; the B-region ensemble is ahead of the retrained ensemble in all four comparisons (+0.9 to +4.3 pp, significant in two), but B-region also changes the latent type | §8.6 |
 | Trap avoidance with a time gate on teleport (T3) | **did not work**: −9.7 pp against the baseline; the trap share falls by 3 points and the saved episodes time out | §7.3, §8.6 |
 | Log-ratio advantage for the baseline `π_h` (T2) | **did not work**: 76.1 %, −4.4 pp against `baseline_raw` (significant) and −2.3 pp against the retrained baselines | §8.6 |
-| Recorded-route tracking (routes over edges that recorded trajectories travel; `π_h` on the route point 8 xy units ahead) | **passes the rule on large**: 41.2 %, +3.5 pp against `baseline` (p = 0.009) and +5.6 pp against `baseline_raw`; ahead of the oracle (+2.2 pp, not significant). The route does not use FB values. One pass among about 20 tests (Holm-adjusted p ≤ 0.17); the replication on new eval seeds and the test on medium are pending | §7.2, §8.7 |
+| **Recorded-route tracking (H1)**: routes over landmark edges that recorded trajectories travel; a region latent of the route ahead as the intention; `π_l` (medium) or `π_h` (large) acts | **worked on medium**: 83.8 %, +3.3 pp [+1.2, +5.4] against `baseline_raw` (p = 0.003) and +5.3 pp against `baseline`, above the oracle (+2.2 pp, p = 0.037); replication on eval seeds 10–19 *(pending)*. **Large: passed on eval seeds 0–9** (+3.5 pp, p = 0.009) **but the replication on eval seeds 10–19 did not confirm it** (+1.8 pp, p = 0.16; eval seeds 0–19: +2.7 pp, p = 0.004). The route uses no FB values. One method among about 21 tests (Holm-adjusted p ≤ 0.06 on medium, ≤ 0.17 on large) | §7.1, §7.2, §8.7 |
 
 ## 10. Limitations and next steps
 
@@ -1466,12 +1577,17 @@ Limitations:
 
 - **One FB model per env.** `F`, `B` and `π_l` come from training seed 0. The retrained `π_h`
   seeds add `π_h` training variance (76.6–80.1 % on medium), not the variance of the frozen
-  modules. The central finding holds for this `π_l` only.
-- **The oracle is a reference, not a bound** (§8.2). A better waypoint rule could find room that
-  this oracle misses; on large the recorded route does (§8.7).
-- **The one pass is not yet replicated.** The recorded route passed once, on large, with one
-  landmark set, among about 20 tests (Holm-adjusted p ≤ 0.17). The replication on large eval
-  seeds 10–19 and the test on medium decide how strong the claim is (§8.7).
+  modules. Every result holds for this `π_l` only.
+- **The oracle is a reference, not a bound** (§8.2). The recorded route finds room that the oracle
+  misses: above it on medium, level with it on large (§8.7).
+- **The recorded route's pass on medium is not yet replicated, and on large the replication
+  failed.** It is one method among about 21 tests; after a correction over all of them, the
+  medium pass is at the edge (Holm-adjusted p ≤ 0.06). The replication on medium eval seeds
+  10–19 decides how strong the claim is. On large, eval seeds 10–19 gave +1.8 pp (p = 0.16), so
+  the effect there is smaller than the first run showed, if it is there (§7.2, §8.7).
+- **The recorded route was tested with one landmark set** (seed 0) per maze, and its
+  configurations differ little on the held-out goals, so the selected executor and `K` are close
+  to arbitrary (§8.7). Why it is above the oracle was analysed on large only.
 - **Flips** are 70–75 % of the failures with a high level on medium. Even the true route does not
   lower their count below `baseline_raw`'s, and no high level can repair a flipped episode (§8.2).
 - **Tuning on the evaluation tasks.** A's guards were tuned on the 5 medium tasks with other start
@@ -1492,13 +1608,20 @@ Limitations:
 
 Next steps that the evidence suggests:
 
-- Replicate the recorded route (wave 3, §8.7), then run its FB arm: FB `ρ̂` as the weight of the
-  recorded edges (hypothesis H2 of `docs/hypotheses/h-papers.md`). Recorded edges cannot be
-  wormholes, so this tests whether FB values add to a route once the data guard its edges.
-- With this `π_l`, the oracle's route gains nothing measurable (§8.2), but a route of recorded
-  walks that `π_h` executes gains on large (§8.7). *Hypothesis:* the states that the route passes
-  and the executor matter more than the value used to plan. A waypoint-reaching `π_l`, faster and
-  less prone to flips, would change the frozen setting, so it is a separate study.
+- Finish the replication of the recorded route on medium (running), then test it with more
+  landmark sets and on giant and teleport, which it has not seen.
+- Run its FB arm: FB `ρ̂` as the weight of the recorded edges (hypothesis H2 of
+  `docs/hypotheses/h-papers.md`). Recorded edges cannot be wormholes, so this tests whether FB
+  values add to a route once the data guard its edges. That is the question of this project in
+  its cleanest form.
+- Force the oracle through the recorded route's cells on large tasks 1 and 3, to test whether the
+  path choice alone explains why the recorded route is level with or above the oracle (§8.7).
+- Distil the recorded route's intention into `π_h` (hypothesis H3 of `h-papers.md`), so that no
+  route is needed at test time.
+- With this `π_l`, the oracle's route gains nothing measurable (§8.2), but a moving target along
+  recorded walks gains on medium (§8.7). *Hypothesis:* which states the targets pass matters more
+  than the value used to order them. A waypoint-reaching `π_l`, faster and less prone to flips,
+  would change the frozen setting, so it is a separate study.
 - For a learned critic: check the order of states against the maze distance before any policy
   run, as the gate of §5 did for expectile 0.7, and report the training-seed spread of the policy.
   A critic that orders far states better than `V_1` is the first requirement (§8.5). Fix the AWR
@@ -1551,13 +1674,17 @@ uses:
   results/teleport/heldout/trap_aware/*.csv --label-root results/teleport/heldout --reference
   baseline` (selection), and `uv run python analysis/tables.py results/teleport_10seeds/*.csv
   --label-root results/teleport_10seeds --reference baseline baseline_raw` (final run);
-- the final protocol on large and the recorded route (§7.2, §8.7): `uv run python
-  analysis/tables.py results/large_10seeds/*.csv
-  results/large/planner_ablations/h1_eval/high_k150.csv --reference baseline baseline_raw
-  oracle`; its held-out check: `uv run python analysis/tables.py
-  results/large/planner_ablations/h1_heldout/*.csv --label-root
-  results/large/planner_ablations/h1_heldout --reference baseline oracle`; the evaluation commands
-  are in `docs/status/c-planner.md`, section "H1 on large";
+- the recorded route (§7.1, §7.2, §8.7): on medium `uv run python analysis/tables.py
+  results/medium_10seeds/baseline.csv results/medium_10seeds/baseline_raw.csv
+  results/medium_10seeds/oracle.csv results/medium/planner_ablations/h1_eval/window_k150.csv
+  --reference baseline baseline_raw oracle`; on large the same with `results/large_10seeds/*.csv
+  results/large/planner_ablations/h1_eval/high_k150.csv`; the large replication with
+  `results/large_seeds10-19/*.csv`, and eval seeds 0–19 with both seed sets of each row together;
+  the held-out checks: `uv run python analysis/tables.py
+  results/<env>/planner_ablations/h1_heldout/*.csv --label-root
+  results/<env>/planner_ablations/h1_heldout --reference baseline oracle`; the evaluation commands
+  are in `docs/status/c-planner.md` ("H1 on large", "H1 on medium") and `docs/status/d-eval.md`
+  ("Wave 3");
 - eval seeds 5–9 alone (§6, §7.1, §8.7) and one task alone (§8.7): keep the rows with
   `eval_seed >= 5` (or one `task_id`) of every CSV in a folder with the same layout, and run the
   same `tables.py` command on it;
@@ -1594,8 +1721,8 @@ Methods: name in the report, `--method` of `fbplan.evaluate`, and the `method` c
 
 | Report | `--method` and options | CSV `method` | Results (`<env>`: medium, large, giant, teleport, where run; Mac copies below `results/macos/`) |
 |---|---|---|---|
-| baseline | `baseline` | `baseline` | `results/<env>/baseline.csv`; 10 eval seeds: `results/{medium,large}_10seeds/baseline.csv` |
-| baseline_raw | `baseline_raw` | `baseline_raw` | `results/<env>/baseline_raw.csv`; 10 eval seeds: `results/{medium,large}_10seeds/baseline_raw.csv` |
+| baseline | `baseline` | `baseline` | `results/<env>/baseline.csv`; 10 eval seeds: `results/{medium,large}_10seeds/baseline.csv`; large eval seeds 10–19: `results/large_seeds10-19/baseline.csv` |
+| baseline_raw | `baseline_raw` | `baseline_raw` | `results/<env>/baseline_raw.csv`; 10 eval seeds: `results/{medium,large}_10seeds/baseline_raw.csv`; large eval seeds 10–19: `results/large_seeds10-19/baseline_raw.csv` |
 | non-hier | `nonhier` | `nonhier` | `results/<env>/nonhier.csv` |
 | oracle | `oracle` | `oracle` | `results/<env>/oracle.csv`; 10 eval seeds: `results/{medium,large}_10seeds/oracle.csv` |
 | teleport-aware oracle, `π_l` / `π_h` follows | `fbplan.controllers.oracle_teleport:make_teleport_oracle` (`--opt follow=pi_h` for `π_h`) | `oracle_teleport` (two `config_hash` values) | `results/teleport/oracle_teleport{,_pi_h}.csv` |
@@ -1610,4 +1737,4 @@ Methods: name in the report, `--method` of `fbplan.evaluate`, and the `method` c
 | T4 ensemble, raw input path | the same with `z_input=raw` | `baseline_ensemble_raw` | `results/medium_10seeds/ensemble_raw_<family>.csv`; held-out goals `results/medium/heldout_ensemble/t4_*.csv` |
 | T3 trap-aware intention (teleport) | `fbplan.controllers.trap_aware:make_trap_aware --opt weight=0.5 trap_radius=1.5` | `trap_aware` | `results/teleport_10seeds/trap_aware.csv`; held-out grid `results/teleport/heldout/trap_aware/` |
 | T2 log-ratio baseline | `baseline --checkpoint retrained:logratio:<seed>` | `baseline`, `checkpoint_variant` = `logratio` | `results/medium/baseline_retrained_logratio/`; 10 eval seeds `results/medium_10seeds/baseline_retrained_logratio/`; held-out goals `results/medium/heldout/retrained_logratio/` |
-| recorded route (large) | `fbplan.controllers.planner:make_recorded_route --opt executor=high max_steps=150` (`max_steps` is `K`) | `recorded_route` | `results/large/planner_ablations/h1_eval/high_k150.csv`; held-out grid `results/large/planner_ablations/h1_heldout/` |
+| recorded route (H1) | `fbplan.controllers.planner:make_recorded_route --opt executor=<point, window or high> max_steps=<K>` (`max_steps` is `K`); selected: `window`, 150 on medium; `high`, 150 on large | `recorded_route` | `results/medium/planner_ablations/h1_eval/window_k150.csv`, `results/large/planner_ablations/h1_eval/high_k150.csv`, `results/large_seeds10-19/h1_high_k150.csv`; held-out grids `results/<env>/planner_ablations/h1_heldout/` |
