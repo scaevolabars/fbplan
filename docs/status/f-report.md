@@ -1,6 +1,6 @@
 # Status: f-report
 
-Last update: 2026-10-30, 06:10. Branch merged with `main` at 953030d.
+Last update: 2026-10-30, 07:05. Branch merged with `main` at e00b7fb.
 
 ## Done
 
@@ -273,6 +273,20 @@ Last update: 2026-10-30, 06:10. Branch merged with `main` at 953030d.
     §10 "Not done"), F12 (§11 figure command → `reproduce.sh`). `docs/hypotheses/` references
     stay.
   - Status line: "complete; items that did not run are listed in §10".
+- Before the removal of the process files (g-release's list, main 5618c39; 33811f9 named in the
+  request is not in the repository): no link to `docs/status` or `docs/briefs` and no bare
+  hypothesis label in REPORT.md (labels removed or given their `docs/hypotheses/` path). Facts
+  moved into REPORT.md, no number changed: §5 the stopped `ρ` cap 1.0 critic; §7.1 the cosine
+  0.955 of retrained and provided `π_h`; §8.4 the act-ahead pairing check (1,250 of 1,250);
+  §8.6 the T2 weight cross-check (2.2e-5); appendix the approach A code identity checks
+  (c187bb7, 06ea0a8, 84a8127). The c-planner facts for §8.7 and the platform shift (§6) were
+  already in.
+- Merge of e00b7fb: REPORT.md conflicts with the facts that e-learner and d-eval moved in (§5
+  `ρ` cap 1.0 did not run, with its approach-b.md sections; §7.1 cosine; §8.4 check code 8a202e6)
+  resolved in my wording, their facts kept. c-planner's two missing items added: §8.7 caveat on
+  straight xy edge weights (M2: large 1.21× / 2.31× at the 90th / 99th percentile with K 60,
+  medium 1.03× / 1.09×) and the appendix identity checks (06ea0a8 250 of 250; c187bb7 50 of 50
+  twice; 84a8127 against 2d2925b 100 of 100).
 - Private defense sheet for the reviewer call (coordinator request): written outside the
   repository, not committed; updated for B, the seed selection, the ablations, giant, and the
   10-seed protocol and T1.
