@@ -77,14 +77,14 @@ class GridFB:
     def backward(self, obs: np.ndarray) -> np.ndarray:
         return np.eye(self.latent_dim)[self.cell_ids(obs)]
 
-    def low_action(self, obs, z, temperature=0.0, seed=None) -> np.ndarray:
+    def low_action(self, obs, z) -> np.ndarray:
         targets = np.argmax(np.asarray(z), axis=-1)
         return np.array(
             [self._first_move(s, t) for s, t in zip(self.cell_ids(obs), targets, strict=True)],
             dtype=np.float32,
         )
 
-    def high_latent(self, obs, z_task, temperature=0.0, seed=None) -> np.ndarray:
+    def high_latent(self, obs, z_task) -> np.ndarray:
         self.high_calls += 1
         return np.asarray(normalize_z(np.asarray(z_task, dtype=np.float64), self.latent_dim))
 

@@ -13,8 +13,14 @@ least as much from s as the current waypoint, so the agent does not slow down at
 When w* is reached, the controller replans, or with switch_steps it takes the plan's next
 stop unless a replan saves more than switch_steps FB steps.
 
-RecordedRouteController (h-papers H1) plans without FB values: its edges are walks that train
-trajectories recorded, weighted by xy length, and it acts on the route point ahead.
+RecordedRouteController (h-papers H1) plans without FB values. An edge u -> w between two
+landmarks is certified when one train trajectory passes u and then w at most K steps later; its
+weight is the xy length. The first hop from s is certified the same way, from the train states
+near s. At every step the controller takes the shortest certified route to the goal landmark
+(the landmark with the largest F(w, z_r)^T z_r), lays it along the recorded walks, and acts on
+the route ahead: pi_l on the region latent of the point 8 xy ahead ("point"), pi_l on the mean
+of the unit region latents 4, 8 and 12 xy ahead ("window"), or pi_h with that point as its task
+("high"). Selected on held-out goals: medium "window", K 150; large "high", K 150.
 """
 
 from __future__ import annotations
@@ -448,11 +454,14 @@ class RecordedRouteConfig:
         does. Weight: xy length. The route is the shortest one to the goal landmark, the
         landmark with the largest F(w, z_r)^T z_r, and runs along recorded walks: of each hop,
         the walk with the shortest xy path (then the fewest steps). A walk that turns back
-        would move the point ahead backwards.
+        would move the point ahead backwards. The route is planned again at every step.
     executor: "point": pi_l on the region latent of the route point ahead_xy ahead;
         "window": pi_l on the mean of the unit region latents of the points window_xy ahead
         (the tracking window of Meta Motivo); "high": pi_h with the region latent of the point
-        ahead_xy ahead as its task. A point past the goal landmark takes z_r.
+        ahead_xy ahead as its task. A point past the goal landmark takes z_r (window: z_r/|z_r|);
+        without a certified route the controller acts as at the goal.
+    ahead_xy: xy distance along the route to the act point of "point" and "high".
+    window_xy: xy distances along the route to the act points of "window".
     act_region_xy: radius of the act regions (fbplan.landmarks.RegionField).
     """
 
