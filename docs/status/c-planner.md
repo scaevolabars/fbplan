@@ -4,6 +4,13 @@ Last update: 2026-10-30.
 
 ## Summary
 
+H1, finishing items (2026-10-30): the recorded-route controller passed the gain rule on medium
+(window, K 150: 83.8 % against 78.4 % and 80.5 %) and on large (high, K 150: 41.2 % against
+37.7 % and 35.5 %; seeds 10–19 do not confirm large against `baseline`). For f-report: the method
+is in "Recorded-route tracking (H1): method for f-report", the commands for all 31 CSVs in my
+folders in "Commands for every CSV in results/*/planner_ablations/". Review findings: K2, X15 and
+C12 leftovers fixed; X6 kept by choice; X18 explained, decision open (see "Items still open").
+
 H1 (2026-10-30): the recorded-route controller of h-papers H1 (`make_recorded_route`, commit
 30661e8) passed the gain rule on large (d-eval, Linux, eval seeds 0–9: 41.2 % against
 `baseline` 37.7 %, +3.5 pp [+0.9, +6.0]; against `baseline_raw` +5.6 pp). Its route comes from
@@ -236,6 +243,133 @@ for tuning), 300 landmarks from the train split:
   true shortest path; my waypoints are at most 6 xy units away and switch at 3.
 - The planner is far below the baseline on this set (68 against 92). The landmark set also moves
   it by several points (see "After the merge").
+
+## Recorded-route tracking (H1): method for f-report (2026-10-30)
+
+Code: `RecordedRouteController`, `RecordedRouteConfig`, `make_recorded_route`
+(`fbplan/controllers/planner.py`); data-certified edges in `fbplan/graph.py`; act regions
+`RegionField` and `pool_rows` in `fbplan/landmarks.py`. CLI: `--method
+fbplan.controllers.planner:make_recorded_route --opt executor=<E> max_steps=<K>`; the CSV
+`method` column is `recorded_route`.
+
+Inputs: the frozen F, B, `π_l` and `π_h`; the train split's observations in recorded order (xy =
+`obs[:2]`) and its `terminals` flags. Not used: the maze map, the goal position, FB values in
+the route.
+
+1. **Landmarks.** 300 train states by farthest-point sampling on xy over a random pool of 100k
+   train states (seed 0), as in approach A.
+2. **What is certified.** A visit is a run of consecutive rows of one trajectory whose nearest
+   landmark lies within 0.5 xy (`certify_xy`); its row is the closest approach. An edge u → w
+   (u ≠ w) is certified when one trajectory visits u and then w at most K rows later
+   (K = `max_steps`), in that direction only. Its weight is the xy distance from u to w. Each
+   edge keeps one recorded walk, the rows from the visit of u to the visit of w: the walk with
+   the shortest walked xy path, then the fewest steps, then the earliest row. Certified edges:
+   medium 19,011 (K 60) and 52,688 (K 150); large 9,315 and 26,737.
+3. **Goal landmark.** The landmark w with the largest F(w, z_r)ᵀz_r (min over the F heads).
+   Privileged diagnostic, not used by the method: on the held-out goals it lies 0.93 xy
+   (medium) and 0.82 xy (large) from the goal at the median.
+4. **Route, planned again at every step.** The first hop starts from the pool states within
+   0.5 xy of the agent's xy s (off the data: those within 0.5 xy of the nearest pool state).
+   Each such state certifies the landmarks that its own trajectory visits from that row on,
+   within K rows. Cost of a first hop to w: |s − w| + D(w, goal), where D is the shortest
+   certified distance (Floyd–Warshall over the xy weights, once per env). Ties go to the
+   shorter walked path, then to the fewer steps. After the first hop the route follows the
+   shortest certified path to the goal landmark. The route path is s, then the recorded rows
+   of the walk of each hop, in order.
+5. **Act.** p(d) is the point at walked distance d from s along the route path. region(p) is the
+   mean raw B over the pool states within 0.5 xy of p (`act_region_xy`; off the data, the
+   region of the nearest pool state).
+   - `point`: `π_l(s, region(p(8)))`.
+   - `window`: `π_l(s, (u(4) + u(8) + u(12)) / 3)` with u(d) = region(p(d)) / |region(p(d))|,
+     the mean of the unit region latents; `π_l` normalizes its input. This is the tracking
+     window of Meta Motivo, written in xy distance along the route.
+   - `high`: `π_l(s, π_h(s, region(p(8))))`, that is `π_h` with the region of the point as
+     its task.
+   - A point past the end of the path (past the goal landmark) uses z_r (`window`: z_r / |z_r|).
+     Without a certified route the controller acts the same way.
+6. **Selection** (held-out goals only, rule fixed before the runs; h-papers H1 item 5): grid
+   executor ∈ {point, window, high} × K ∈ {60, 150}; the highest held-out success wins; ties go
+   to point, then window, then high, then the smaller K.
+   - Medium: `window`, K 150 (533 of 600, tied with `high`, K 60; the tie rule decides). All
+     6 configs lie within 2.5 pp of each other.
+   - Large: `high`, K 150 (353 of 600). The 6 configs span 52.0–58.8 %.
+7. **Results** (d-eval, Linux; paired on the same episodes; eval seeds 0–9, 2,500 episodes):
+
+   | maze | config | success | vs baseline (pp) | vs baseline_raw (pp) | vs oracle (pp) |
+   |---|---|---|---|---|---|
+   | medium | window, K 150 | 83.8 [82.3, 85.1] | +5.3 [+3.2, +7.4] | +3.3 [+1.2, +5.4] | +2.2 [+0.2, +4.3] |
+   | large | high, K 150 | 41.2 [39.4, 43.0] | +3.5 [+0.9, +6.0] | +5.6 [+3.2, +8.1] | +2.2 [−0.4, +4.9] |
+
+   Replication on eval seeds 10–19 (design.md §8): large 39.3 %, +1.8 pp [−0.7, +4.4] (p 0.16)
+   over `baseline` and +3.7 pp (p 0.005) over `baseline_raw`, so large is not confirmed; seeds
+   0–19 pooled +2.7 pp [+0.9, +4.5] and +4.7 pp. Medium seeds 10–19: queued (d-eval).
+8. **For the text.**
+   - The route comes from recorded train trajectories, not from FB values. FB gives the goal
+     landmark and the executor (`π_l`; with `high` also `π_h`).
+   - The selected executor differs per maze, and all medium configs are within 2.5 pp. So the
+     report should not credit one executor (see also "H1 against the oracle on large").
+   - Cost: build 6 s per env; one step takes 3–6 ms on the Mac and 10–24 ms on the Linux
+     instance (environment included; the baseline needs about 2 ms).
+   - Known limit: the route is planned again at every step, so two equally short walks can take
+     turns as the route.
+
+## Commands for every CSV in `results/*/planner_ablations/` (2026-10-30)
+
+Run from the repository root. `--workers` does not change the records: d-eval ran each eval
+seed as one process and joined the CSVs, which gives the same records as one run. Hashes are the
+`config_hash` column; I checked every hash against the command (all 31 CSVs).
+
+H1, current code (it writes the same hashes). Held-out grid, medium and large (`<maze>` medium
+or large; E ∈ point, window, high; K ∈ 60, 150):
+
+```
+uv run python -m fbplan.evaluate --method fbplan.controllers.planner:make_recorded_route --env antmaze-<maze>-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers 4 --opt executor=<E> max_steps=<K> --out results/<maze>/planner_ablations/h1_heldout/<E>_k<K>.csv
+uv run python -m fbplan.evaluate --method oracle --env antmaze-<maze>-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers 4 --out results/<maze>/planner_ablations/h1_heldout/oracle.csv
+uv run python -m fbplan.evaluate --method baseline --env antmaze-<maze>-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers 4 --out results/<maze>/planner_ablations/h1_heldout/baseline.csv
+```
+
+Hashes: point K 60 `b987f04a`, point K 150 `d8588d0f`, window K 60 `e56354d8`, window K 150
+`285be155`, high K 60 `c2c502f5`, high K 150 `7422f2eb`; oracle `58ef48ca`, baseline
+`c232a50c`.
+
+H1 final runs:
+
+```
+uv run python -m fbplan.evaluate --method fbplan.controllers.planner:make_recorded_route --env antmaze-large-navigate-v0 --seeds 0 1 2 3 4 5 6 7 8 9 --episodes 50 --workers 4 --opt executor=high max_steps=150 --out results/large/planner_ablations/h1_eval/high_k150.csv
+uv run python -m fbplan.evaluate --method fbplan.controllers.planner:make_recorded_route --env antmaze-medium-navigate-v0 --seeds 0 1 2 3 4 5 6 7 8 9 --episodes 50 --workers 4 --opt executor=window max_steps=150 --out results/medium/planner_ablations/h1_eval/window_k150.csv
+```
+
+Approach A ablations, landmark set 0, 5 eval seeds. Code 84a8127 (the code of the main planner
+CSVs, so they pair). The current code writes another hash for the same command (X18, below).
+Records: the default path repeats them (d-eval's check at 8a202e6, `planner_high/l0.csv`, 1,250
+of 1,250; approach A's code is unchanged since then except two refactors that keep behaviour);
+the ablation options were not rerun after the review refactor c187bb7. `<maze>` is medium for
+all 9, and also large for the first 3:
+
+```
+uv run python -m fbplan.evaluate --method planner --env antmaze-<maze>-navigate-v0 --seeds 0 1 2 3 4 --episodes 50 --workers 4 --opt landmarks.seed=0 max_edge_xy=None --out results/<maze>/planner_ablations/no_xy_cap/l0.csv
+uv run python -m fbplan.evaluate --method planner --env antmaze-<maze>-navigate-v0 --seeds 0 1 2 3 4 --episodes 50 --workers 4 --opt landmarks.seed=0 reached_xy=1.5 lookahead=False --out results/<maze>/planner_ablations/reached_1.5_no_lookahead/l0.csv
+uv run python -m fbplan.evaluate --method planner --env antmaze-<maze>-navigate-v0 --seeds 0 1 2 3 4 --episodes 50 --workers 4 --opt landmarks.seed=0 lookahead=False --out results/<maze>/planner_ablations/no_lookahead/l0.csv
+uv run python -m fbplan.evaluate --method planner --env antmaze-medium-navigate-v0 --seeds 0 1 2 3 4 --episodes 50 --workers 4 --opt landmarks.seed=0 options.edge_reward=exact --out results/medium/planner_ablations/edge_reward_exact/l0.csv
+uv run python -m fbplan.evaluate --method planner --env antmaze-medium-navigate-v0 --seeds 0 1 2 3 4 --episodes 50 --workers 4 --opt landmarks.seed=0 options.edge_reward=paper --out results/medium/planner_ablations/edge_reward_paper/l0.csv
+uv run python -m fbplan.evaluate --method planner --env antmaze-medium-navigate-v0 --seeds 0 1 2 3 4 --episodes 50 --workers 4 --opt landmarks.seed=0 options.head_agg=mean --out results/medium/planner_ablations/head_agg_mean/l0.csv
+uv run python -m fbplan.evaluate --method planner --env antmaze-medium-navigate-v0 --seeds 0 1 2 3 4 --episodes 50 --workers 4 --opt landmarks.seed=0 two_way=True --out results/medium/planner_ablations/two_way/l0.csv
+uv run python -m fbplan.evaluate --method planner --env antmaze-medium-navigate-v0 --seeds 0 1 2 3 4 --episodes 50 --workers 4 --opt landmarks.seed=0 replan_every_step=True --out results/medium/planner_ablations/replan_every_step/l0.csv
+uv run python -m fbplan.evaluate --method planner --env antmaze-medium-navigate-v0 --seeds 0 1 2 3 4 --episodes 50 --workers 4 --opt landmarks.seed=0 switch_steps=1e999 --out results/medium/planner_ablations/route_following/l0.csv
+```
+
+Hashes at 84a8127: no_xy_cap `8983df01`, reached_1.5_no_lookahead `f794a7e0`, no_lookahead
+`7ad3051c` (medium and large), edge_reward_exact `5e0be901`, edge_reward_paper `06b631ae`,
+head_agg_mean `8af892f5`, two_way `31a94634`, replan_every_step `40d8bb78`, route_following
+`271fb6c3`. `1e999` is inf for `ast.literal_eval`.
+
+Act-ahead (code main 8a202e6; the current code writes the same hash `50542c89`):
+
+```
+uv run python -m fbplan.evaluate --method planner_high --env antmaze-medium-navigate-v0 --seeds 0 1 2 3 4 --episodes 50 --workers 4 --opt landmarks.seed=0 act_ahead_xy=8.0 --out results/medium/planner_ablations/high_act_ahead8/l0.csv
+```
+
+Tables: H1 held-out `uv run python analysis/tables.py results/<maze>/planner_ablations/h1_heldout/*.csv --label-root results/<maze>/planner_ablations/h1_heldout --reference baseline oracle`; H1 final `uv run python analysis/tables.py results/<maze>_10seeds/baseline.csv results/<maze>_10seeds/baseline_raw.csv results/<maze>_10seeds/oracle.csv results/<maze>/planner_ablations/h1_eval/<E>_k<K>.csv --reference baseline baseline_raw oracle`.
 
 ## H1 on medium (wave 3): commands for d-eval (2026-10-30)
 
@@ -669,6 +803,22 @@ the same outcomes and step counts for all 5 tasks.
 | X5 S | `planner_routes.py` uses `parse_options`, `make_tasks`, `task_latent`, `run_episode` and `config_hash` from `fbplan.evaluate`, and builds the planner with `make_planner` (as the eval CLI). It keeps a small recorder (`PathRecorder`) until d-eval makes `RecordingController` public. |
 | X10 S | `fbplan.controllers.planner.trusted_edges(rho_raw, sources, targets, config=PlannerConfig(), exclude_diagonal=False)`: raw-rho bounds and the xy cap. The controller uses it; d-eval's calibration can call it. The rho bounds stay in `fbplan.graph.trusted_edges(rho, rho_min, exclude_diagonal, rho_max)`, which b-theory's tabular study imports. |
 
+### Items still open for my area (checked 2026-10-30 against `docs/status/g-release.md`)
+
+| finding | state |
+|---|---|
+| K2 leftovers (second pass): old `temperature`, `seed` arguments in `planner_fakes.py` and `test_planner.py` | Fixed (65529e2): the fakes take the contract's `low_action(obs, z)` and `high_latent(obs, z_task)`. |
+| X15 / RUF100: unused `# noqa: E402` | Fixed (65529e2): 7 in `analysis/planner_routes.py`; none left in my files. |
+| C12 N rest: duplicate test constants | Done: no duplicate constants left in my tests. |
+| X11 c-planner rows | `planner_routes.py`: done in C10. `name` = alias: see X6. |
+| X6 S: `Controller.name` ≠ CLI alias | Not changed, by choice. The 54 committed approach A CSVs carry `graph_planner` and `graph_plus_high`, and REPORT.md's method table maps each alias to that column. A rename would split old and new rows of one config. `recorded_route` already equals the alias that d-eval can add. |
+| X18 M: a new config field changes `config_hash` | Explained, needs a decision (d-eval owns `config_hash`). The 42 approach A CSVs from 84a8127 (30 main, 12 ablations) carry hashes of that commit's fields: `top_k` and `landmarks.space` present (removed in C9), `act_ahead_xy` and `act_region_xy` absent (added for act-ahead). I rebuilt that payload: 42 of 42 hashes match. The H1 rows and `high_act_ahead8` match the current code. Options: (a) keep the hashes and name the code commit 84a8127 in the command tables (done above for my CSVs; no rerun); (b) d-eval hashes only non-default fields: every committed hash of every owner changes once; (c) rerun the approach A CSVs on Linux (hours of cloud time, no new result). Recommendation: (a). |
+
+Also new (2026-10-30): the module docstring of `fbplan/controllers/planner.py` describes H1 in a
+few lines; the `RecordedRouteConfig` docstring documents every field; a real-data test pins the
+medium edge count to h-papers M2 (19,011; a mutant that allows K + 1 steps gives 19,344 and
+fails). 502 tests pass; ruff clean.
+
 ## CI fix: ties between options (2026-10-29)
 
 CI (ubuntu-24.04, x86_64) failed `test_planner_with_region_latents_solves_every_task_of_the_exact_tabular_maze`
@@ -771,8 +921,8 @@ following does not touch. The option stays, off by default, as an ablation.
 
 ## Next
 
-1. H1 on medium (wave 3): d-eval runs the held-out grid and, if H1 is not falsified, the final
-   10-seed run (commands in "H1 on medium"). Then I write the medium H1 result for the report.
+1. H1: d-eval runs the medium replication (eval seeds 10–19, design.md §8). f-report takes the
+   method and the commands from this file. Nothing else is queued for me.
 2. d-eval reruns the ablation table on Linux (commands above). When the CSVs are on main, I
    compare them with the Mac cross-check and write the ablation table for the report.
 3. d-eval: `oracle.region_latents` can import `fbplan.landmarks.region_latents`, and
@@ -786,9 +936,10 @@ following does not touch. The option stays, off by default, as an ablation.
 
 ## Requests to the coordinator
 
-- Merge c-planner (status only: the medium H1 commands and the note on the oracle). Hand the
-  commands of "H1 on medium" to d-eval. No code change.
-- Done: H1 code merged (2f731f7). A short alias (e.g. `recorded_route`) in
+- Merge c-planner (707f67a docs and a real-data test, 65529e2 review leftovers, this status).
+  No change of behaviour. f-report: the H1 method section and the command list are ready.
+- X18: choose option (a), (b) or (c) of "Items still open for my area"; I recommend (a).
+- Done: H1 code merged (2f731f7); medium H1 commands merged (91a93aa). A short alias (e.g. `recorded_route`) in
   `fbplan/controllers/__init__.py` is still optional; that file is not mine.
 - Merge c-planner: review fixes (c187bb7), ablation commands and Mac cross-check. API changes
   for other components: `fbplan.graph.trusted_edges(rho, rho_min, exclude_diagonal, rho_max)`
