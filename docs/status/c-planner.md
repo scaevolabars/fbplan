@@ -245,6 +245,33 @@ for tuning), 300 landmarks from the train split:
 - The planner is far below the baseline on this set (68 against 92). The landmark set also moves
   it by several points (see "After the merge").
 
+## Facts that move to REPORT: check (2026-10-30, main 5618c39)
+
+The removal list names REPORT §8.7 and the appendix as targets (REPORT's author writes, I check).
+Present in §8.7, numbers equal: the tie order, the falsification rule, the medium tie (533 of 600),
+the open choices (goal landmark by F, the shortest walk per edge, the first hop from the pool),
+the limits "equal walks take turns" and "the goal landmark depends on F", and the analysis
+against the oracle on large. Missing, proposed text:
+
+1. §8.7, Caveats (C13): "Edge weights are straight xy lengths, not walked lengths. A certified
+   edge can pass a wall (its walk goes around it), so some routes are long: with `K` 60 the route
+   through its landmarks is 1.21× the maze shortest path between its end landmarks at the 90th
+   percentile on large and 2.31× at the 99th (medium 1.03× and 1.09×; check M2 of
+   `docs/hypotheses/h-papers.md`)." The review's own counts
+   (large: 1.8 % of edges cross a wall, 21 % of shortest paths use one, 1.26× at the 90th
+   percentile, 3.4× at most; medium 1.3 %, 6.7 %, 1.05×) come from a script that is not in the
+   repository; cite them only as such.
+2. Appendix or §11 "Code versions" (record identity of approach A after its code changes; all on
+   one machine, eval seed 0, `config_hash` aside):
+   - after the tie-break fix 06ea0a8: medium `planner/l0`, 250 of 250 records identical;
+   - after the review refactor c187bb7: medium `planner/l0` and `planner_region/l0`, 10 episodes
+     per task, 50 of 50 each;
+   - 84a8127 against 2d2925b (the code of the committed approach A CSVs against the current
+     code): the defaults and the 9 ablation options, medium, 2 episodes per task, 100 of 100.
+     This check supports the sentence "a rerun of an approach A command at a later commit gives
+     the same records with another hash"; it holds from 2d2925b on (before it,
+     `options.edge_reward=paper` stopped with an error).
+
 ## Recorded-route tracking (H1): method for f-report (2026-10-30)
 
 Code: `RecordedRouteController`, `RecordedRouteConfig`, `make_recorded_route`

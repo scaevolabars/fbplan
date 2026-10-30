@@ -13,14 +13,14 @@ least as much from s as the current waypoint, so the agent does not slow down at
 When w* is reached, the controller replans, or with switch_steps it takes the plan's next
 stop unless a replan saves more than switch_steps FB steps.
 
-RecordedRouteController (h-papers H1) plans without FB values. An edge u -> w between two
-landmarks is certified when one train trajectory passes u and then w at most K steps later; its
-weight is the xy length. The first hop from s is certified the same way, from the train states
-near s. At every step the controller takes the shortest certified route to the goal landmark
-(the landmark with the largest F(w, z_r)^T z_r), lays it along the recorded walks, and acts on
-the route ahead: pi_l on the region latent of the point 8 xy ahead ("point"), pi_l on the mean
-of the unit region latents 4, 8 and 12 xy ahead ("window"), or pi_h with that point as its task
-("high"). Selected on held-out goals: medium "window", K 150; large "high", K 150.
+RecordedRouteController (docs/hypotheses/h-papers.md H1) plans without FB values. An edge u -> w
+between two landmarks is certified when one train trajectory passes u and then w at most K steps
+later; its weight is the xy length. The first hop from s is certified the same way, from the train
+states near s. At every step the controller takes the shortest certified route to the goal landmark
+(the landmark with the largest F(w, z_r)^T z_r), lays it along the recorded walks, and acts on the
+route ahead: pi_l on the region latent of the point 8 xy ahead ("point"), pi_l on the mean of the
+unit region latents 4, 8 and 12 xy ahead ("window"), or pi_h with that point as its task ("high").
+Selected on held-out goals: medium "window", K 150; large "high", K 150.
 """
 
 from __future__ import annotations
@@ -96,7 +96,7 @@ class PlannerConfig:
         latent (fbplan.landmarks.RegionField, radius act_region_xy) of the point act_ahead_xy
         xy units ahead along the planned route (the agent, the waypoint w*, then best_next
         stops), and z_r once that point lies past the last landmark of the route. Planning
-        still uses the landmark latents. None: act with z_w*. d-eval's privileged oracle beats
+        still uses the landmark latents. None: act with z_w*. The privileged oracle beats
         the baseline with region latents 1-2 cells (4-8 xy) ahead on the true path, and fails
         with single-state latents; this mode gives the planner's own route the same executor.
     act_region_xy: radius of the act regions (0.5: the goal radius of the task reward that
@@ -451,8 +451,8 @@ Executor = Literal["point", "window", "high"]
 
 @dataclass(frozen=True)
 class RecordedRouteConfig:
-    """Recorded-route tracking (h-papers H1, docs/design.md §8). The route comes from recorded
-    train trajectories, not from FB values; FB only finds the goal and acts.
+    """Recorded-route tracking (docs/hypotheses/h-papers.md H1, docs/design.md §8). The route comes
+    from recorded train trajectories, not from FB values; FB only finds the goal and acts.
 
     landmarks: landmark selection (fbplan.landmarks); only the landmark states are used. Its
         pool also gives the train states that certify the first hop and the act regions.
@@ -686,8 +686,9 @@ def _from_train_data(cls: type[C], model: FBModel, options: dict[str, object]) -
 
 
 def make_recorded_route(model: FBModel, **options: object) -> RecordedRouteController:
-    """Controller factory for the evaluation CLI (h-papers H1): recorded routes from the env's
-    training data. Options as RecordedRouteConfig, e.g. executor=window max_steps=150."""
+    """Controller factory for the evaluation CLI (docs/hypotheses/h-papers.md H1): recorded
+    routes from the env's training data. Options as RecordedRouteConfig, e.g. executor=window
+    max_steps=150."""
     data = load_dataset(model.env_name, "train")
     config = config_from_options(options, RecordedRouteConfig())
     return RecordedRouteController.from_dataset(
