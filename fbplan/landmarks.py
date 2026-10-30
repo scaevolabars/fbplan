@@ -7,9 +7,10 @@ the full observation, because F(w, .) needs the whole state.
 The latent of a landmark is the intention z_w that the agent follows to reach it: B(w) of the
 landmark state (default), or the mean of B over the states within region_xy of w, as upstream
 builds z_r. B(w) of one state carries the pose and velocity of w, and with it the privileged
-oracle overshoots (region means raised it on medium from 58 % to 87 %). The planner
-did not gain: on 100 held-out medium episodes 68/100 with B(w), 59/100 with region means.
-With region means rho is higher and flatter, so it separates near and far landmarks less.
+oracle overshoots (region means raised it on medium from 57.2 % to 80.4 %, eval seed 0,
+lookahead 2: results/medium/oracle_sweep/). The planner did not gain: on 100 held-out medium
+episodes 68/100 with B(w), 59/100 with region means. With region means rho is higher and
+flatter, so it separates near and far landmarks less.
 """
 
 from __future__ import annotations
