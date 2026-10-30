@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-30, 05:45. Branch merged with `main` at 8b4795f.
+Last update: 2026-10-30, 06:02. Branch merged with `main` at 953030d.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -390,9 +390,14 @@ The wormholes left by the xy cap cross no wall: short pairs where FB is overconf
 - X6, known deviation: the alias `ensemble` writes `baseline_ensemble` or
   `baseline_ensemble_raw` (one name per input path, `--opt z_input=`). A rename would change the
   committed ensemble CSVs; the name says which path ran.
-- X18 open: needs a decision (see Requests). Since 84a8127, `PlannerConfig` gained
-  `act_ahead_xy` and `act_region_xy` (defaults keep the old behaviour), so a rerun of a committed
-  Linux planner command writes a new `config_hash`, and `failures.py` refuses to replay it.
+- X18 closed by the coordinator (option (a) of c-planner): the committed hashes stay; the
+  README names the code commit 84a8127 of the approach A CSVs. No change in `config_hash`.
+- D17 fixed (final pass): the oracle docstring quotes the Linux sweep of
+  `results/medium/oracle_sweep/` (state 50.0/57.2/63.2 %, region 78.4/80.4/82.4 %) and says
+  that the defaults came from the earlier macOS sweep.
+- Process names removed from my code and tests: hypothesis labels (`baseline.py`), "plan B
+  decision 8" (`heldout_goals.py`, `heldout_selection.py`), "T2" (`heldout_selection.py`), an
+  owner name (`calibration.py`) and status-file pointers in two test comments.
 
 ## Commands for the CSVs in results/
 
@@ -765,7 +770,6 @@ ensemble_raw_<family>.csv`; T1 rows for comparison):
    replication of H1"). The last instance, 58336787, was destroyed on 2026-10-30 at 05:39.
    Total vast.ai cost: about $8.6 (see the vast.ai log above). A new run needs a new instance
    with the selection rule above; on machine 151322 the venv must skip the CUDA packages.
-3. X18 (`config_hash` after a new config field): waits for the coordinator's choice (Requests).
 
 ## Blockers
 
@@ -773,17 +777,6 @@ ensemble_raw_<family>.csv`; T1 rows for comparison):
 
 ## Requests
 
-- Coordinator, X18 (`config_hash` after a new config field), choose:
-  (a) g-release's proposal: hash only the fields that differ from their defaults, and rewrite
-  the `config_hash` column of every committed CSV once (each CSV's options from the commands
-  in this file; a seed-0 rerun per controller first). About 2 hours; it touches every results
-  CSV.
-  (b) Keep every committed hash. `failures.py --ignore-hash` replays a CSV with the given
-  `--method` and `--opt` and prints both hashes; the README says that config fields added after
-  the Linux runs default to the old behaviour, so a rerun gives the same records with a newer
-  hash. About 20 minutes.
-  Recommendation: (b). The hash only names a config; a rewrite of all committed CSVs just
-  before the release has more risk than one documented exception.
 - g-release: `scripts/reproduce.sh` may now call `calibration.py --fig-dir` (the old
   `--out-dir` still works) and `heldout_goals.py --table-dir <smoke dir>`, so the smoke run no
   longer writes to `results/heldout_goals/`. `failures.py` and `parity.py` default to 4 workers.

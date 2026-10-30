@@ -1,4 +1,4 @@
-"""Write the held-out goals for hyperparameter selection (plan B decision 8) and draw them.
+"""Write the held-out goals for hyperparameter selection (docs/design.md §8) and draw them.
 
     uv run python analysis/heldout_goals.py [--envs antmaze-medium-navigate-v0 ...]
         [--table-dir results/heldout_goals] [--fig-dir results/figures]

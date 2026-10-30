@@ -5,7 +5,7 @@
         [--table-dir results/calibration]
 
 For n validation states s, w (uniform sample, fixed seed) it compares the FB distance
--log rho(s, w) / -log gamma (steps, rho from c-planner's OptionModel, clipped to [0, gamma])
+-log rho(s, w) / -log gamma (steps, rho from fbplan.option_model.OptionModel, clipped to [0, gamma])
 with the exact maze geodesic distance between their xy positions (walls solid, agent a point).
 
 Wormholes by walking speed (walk_speed_wormholes): pairs that the planner trusts

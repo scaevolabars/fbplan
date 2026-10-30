@@ -9,9 +9,11 @@ scores below the baseline. It is a diagnostic, not a method: tables label it pri
 Waypoint intentions: "state" is B(w) of the one dataset state w nearest to the cell centre;
 "region" is the mean of B(s) over the dataset states near the centre, the way upstream builds
 the task latent z_r. "state" is far weaker: B(w) carries the pose and the velocity of w, and
-pi_l chases them (medium, eval seed 0, 250 episodes, lookahead 1/2/3: state 44.8/56.4/65.2 %,
-region with radius 0.5: 80.8/86.4/78.0 %; results/medium/oracle_sweep/). Defaults: region,
-radius 0.5 (the goal radius of the task reward that defines z_r), lookahead 2.
+pi_l chases them (medium, eval seed 0, 250 episodes, results/medium/oracle_sweep/, lookahead
+1/2/3: state 50.0/57.2/63.2 %, region with radius 0.5: 78.4/80.4/82.4 %). Defaults: region,
+radius 0.5 (the goal radius of the task reward that defines z_r), lookahead 2. The defaults come
+from an earlier sweep on macOS, where lookahead 2 was best; on the Linux runs above lookahead 3
+is 2 points higher on this one eval seed.
 """
 
 from __future__ import annotations
