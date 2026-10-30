@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-30, 05:05. Branch merged with `main` at 2626146.
+Last update: 2026-10-30, 05:45. Branch merged with `main` at 8b4795f.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -117,13 +117,15 @@ vast.ai log (team account, label `fbplan-gpu-eval`):
 | 58272696 | EPYC 7V13, Texas | 0.802 | 19:08 | 19:36 | ~0.37 | image never loaded, no SSH |
 | 58279543 | EPYC 7662, Belgium | 0.811 | 19:53 | 04:02 | ~6.61 | evaluation queue, 8.15 h |
 | 58331474 | EPYC 7662, Belgium (same machine) | 0.939 | 04:18 | 05:01 | ~0.67 | wave 3 (R, M), 0.72 h |
+| 58336787 | EPYC 7662, Belgium (same machine) | 0.937 | 05:17 | 05:39 | ~0.34 | medium replication, 0.36 h |
 
 Mistake: the queue was empty from 22:56 to 00:00 (waiting for B region), and my destroy watcher
 did not fire, because its emptiness test used `ls` on two folders, which prints their names
 even when they are empty. About 50 idle minutes were billed (~$0.70). The watcher now calls
 `runs/queue/idle_check.sh` (tested on the instance: busy → 1, empty → 0). Total vast.ai cost:
-about $8.3 (failed hosts ~$1.03 + instance 58279543 ~$6.61: 8.15 h at $0.811/h, $0.80 compute
-and $0.011 disk; + instance 58331474 ~$0.67 for wave 3; times from `vastai show instance`).
+about $8.6 (failed hosts ~$1.03 + instance 58279543 ~$6.61: 8.15 h at $0.811/h, $0.80 compute
+and $0.011 disk; + instance 58331474 ~$0.67 for wave 3; + instance 58336787 ~$0.34 for the
+medium replication; times from `vastai show instance`).
 Budget: $50. No instance is running.
 
 Selection rule now (coordinator): CPU model AMD EPYC Zen 2/3/4 or Xeon Gold/Platinum, ≥ 64
@@ -577,6 +579,43 @@ instance is running. Setup note: on this host's A40 GPUs one test failed during 
 (exact equality; difference 6e-11, e-learner's training code); the evaluation runs on the CPU
 and does not use that code.
 
+## Medium replication of H1 (design.md §8 "Wave 3 results and the medium replication")
+
+Instance 58336787: the same machine 151322 (AMD EPYC 7662, 128 effective cores, Belgium),
+$0.937/h, 12 GB disk (the most the slice offered was 13 GB). Code: 8b4795f (no change in
+`fbplan/` since the H1 tree 5d7e642). The setup filled the disk: uv copied the CUDA wheels into
+both its cache and the venv (6.0 + 5.8 GB). I rebuilt the venv on the instance without the
+CUDA packages (`uv sync --frozen --no-cache --no-install-package <jax-cuda12-*, nvidia-*>`;
+jax and jaxlib 0.10.2, MuJoCo 3.1.6; 1.0 GB). The evaluation runs on the CPU only.
+
+- Check: H1 (window, K 150), baseline and baseline_raw on medium eval seed 0 repeat the
+  committed records exactly (250 each, all columns but `wall_time_s`).
+- Replication (`results/medium_seeds10-19/`: `h1_window_k150.csv` (method `recorded_route`,
+  hash 285be155), `baseline.csv`, `baseline_raw.csv`; eval seeds 10–19, 2,500 episodes each,
+  same hashes as the seeds 0–9 rows), paired:
+
+| eval seeds | H1 | baseline | baseline_raw | H1 − baseline (pp) | H1 − baseline_raw (pp) |
+|---|---|---|---|---|---|
+| 0–9 | 83.8 | 78.4 | 80.5 | +5.3 [+3.2, +7.4], p 9.2e-7 | +3.3 [+1.2, +5.4], p 0.0027 |
+| 10–19 | 84.5 [83.1, 85.9] | 79.8 [78.3, 81.4] | 79.8 [78.2, 81.3] | +4.7 [+2.6, +6.7], p 1.3e-5 | +4.8 [+2.7, +6.8], p 9.5e-6 |
+| 0–19 | 84.1 [83.1, 85.1] | 79.1 [78.0, 80.3] | 80.1 [79.0, 81.2] | +5.0 [+3.5, +6.5], p 4.8e-11 | +4.0 [+2.5, +5.5], p 1.4e-7 |
+
+- Reading (design.md §8): the replication confirms H1 on medium. On eval seeds 10–19 alone it
+  beats both rows, paired, p < 0.001.
+- Per task on seeds 10–19 (H1 − baseline): +5.6, +1.8, +7.2, +10.0, −1.2 pp (task 5 is the only
+  loss, within noise).
+- Commands (each eval seed list as 5 processes of 25 workers, one per eval seed, joined):
+  `uv run python -m fbplan.evaluate --method fbplan.controllers.planner:make_recorded_route
+  --opt executor=window max_steps=150 --env antmaze-medium-navigate-v0 --seeds 10 11 12 13 14
+  15 16 17 18 19 --episodes 50 --out results/medium_seeds10-19/h1_window_k150.csv`;
+  `baseline.csv`, `baseline_raw.csv`: the same with `--method baseline` or
+  `--method baseline_raw` and no `--opt`. Tables: `uv run python analysis/tables.py
+  results/medium_seeds10-19/*.csv`; for seeds 0–19 add
+  `results/medium_10seeds/{baseline,baseline_raw}.csv` and
+  `results/medium/planner_ablations/h1_eval/window_k150.csv`.
+- Instance 58336787: 05:17 to 05:39 on 2026-10-30 (0.36 h at $0.937/h): about $0.34, within the
+  $2 budget. Destroyed after the pull; no instance is running.
+
 ## AWR sharpness at 2× (design.md §8; Linux, medium, 5 eval seeds, 1,250 episodes per run)
 
 `results/medium/baseline_retrained_awr2x/` (`--checkpoint retrained:awr2x:<k>`, high_alpha 0.2) and
@@ -719,13 +758,14 @@ ensemble_raw_<family>.csv`; T1 rows for comparison):
 
 ## Next
 
-1. Nothing is queued. All planned Linux jobs ran, the last ones wave 3 of H1. Their
+1. Nothing is queued. All planned Linux jobs ran, the last one the medium replication. Their
    CSVs are in `results/` (raw copies in `runs/linux/`); Mac-vs-Linux agreement is in
    `results/platform_check.csv`.
-2. Wave 3 is complete (R and M, section "Wave 3"). Instance 58331474 was destroyed on
-   2026-10-30 at 05:01. Total vast.ai cost: about $8.3 (see the vast.ai log above). A new run
-   needs a new instance with the selection rule above.
-3. X4 after c-planner exposes the shared helpers.
+2. Wave 3 and the medium replication are complete (sections "Wave 3" and "Medium
+   replication of H1"). The last instance, 58336787, was destroyed on 2026-10-30 at 05:39.
+   Total vast.ai cost: about $8.6 (see the vast.ai log above). A new run needs a new instance
+   with the selection rule above; on machine 151322 the venv must skip the CUDA packages.
+3. X18 (`config_hash` after a new config field): waits for the coordinator's choice (Requests).
 
 ## Blockers
 
