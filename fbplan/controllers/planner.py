@@ -21,6 +21,9 @@ states near s. At every step the controller takes the shortest certified route t
 route ahead: pi_l on the region latent of the point 8 xy ahead ("point"), pi_l on the mean of the
 unit region latents 4, 8 and 12 xy ahead ("window"), or pi_h with that point as its task ("high").
 Selected on held-out goals: medium "window", K 150; large "high", K 150.
+
+FBRouteController (docs/hypotheses/h-papers.md H2) is the same controller with FB costs: each
+certified edge, the first hop included, weighs -log rho (approach A's rho) instead of its xy length.
 """
 
 from __future__ import annotations
@@ -51,7 +54,7 @@ from fbplan.graph import (
     walked_xy,
 )
 from fbplan.landmarks import LandmarkConfig, RegionField, pool_rows, select_landmarks
-from fbplan.option_model import OptionModel, OptionModelConfig, OptionTable
+from fbplan.option_model import OptionModel, OptionModelConfig, OptionTable, Targets
 
 
 @dataclass(frozen=True)
@@ -453,6 +456,7 @@ Executor = Literal["point", "window", "high"]
 class RecordedRouteConfig:
     """Recorded-route tracking (docs/hypotheses/h-papers.md H1, docs/design.md §8). The route comes
     from recorded train trajectories, not from FB values; FB only finds the goal and acts.
+    FBRouteController uses this config too, with FB costs as the weights (H2).
 
     landmarks: landmark selection (fbplan.landmarks); only the landmark states are used. Its
         pool also gives the train states that certify the first hop and the act regions.
@@ -460,10 +464,11 @@ class RecordedRouteConfig:
     certify_xy: a recorded state passes a landmark (or the agent) within this xy distance.
     max_steps: K. Edge u -> w is certified when one train trajectory passes u and then w at
         most K steps later; the first hop s -> w when the trajectory of a pool state near s
-        does. Weight: xy length. The route is the shortest one to the goal landmark, the
-        landmark with the largest F(w, z_r)^T z_r, and runs along recorded walks: of each hop,
-        the walk with the shortest xy path (then the fewest steps). A walk that turns back
-        would move the point ahead backwards. The route is planned again at every step.
+        does. Weight: xy length (FBRouteController: -log rho). The route is the shortest one to
+        the goal landmark, the landmark with the largest F(w, z_r)^T z_r, and runs along
+        recorded walks: of each hop, the walk with the shortest xy path (then the fewest
+        steps). A walk that turns back would move the point ahead backwards. The route is
+        planned again at every step.
     executor: "point": pi_l on the region latent of the route point ahead_xy ahead;
         "window": pi_l on the mean of the unit region latents of the points window_xy ahead
         (the tracking window of Meta Motivo); "high": pi_h with the region latent of the point
@@ -522,13 +527,13 @@ class RecordedRouteController:
         self.visits = landmark_visits(self.xy, landmarks[:, :2], cfg.certify_xy, self.ends)
         self._arc = walked_xy(self.xy, self.ends)
         self.edges = certify_edges(self.visits, self.ends, cfg.max_steps, self._arc)
+        self.options = OptionModel(fb, cfg.options)
         src, dst = self.edges.source, self.edges.target
         weights = np.full((n, n), np.inf)
-        weights[src, dst] = np.linalg.norm(landmarks[src, :2] - landmarks[dst, :2], axis=1)
+        weights[src, dst] = self._edge_weights(src, dst)
         self.distances, self.next_hop = shortest_paths(weights)
         self._walk = np.full((n, n, 2), -1)  # rows of the recorded walk of each edge
         self._walk[src, dst] = np.stack([self.edges.start, self.edges.end], axis=1)
-        self.options = OptionModel(fb, cfg.options)
         self._goals: dict[bytes, int] = {}
         self.z_r = np.zeros(0)
         self.goal = 0
@@ -590,7 +595,7 @@ class RecordedRouteController:
         rows = self._near_rows(s)
         visit, owner = reachable_visits(self.visits, rows, self.ends, self.config.max_steps)
         hop = self.visits.label[visit]
-        cost = np.linalg.norm(self.landmarks[hop, :2] - s, axis=1) + self.distances[hop, self.goal]
+        cost = self._first_hop_weights(obs, hop) + self.distances[hop, self.goal]
         if not np.isfinite(cost).any():
             self._route = []
             return None
@@ -624,6 +629,48 @@ class RecordedRouteController:
         if dist2.min() > radius2:
             dist2 = np.sum((self._search_xy - self._search_xy[np.argmin(dist2)]) ** 2, axis=1)
         return self.search_rows[dist2 <= radius2]
+
+    def _edge_weights(self, src: np.ndarray, dst: np.ndarray) -> np.ndarray:
+        """Weight of each certified edge src -> dst between landmarks: its xy length. [E]"""
+        return np.linalg.norm(self.landmarks[src, :2] - self.landmarks[dst, :2], axis=1)
+
+    def _first_hop_weights(self, obs: np.ndarray, hop: np.ndarray) -> np.ndarray:
+        """Weight of the first hop from obs to each landmark in hop: its xy length. [M]"""
+        s = np.asarray(obs[:2], dtype=np.float64)
+        return np.linalg.norm(self.landmarks[hop, :2] - s, axis=1)
+
+
+class FBRouteController(RecordedRouteController):
+    """H2 (docs/hypotheses/h-papers.md H2, docs/design.md §8): the recorded route with FB costs.
+    Each certified edge u -> w, the first hop from s included, weighs -log rho(u, w) instead of
+    its xy length. rho is approach A's (fbplan.option_model): the option latent B(w) of the
+    landmark state, the heads aggregated by config.options.head_agg (min by default), clipped to
+    [0, gamma] for distinct states. An edge with rho = 0 has no weight, so the route drops it.
+    Everything else is RecordedRouteController's: certification, goal landmark, walks, executor.
+    """
+
+    name = "recorded_route_fb"
+
+    @cached_property
+    def targets(self) -> Targets:
+        """The landmarks as rho targets, with option latents B(w)."""
+        return self.options.targets(self.landmarks)
+
+    def _edge_weights(self, src: np.ndarray, dst: np.ndarray) -> np.ndarray:
+        rho = self.options.pair_table(self.landmarks, self.targets).rho
+        return _fb_cost(rho[src, dst])
+
+    def _first_hop_weights(self, obs: np.ndarray, hop: np.ndarray) -> np.ndarray:
+        # rho only to the distinct candidates: one F call per step, far fewer than N pairs.
+        stops, back = np.unique(hop, return_inverse=True)
+        rho = self.options.pair_table(np.asarray(obs)[None], self.targets.take(stops)).rho[0]
+        return _fb_cost(rho[back])
+
+
+def _fb_cost(rho: np.ndarray) -> np.ndarray:
+    """-log rho; inf (no edge) where rho is 0."""
+    with np.errstate(divide="ignore"):
+        return -np.log(rho)
 
 
 def point_along(points: np.ndarray, distance: float) -> np.ndarray | None:
@@ -685,12 +732,22 @@ def _from_train_data(cls: type[C], model: FBModel, options: dict[str, object]) -
     return cls.from_dataset(model, observations, config_from_options(options))
 
 
+ROUTE_WEIGHTS: dict[str, type[RecordedRouteController]] = {
+    "xy": RecordedRouteController,
+    "fb": FBRouteController,
+}
+
+
 def make_recorded_route(model: FBModel, **options: object) -> RecordedRouteController:
-    """Controller factory for the evaluation CLI (docs/hypotheses/h-papers.md H1): recorded
+    """Controller factory for the evaluation CLI (docs/hypotheses/h-papers.md H1, H2): recorded
     routes from the env's training data. Options as RecordedRouteConfig, e.g. executor=window
-    max_steps=150."""
+    max_steps=150, and edge_weight: "xy" (H1, the default) or "fb" (H2, FBRouteController).
+    edge_weight picks the class, not a config field, so the H1 configs keep their config_hash."""
+    weight = options.pop("edge_weight", "xy")
+    if weight not in ROUTE_WEIGHTS:
+        raise ValueError(f"unknown edge_weight {weight!r}: one of {sorted(ROUTE_WEIGHTS)}")
     data = load_dataset(model.env_name, "train")
     config = config_from_options(options, RecordedRouteConfig())
-    return RecordedRouteController.from_dataset(
+    return ROUTE_WEIGHTS[weight].from_dataset(
         model, data["observations"], data["terminals"], config
     )
