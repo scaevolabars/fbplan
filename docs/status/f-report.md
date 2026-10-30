@@ -1,6 +1,6 @@
 # Status: f-report
 
-Last update: 2026-10-30, 05:25. Branch merged with `main` at 8b4795f.
+Last update: 2026-10-30, 06:10. Branch merged with `main` at 953030d.
 
 ## Done
 
@@ -248,6 +248,31 @@ Last update: 2026-10-30, 05:25. Branch merged with `main` at 8b4795f.
     appendix, status line. §1 untouched until the medium replication lands.
   - Not renumbered: H1 stays in §8.7, because the hypothesis files cite REPORT section numbers
     about 60 times; §1 will point to §8.7.
+- After the merge of 953030d (medium replication confirms H1; g-release's final review;
+  coordinator: write §1 last, add the platform shift, fix the process-file references):
+  - Medium replication (`results/medium_seeds10-19/`, recomputed): eval seeds 10–19 84.5 % against
+    79.8 / 79.8 %, +4.7 and +4.8 pp (p ≈ 1e-5); 0–19 84.1 %, +5.0 and +4.0 pp. In §7.1 (new
+    table), §8.7 (results table, bullets, caveats, wave-3 table), §9 (H1 row now first), §10.
+  - §1 written: question; answer (yes on medium, with a sequence from the data, not from FB
+    values); the method; medium confirmed; large not confirmed; what FB does; A and B negative;
+    the oracle has no room but is not a bound; T1–T4; giant and teleport; theory; evaluation.
+  - §6: pooled platform shift −0.76 pp [−1.4, −0.1] (my check: the inverse-variance mean of the 36
+    `diff` values of `results/platform_check.csv`, se from the CI; −0.66 [−1.5, +0.2] without
+    planner and upstream); medium 20 seeds raw − normalized +1.0 pp (p 0.22), seeds 10–19
+    −0.1 pp; the "CPU" platform line and the recorded route's folders (g-release F7); a
+    privileged-information paragraph (F8).
+  - Process files: no reference to `docs/status` or `docs/briefs` and no session name is left.
+    The facts moved into the report: the 2× α (0.2 × 16.49 / 15.72), the T2 command (now
+    `scripts/reproduce.sh`), the recorded route's method details (visits, walk choice, first-hop
+    cost, region over the 100k pool, fallback, known limit with `tests/test_planner.py`), its step
+    cost (from `wall_time_s` / `steps`), the oracle analysis (named as an analysis, the cell check
+    as a script outside the repository). §11 rewritten around `scripts/reproduce.sh`, with the
+    medium replication commands, the extra steps, the code commit per result group and the
+    compute.
+  - g-release F6 (§8.1 gap for teleport and giant), F11 (pending markers → "not run", listed in
+    §10 "Not done"), F12 (§11 figure command → `reproduce.sh`). `docs/hypotheses/` references
+    stay.
+  - Status line: "complete; items that did not run are listed in §10".
 - Private defense sheet for the reviewer call (coordinator request): written outside the
   repository, not committed; updated for B, the seed selection, the ablations, giant, and the
   10-seed protocol and T1.
@@ -259,23 +284,22 @@ Last update: 2026-10-30, 05:25. Branch merged with `main` at 8b4795f.
 
 | # | Result | Report section | Owner | Expected place |
 |---|---|---|---|---|
-| 1 | medium replication: the recorded route (`window`, K 150) and both baseline rows on medium eval seeds 10–19 | §8.7, §7.1, §9, §10, then §1 | d-eval | `results/medium_seeds10-19/` (expected) |
-| 2 | optional: c-planner's route-cell check committed (`analysis/planner_routes.py`), so §8.7 cites a committed file for "same cells" | §8.7 | c-planner | `analysis/` |
 | 3 | route plots of A on medium and large, committed | §8.4 point 8 | c-planner | `docs/figures/report/` or c-planner's results |
 | 4 | non-hier and approach A on eval seeds 5–9 (optional) | §7.1 | d-eval | `results/medium_10seeds/` |
 | 5 | giant: optional `baseline_raw` | §7.3 | d-eval | `results/giant/` |
 | 6 | large: retrained baselines; failure classes of the A variants | §7.2 | d-eval | `results/large/` |
 | 7 | whether the wormholes that the xy cap leaves cross a wall (a column of the calibration CSV) | §8.3, §4 | d-eval | `results/calibration/` |
 
-Every needed result has an owner. The central finding (no measurable room for a high level with
-this `π_l`) now holds for the privileged oracle only: the recorded route passes the bar on medium
-and matches or beats the oracle (§8.7). §1 still states the old wording; it is rewritten when the
-medium replication lands (coordinator).
+None of these will land before submission; REPORT §10 lists them as not done. §1 states the
+final finding: the recorded route passes on medium and is confirmed on new episodes; the oracle
+has no measurable room but is not a bound.
 
 ## Next
 
-- When the medium replication lands: its row in §8.7 by the reading of design.md §8, medium
-  eval seeds 10–19 and 0–19 in §7.1 and §8.7, §9, §10; then §1, written last.
+- The report is complete. The items in the table above will not land; §10 lists them as not
+  done.
+- g-release: `scripts/reproduce.sh` has no rows for `results/medium_seeds10-19/`; REPORT §11 gives
+  the commands until it does.
 - Then the other items above.
 - Merge `main` when new results are merged.
 
