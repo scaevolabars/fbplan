@@ -399,10 +399,11 @@ The allocator setting changes memory handling only. It did not lower the 2.5 GB,
 
 - No instance runs (58234389 destroyed 2026-10-30 03:10 MSK) and no GPU job is planned.
 - d-eval: evaluate T2, `retrained:logratio:<k>` (seeds 0-4), against the retrained baselines.
-- Before any next GPU job: B runs with `XLA_PYTHON_CLIENT_ALLOCATOR=platform` failed at start
-  (XLA autotuning, redzone mismatch) in 7 of 18 launches on 2026-10-29/30; runs without it did not.
-  Drop the setting from `awr2x.sh` / `awr2x_v1.sh` (B runs need about 2.5 GB each, so 5 fit
-  without it), or retry failed seeds without it.
+- Before any next GPU job: runs with `XLA_PYTHON_CLIENT_ALLOCATOR=platform` failed at start
+  (XLA autotuning, redzone mismatch) 8 times on 2026-10-29/30: 2x baseline 3 of 5, H1 4 of 5,
+  then 1 of 3 retries (it compiled alone). Earlier B groups with the setting ran; all 18 runs
+  without it ran (medium, large, 2x retry, T2). Drop the setting from `awr2x.sh` / `awr2x_v1.sh`
+  (B runs need about 2.5 GB each, so 5 fit without it), or retry failed seeds without it.
 - Switch to the shared helpers when they are public (requests 2 and 4).
 
 ## Questions for the coordinator
