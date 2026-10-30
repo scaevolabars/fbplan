@@ -1,6 +1,6 @@
 # Status: g-release
 
-Last update: 2026-10-30. Branch merged with `main` at 8b4795f.
+Last update: 2026-10-30. Branch merged with `main` at 953030d.
 
 ## Finishing phase (coordinator, 2026-10-30)
 
@@ -17,12 +17,17 @@ check after the final merges, (4) the removal of the process files, prepared, no
   `heldout_selection.csv` and `platform_check.csv` rebuild byte for byte;
   `heldout_selection_awr2x.csv` differs (stale, D19).
 - (3) Waits for the final merges.
-- (4) Prepared: section "Process files: removal" below, with the facts that must move first
-  and their target files.
+- (4) Prepared as a patch (coordinator's decisions of 2026-10-30): section "Process files:
+  removal" below, with what the owners must fix first.
 
 ## Done
 
-- Merged `main` 8b4795f. ruff passes; pytest 501 passed.
+- Merged `main` 8b4795f, then 953030d (the medium replication, the `oracle_teleport` alias, the
+  CLI fixes of d-eval). `reproduce.sh` and README follow: 3 runs of `results/medium_seeds10-19/`
+  and their tables, the alias, `calibration.py --fig-dir`, `heldout_goals.py --table-dir` (the
+  smoke run now rebuilds the medium goal file; equal to the committed one, checked). The run
+  table expands to 231 lines = the 231 committed episode CSVs; columns of all lines and 47
+  config hashes equal (checked). ruff passes; pytest 513 passed.
 - `scripts/reproduce.sh` covers every result of REPORT.md now:
   - `RUNS`: one line per committed evaluation CSV, with `{a..b}` for seed and landmark-set
     lists. It expands to 228 lines, exactly the 228 episode CSVs in `results/` (without
@@ -100,20 +105,24 @@ release check of `baselines-v1`) is in git history and in the sections below.
    in the local cache; their `flags.json` hold no personal path. Do not upload the old
    `params.pkl` of clean, wide, region. Without a release, a reviewer without a GPU cannot
    rerun these rows. Recommendation: a release `trained-v2` with these 40 folders, pinned by
-   a-frozen.
-2. Aliases (d-eval's file `fbplan/controllers/__init__.py`, C20, X11 rule 8):
-   `recorded_route`, `trap_aware`, `oracle_teleport`; and `oracle_teleport` in `PRIVILEGED`
-   (D23). The hash uses `controller.name` and the config only, so no committed hash changes.
+   a-frozen. Coordinator (2026-10-30): goes to the user, with recommendation (a).
+2. Aliases (d-eval's file `fbplan/controllers/__init__.py`, C20, X11 rule 8): `oracle_teleport`
+   and its `PRIVILEGED` entry are done (65b5d62; `reproduce.sh` and README use the alias).
+   Open: `recorded_route`, `trap_aware`. The hash uses `controller.name` and the config only,
+   so no committed hash changes.
 3. X18 closed by the coordinator's decision (a): README "Code versions".
 4. Git history: removing the process files from the tree does not remove them from history.
    History holds the instance label with the user's surname and the vast.ai team account name
    (in `docs/status/`, and in `scripts/gpu/vast.sh` before E1). If the published history is
    rewritten, the commit ids that the README and REPORT cite (84a8127, 0de6e0a, the training
    commits in each `flags.json`) dangle.
-5. design.md §8 fixes a medium replication on eval seeds 10-19; no CSV exists (F4). Run it, or
-   the report states it as not run.
+5. Done (d-eval, 82fb38b): the medium replication on eval seeds 10-19
+   (`results/medium_seeds10-19/`) is in `reproduce.sh` and the README. design.md §8 does not yet
+   record its result (coordinator).
 
 ## CLI convention (X11, proposal; the owners adopt it)
+
+Moved to `docs/design.md` §7 by the prepared removal change (same item numbers).
 
 1. Inputs are positional paths: CSV files, or one folder.
 2. Outputs: `--out FILE` for one file, `--out-dir DIR` for one folder. A script that writes
@@ -157,84 +166,108 @@ merge.
 
 ## Process files: removal (prepared, not committed)
 
-The commit removes `docs/briefs/` (8 files), `docs/status/` (11) and, if the coordinator
-decides so, `docs/hypotheses/` (4). My files (README, `reproduce.sh`, CI, `pyproject.toml`,
-`devbox.json`, `tests/conftest.py`) refer to none of them. The commands, when the coordinator
-says so:
+Coordinator's decisions (2026-10-30): remove `docs/briefs/` and `docs/status/`; keep
+`docs/hypotheses/` as the record of the readings fixed before the tests, without the lines that
+address the coordinator or name tabs; g-release may edit `docs/design.md` and the docstring of
+`fbplan/contracts.py` for this step. The removal is committed only on the coordinator's word.
+
+**The prepared change** (patch `runs/removal/process-files.patch` in this worktree, applies to
+39814d7 with `git apply --3way`; the working tree stays clean so that main can merge):
+- `docs/design.md`:
+  - header without "owned by the coordinator tab";
+  - §2: the per-task `|z_r|` in place of the pointer to the a-frozen status; the gap to the
+    paper with the canonical 10-seed numbers and their CSVs (was "large 31-45 %, 1 seed", no
+    CSV);
+  - §3: "d-eval calibration" → `results/calibration/`;
+  - §6-§7: the components table (tabs, owners) and the working rules (branches, status files,
+    questions, tabs) are gone. New §6 "Repository": layout pointer, contracts, data folders.
+    New §7 "Code rules": code quality, ruff and pytest, `third_party/` unchanged, the
+    refactor rule, and the CLI convention (from this file's X11 section, same item numbers,
+    so the comments in `tests/test_analysis.py:175`, `tests/test_evaluate.py:441` can cite
+    "docs/design.md §7, CLI convention, items 6 and 7");
+  - §8 renamed "Decisions and hypothesis tests", with a line that names the 4 hypothesis files.
+    Moved in: the 2× shared temperature 0.2099 and how it was computed; a bullet "Code versions
+    and compute" (evaluation and training commit per result group, the seed-0 identity checks,
+    evaluation machine and hours, about $8.6; training GPU, 13.9 h, about $2.90; no account
+    name, label or instance id); the held-out goal rule (≤ 50 % flipped states, 6 of 10 large
+    and 3 of 10 giant goals changed, medium unchanged); the stack details (tfp-nightly build,
+    distrax, dm-control 1.0.20); route following (`switch_steps`) as an ablation with its
+    held-out numbers. Tab names in "Closed" replaced by dates.
+- `fbplan/contracts.py:3-4`: the docstring no longer says "write the request in your
+  docs/status/<component>.md and tell the user".
+- `docs/hypotheses/*.md`: no line addresses the coordinator or names a tab or a work session
+  any more. The headers say "Written on <date>"; the "Notes for the coordinator" sections of
+  h-exec.md (§5) and h-papers.md (§7) are gone (their one fact not held elsewhere, that the
+  `baseline_raw` bar may be goal-specific, moved into h-exec.md M5); tab names became neutral
+  wording ("approach A's code", "the evaluation code"); 7 links to status files point to the
+  committed source (`results/medium/b_wide/`, `results/medium/*/seed*.csv`,
+  `results/macos/medium/`, `docs/theory.md` §11.3, README) or were dropped where no committed
+  source exists (4 numbers stay as the file's record). No hypothesis, reading or number
+  changed (diff read line by line). h-exec.md §6 "Reproduction" is now §5; nothing cites it.
+
+The commit, on the coordinator's word:
 
 ```
-git rm -r -q docs/briefs docs/status            # + docs/hypotheses if decided
-git grep -n -E 'docs/(status|briefs|hypotheses)' -- . ':!third_party'   # must print nothing
+git apply --3way runs/removal/process-files.patch
+git rm -r -q docs/briefs docs/status
+git grep -n -E 'docs/(status|briefs)' -- . ':!third_party'      # must print nothing
 uv run --locked ruff check . && uv run --locked pytest
 git commit -m "Remove the process files before submission"
 ```
 
-**Dead references today** (the owners fix them before the commit):
-- REPORT.md:1135, 1156, 1206, 1223, 1282, 1286, 1325, 1326, 1352, 1409, 1496, 1560 (f-report).
-  1560 points to `docs/status/c-planner.md` for the H1 commands: point to `scripts/reproduce.sh`.
-- docs/design.md:35, 163, 164, 177, 218, 221, 250, 258, and §6-§7 (tabs, coordinator,
-  status files) (coordinator).
-- docs/theory.md:320, 613 (status), 527, 576, 592, 604 (h-exec) (b-theory).
-- fbplan/contracts.py:4 ("write the request in your docs/status ... tell the user")
-  (coordinator).
-- fbplan/controllers/baseline.py:11 (h-learn H3) (d-eval); scripts/gpu/awr2x_v1.sh:2 (h-learn)
-  (e-learner).
-- Names of process files or tabs in code: "h-papers H1" (graph.py:13, 133; planner.py:16, 439,
-  671; test_planner.py:577; test_graph.py:160), "d-eval", "b-theory" (landmarks.py:10,
-  planner.py:92, planner_fakes.py:9, test_option_model.py:132, test_planner.py:530, 700)
-  (c-planner, C19); "h-learn H1/H2" (logratio.py:1, 25; logratio.sh:2; value.py:47;
-  test_learned_b.py:178), "review X4" (train_b.py:82), tab names in approach-b.md (e-learner);
-  "h-exec H1, M11" (trap_aware.py:1, 10) (b-theory); "plan B decision 8"
-  (heldout_goals.py:1, heldout_selection.py:1) (d-eval).
+**Owners must fix these first** (after the patch, `git grep` finds them):
 
-**Facts that must move first**, by owner (source → target):
-- a-frozen: `|z_r|` per task (a-frozen.md:278-282) → design.md §2 in place of the pointer at
-  :35. `baselines-v1`: contents, training commits (medium 9557a55, large a189a49), the
-  modules-only decision and the upload checks (a-frozen.md:170-220) → a comment at
-  `frozen.py` `_TRAINED_FILES` or the README. Stack details (tfp-nightly pinned in uv.lock and
-  kept on PyPI, distrax needs it, dm-control 1.0.20 with the MuJoCo pin) → design.md
-  "Environment". design.md §2:45-46 ("large 31-45 %, 1 seed") → cite the 5-seed Linux rows.
-- b-theory: the giant, teleport and T3 commands → done in `reproduce.sh`. The T3 tie rule, the
-  control definition, the `F_goal` deviation from h-exec (top 64 pool states, 2.4-3.3 xy), the
-  data checks (jumps ≥ 2.27, walks ≤ 0.37, 10-14 false alarms, AUC 0.991) and h-exec's M11
-  number → theory.md §11.4. The gate-check and raster scripts (now in /private/tmp) →
-  `analysis/` with commands (B23).
-- c-planner: the H1 tie order (point < window < high, then smaller K), the falsification rule,
-  the medium tie (window K150 = high K60 = 533/600), the open choices of the controller (goal =
-  argmax of min_h F(w,z_r)ᵀz_r; walk choice; 100k pool for the first hop), its limits (C13) and
-  the "H1 against the oracle on large" analysis → REPORT §8.7. `switch_steps` tested, not a
-  default (held-out −2.0 / +5.3 pp) → design.md §4.A. Code commit per CSV group and the
-  record-identity checks after c187bb7 and 06ea0a8 → REPORT appendix. Ablation option strings
-  → done in `reproduce.sh`.
-- d-eval: all evaluation commands and the join rule → done in `reproduce.sh`. Code commit of
-  each result group (84a8127: Linux 5-seed runs, A, ablations, baseline seeds 5-9; 0be1249: T1;
-  6c603a3: T4, 2×, T2, T3; 8a202e6: act-ahead; 5d7e642: H1 large; 2626146: wave 3; e6b99d1: B
-  clean export) and the seed-0 identity check before each group → REPORT §11. Hardware → done
-  in README. The held-out goal rule (≤ 50 % flipped states per goal ball; 6 of 10 large and 3
-  of 10 giant goals changed) → design.md §5. The act-ahead pairing check (1,250 of 1,250
-  records equal) → REPORT §8.4. Evaluation compute (about 9 h, about $8.3) → REPORT
-  (optional; no account name, label or instance id).
-- e-learner: training commands per family → done in `reproduce.sh train`; commit per family
-  (baselines 9557a55 medium, a189a49 large; critics and clean, wide, region a189a49; awr2x and
-  clean-awr2x 97d9200; logratio 34b17a5) → README or REPORT §11. GPU compute (one RTX 3090,
-  13.9 h, about $2.90; 55 min per 5 seeds; 2.5 GB per B run) → REPORT (no account name or
-  label). 2× α = 0.2099 (median spreads 16.49 / 15.72 over 200 batches, on the GPU; CPU gives
-  another value) → REPORT §8.5 in place of the link at :1156. ρ measurements (median 0.78,
-  raw ρ ≥ 1 on 9.7 %, ρ > 0.9 on 33 %, exact R 10-90 % from −8.8 to +29) → approach-b.md §5.1.
-  Retrained `π_h` cosine 0.955 with the provided one → REPORT baseline section. T2 cross-check
-  (max diff 2.2e-5) → REPORT T2 paragraph or a test (E20). Cancelled runs (ρ_cap 1.0, the
-  policy on expectile 0.7, h-learn H1) → REPORT and approach-b.md.
-- f-report: the figure commands with explicit file lists and how the tables are made → REPORT
-  §11 (or a pointer to `reproduce.sh`). Items that will not land (route plots, large retrained
-  row, wall-crossing count) → REPORT §10 as not done.
-- coordinator: design.md §6-§7 describe the workflow; replace them with a short "repository
-  layout and code rules" section, and the §8 citations of `docs/hypotheses/` with the facts.
+Links to `docs/status/` (dead after the removal):
+- f-report: REPORT.md:1165, 1186, 1316, 1355, 1485, 1686. 1686 points to the c-planner and d-eval
+  status files for the H1 commands: point to `scripts/reproduce.sh` (it has all of them).
+- b-theory: docs/theory.md:320, 613.
+- d-eval: tests/test_analysis.py:175, tests/test_evaluate.py:441 ("X11 of
+  docs/status/g-release.md" → "docs/design.md §7, CLI convention").
 
-**`docs/hypotheses/`.** REPORT §8.6-§8.7 and design.md §8 cite these files as the record of
-hypotheses and readings fixed before any result, and some REPORT numbers have no other source
-(F10). 7 lines address the coordinator (h-exec.md:77, 230, §5; h-learn.md:368;
-h-papers.md:125-127, §7). Recommendation: keep the folder and delete those lines and sections;
-removing it needs the facts above moved and weakens the "fixed in advance" trail.
+Tab names and hypothesis-session labels in code, tests and kept docs (77 lines at 953030d):
+- a-frozen: fbplan/frozen.py:3.
+- b-theory: docs/theory.md:3, 239, 312, 319, 320, 410, 417, 436, 476, 527, 556, 576, 592, 604, 613;
+  fbplan/controllers/oracle_teleport.py:141; fbplan/controllers/trap_aware.py:1, 10;
+  fbplan/tabular/study.py:178; tests/test_tabular_study.py:38.
+- c-planner: fbplan/controllers/planner.py:16, 99, 454, 689; fbplan/graph.py:13, 133;
+  fbplan/landmarks.py:10; tests/planner_fakes.py:9; tests/test_graph.py:162, 251;
+  tests/test_option_model.py:132; tests/test_planner.py:538, 585, 708.
+- d-eval: analysis/calibration.py:8; fbplan/controllers/baseline.py:11;
+  tests/test_analysis.py:175; tests/test_evaluate.py:441.
+- e-learner: docs/plans/approach-b.md:28, 58, 76, 102, 106, 135, 177, 182, 184, 188, 193, 203,
+  215, 216; fbplan/learned/logratio.py:1, 25; fbplan/learned/train_b.py:82;
+  fbplan/learned/value.py:47; scripts/gpu/awr2x_v1.sh:2; scripts/gpu/logratio.sh:2;
+  tests/test_learned_b.py:178.
+- f-report: REPORT.md:1165, 1186, 1236, 1253, 1312, 1316, 1354, 1355, 1390, 1397, 1406, 1484,
+  1485, 1491, 1614, 1619, 1686.
+A reference to a hypothesis file by its path (`docs/hypotheses/h-papers.md` H1) stays valid;
+a bare label ("h-papers H1") is clear only next to that path. Command to list them:
+`git grep -n -E 'a-frozen|b-theory|c-planner|d-eval|e-learner|f-report|g-release|h-exec|h-learn|h-repr|h-papers|coordinator' -- . ':!docs/status' ':!docs/briefs' ':!docs/hypotheses' ':!docs/design.md' ':!third_party' ':!results'`.
+
+**Facts that must move, and where they are now:**
+- Moved by the prepared change (design.md): a-frozen's `|z_r|` per task and stack details;
+  c-planner's route following; d-eval's code commits, held-out goal rule, evaluation hardware
+  and compute; e-learner's training commits, GPU compute and 2× temperature; this file's CLI
+  convention. Already in README and `reproduce.sh`: every evaluation and training command, the
+  join rule, the hardware.
+- Still with the owners:
+  - a-frozen: the `baselines-v1` contents, the modules-only decision and the upload checks
+    (a-frozen.md:170-220) → a comment at `frozen.py` `_TRAINED_FILES`.
+  - b-theory: the T3 tie rule, the control definition, the `F_goal` deviation from h-exec, the
+    data checks (jumps ≥ 2.27, walks ≤ 0.37, AUC 0.991) → theory.md §11.4; the gate-check and
+    raster scripts → `analysis/` (B23).
+  - c-planner: the H1 tie order, the falsification rule, the medium tie, the open choices of the
+    controller and its limits (C13), "H1 against the oracle on large" → REPORT §8.7 (f-report
+    writes; c-planner checks); the record-identity checks after c187bb7 and 06ea0a8 → REPORT
+    appendix.
+  - d-eval: the act-ahead pairing check (1,250 of 1,250 records equal) → REPORT §8.4; the
+    pooled platform shift −0.76 pp [−1.4, −0.1] → REPORT §6.
+  - e-learner: ρ measurements (median 0.78; raw ρ ≥ 1 on 9.7 %; ρ > 0.9 on 33 %; exact R
+    10-90 % from −8.8 to +29) → approach-b.md §5.1; cosine 0.955 of retrained and provided `π_h`
+    → REPORT; the T2 cross-check (max diff 2.2e-5) → REPORT or a test (E20); the cancelled runs
+    (ρ_cap 1.0, the policy on expectile 0.7, h-learn H1) → REPORT and approach-b.md.
+  - f-report: REPORT §11 points to `scripts/reproduce.sh` for every command.
+- Git history keeps the removed files (request 4).
 
 ## Review findings, final pass (2026-10-30, main 8b4795f)
 
