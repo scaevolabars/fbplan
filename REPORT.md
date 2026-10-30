@@ -13,8 +13,9 @@ The same commands on macOS (arm64) are a reproducibility check, in `results/maco
 
 - **Question.** Can a high level that values a sequence of intentions beat the one-switch `π_h`
   of FB π-Switch, with `F`, `B` and `π_l` frozen and offline data only?
-- **Answer.** On medium, yes, with a sequence that comes from the offline data, not from FB
-  values. The two planners that order the sequence by FB values did not work.
+- **Answer.** On medium, yes, with a sequence whose order comes from the offline data, not from
+  FB values. Every method that orders the sequence by FB values did not work: approach A,
+  approach B, and the same recorded route with FB edge costs.
 - **The method that works: recorded-route tracking (§8.7).** It plans a route over landmark edges
   that recorded train trajectories travel, weighted by xy length, and plans it again at every
   step. The frozen `π_l` acts on a region latent of the route just ahead; on large, `π_h` picks
@@ -27,12 +28,20 @@ The same commands on macOS (arm64) are a reproducibility check, in `results/maco
 - **On large it is not confirmed.** It passed on eval seeds 0–9 (+3.5 pp [+0.9, +6.0] against the
   bar, p = 0.009), but the replication on eval seeds 10–19 gave +1.8 pp (p = 0.16). Pooled over
   the 20 eval seeds it is +2.7 pp [+0.9, +4.5] (p = 0.004).
-- **What FB does in it.** `F` picks the goal landmark, `B` gives the intentions, and `π_l` (on
-  large also `π_h`) executes them. The order of the intentions comes from recorded walks and xy
-  lengths: no FB value, no chain value, no `ρ̂`. So the gain is one of planning a sequence of
-  intentions, not of FB chaining. Its FB arm, FB `ρ̂` as the weight of the recorded edges, did not
-  run. Before the replication it was one of about 21 candidate tests (Holm-adjusted p of the first
-  medium pass at most 0.057); the replication on new episodes carries the claim.
+- **What FB does in it.** FB supplies the intentions and the goal; its values do not order them.
+  `B` gives the intentions (region-mean latents of the route points), `F` picks the goal
+  landmark, and `π_l` (on large also `π_h`) executes them. The order comes from recorded walks and
+  xy lengths: no FB value, no chain value, no `ρ̂`. So the gain is one of planning a sequence of
+  intentions, not of FB chaining. Before the replication it was one of about 21 candidate tests
+  (Holm-adjusted p of the first medium pass at most 0.057); the replication on new episodes
+  carries the claim.
+- **Its FB arm ran and failed** (§8.7). With the FB cost `−log ρ̂` as the weight of the same
+  recorded edges, and nothing else changed, the method is falsified at the held-out check fixed
+  in advance, on both mazes. Medium: 82.7 % against 88.8 % with xy weights (−6.2 pp [−9.8, −2.3],
+  p = 0.002) and 86.0 % for `baseline`. Large: 48.2 % against 58.8 % (−10.7 pp [−15.7, −5.5],
+  p = 7e-5), and also −5.2 pp [−9.7, −0.7] below `baseline` (p = 0.03). Recorded walks certify
+  these edges, so no wormhole can enter the route: even so, FB values order the sequence worse
+  than xy lengths.
 - **The FB planners did not work.**
   - **Approach A** (a graph over FB `ρ̂` edges, §4) is below the stronger baseline on every maze:
     medium −8.3 to −15.9 pp, large −8.0 to −11.1 pp, teleport −3.6 to −9.1 pp (5 eval seeds, all
@@ -1395,7 +1404,8 @@ the main maze, it scores 83.8 % on eval seeds 0–9, +3.3 pp [+1.2, +5.4] (p = 0
 `baseline_raw`, and +2.2 pp (p = 0.037) above the privileged oracle. A replication fixed in
 advance confirms it on new episodes, eval seeds 10–19: +4.7 and +4.8 pp against the two baseline
 rows, both p < 0.001. On large it passed on eval seeds 0–9, but the replication on eval seeds
-10–19 did not confirm it. Its route does not use FB values.
+10–19 did not confirm it. Its route does not use FB values. Its FB arm, with FB costs on the same
+edges, is falsified on both mazes (the end of this section).
 
 **What it is** (`fbplan/controllers/planner.py`, `fbplan/graph.py`, `fbplan/landmarks.py`).
 
@@ -1445,11 +1455,12 @@ walk instead of the latent of one landmark.
 | execution | `π_l`, or `π_h` and `π_l`, frozen |
 | chain value (§3), `ρ̂`, `V_H` | not used |
 
-So this method does not test FB chaining in the sense of §3–§5: no FB value orders the
-sequence. Its FB arm, FB `ρ̂` as the weight of the recorded edges (hypothesis H2 of
-`docs/hypotheses/h-papers.md`), did not run. On the held-out goals the goal landmark lay 0.93 (medium) and 0.82
-(large) xy units from the goal at the median, 2.12 and 3.25 at most (an offline check with the
-true goal position, by a script that is not in the repository; it set no parameter).
+So this method alone does not test FB chaining in the sense of §3–§5: no FB value orders the
+sequence. Its FB arm tests it: FB `ρ̂` as the weight of the recorded edges (hypothesis H2 of
+`docs/hypotheses/h-papers.md`). It failed (the end of this section). On the held-out goals the
+goal landmark lay 0.93 (medium) and 0.82 (large) xy units from the goal at the median, 2.12 and
+3.25 at most (an offline check with the true goal position, by a script that is not in the
+repository; it set no parameter).
 
 **Why it was tested.** Approach A loses mostly time, and on A's own route an oracle-like executor
 recovered only 3.2 of the 7.4 points between `planner_high` and the oracle on medium (point 8 of
@@ -1612,11 +1623,68 @@ of §8.2, that the oracle has no measurable room, holds for the oracle only.
 | (M) medium | held-out grid and rules, then the selected configuration on eval seeds 0–9 | not falsified on held-out goals; then the rule of §6 | **passes**: `window`, `K` 150; +3.3 pp (p = 0.003) against the bar |
 | medium replication | `window`, `K` 150 on medium eval seeds 10–19, with both rows | confirmed if it beats both rows there, p < 0.05 | **confirmed**: +4.7 and +4.8 pp, both p ≈ 1e-5 |
 
+**The FB arm: FB costs on the recorded edges** (hypothesis H2 of `docs/hypotheses/h-papers.md`;
+reading fixed in `docs/design.md` §8, "H2, FB orders the recorded route", before any H2 result).
+It asks the question of this project in its cleanest form: do FB values order a sequence of
+intentions well once recorded walks guard the edges?
+
+- **One change.** Each certified edge, the first hop included, weighs the FB cost `−log ρ̂`
+  instead of its xy length. `ρ̂` is approach A's: the option latent `B(w)` of the target landmark,
+  the min over the 2 heads, clipped to [0, γ]; an edge with `ρ̂` = 0 has no finite weight, so the
+  route drops it (`FBRouteController` in `fbplan/controllers/planner.py`, option
+  `edge_weight=fb`, method `recorded_route_fb` in the CSVs). The edges, landmarks, goal landmark,
+  walks, intentions and executor are those of the selected H1 configuration of each maze:
+  medium `window`, `K` 150; large `high`, `K` 150. There was no new selection.
+- **Rule.** First the held-out check, on H1's 600 held-out episodes per maze: falsified if H2
+  scores more than 2 pp below H1 or not above `baseline`. Only if not falsified: eval seeds 0–19,
+  paired against both baseline rows and H1, with three readings per maze: (a) FB orders the
+  sequence (the rule of §6 on eval seeds 0–9 and on 10–19 alone); (b) FB ordering is as good as
+  xy ordering (H2 − H1 over seeds 0–19 has a 95 % CI above −2 pp); (c) FB values hurt even on
+  certified edges (H2 − H1 significantly below 0).
+
+Held-out check, success (%) on the same 600 episodes per maze
+(`results/<env>/planner_ablations/h2_heldout/` with `h1_heldout/`; `analysis/tables.py
+--label-root results/<env>/planner_ablations --reference h1_heldout/baseline
+h1_heldout/<configuration>`):
+
+| Maze, configuration | H2, FB costs | H1, xy lengths | `baseline` | H2 − H1 | H2 − `baseline` | reading |
+|---|---|---|---|---|---|---|
+| medium, `window`, `K` 150 | 82.7 [79.8, 85.5] | 88.8 | 86.0 | −6.2 [−9.8, −2.3], p = 0.002 | −3.3 [−7.0, +0.5], p = 0.11 | falsified |
+| large, `high`, `K` 150 | 48.2 [44.5, 51.8] | 58.8 | 53.3 | −10.7 [−15.7, −5.5], p = 7e-5 | −5.2 [−9.7, −0.7], p = 0.032 | falsified |
+
+- **Falsified on both mazes, by both conditions.** H2 is more than 2 pp below H1 and not above
+  `baseline`. On large it is also significantly below `baseline`. So the runs on eval seeds 0–19
+  did not run.
+- **The loss is broad.** H2 is below H1 on 7 of the 10 medium held-out goals (above on 2) and on
+  9 of the 10 large ones (above on none). The largest losses: medium goals 101, 105 and 109
+  (−11.7, −15.0 and −15.0 pp); large goals 102, 103 and 104 (−23.3, −25.0 and −16.7 pp).
+- **Reading.** Readings (a)–(c) were fixed for eval seeds 0–19, which did not run. The held-out
+  result has the pattern of reading (c): FB values hurt even on certified edges. Recorded walks
+  certify every edge, so no wormhole (§8.3) can enter the route, and the weight is the only
+  change. So the loss comes from the routes that the FB costs pick.
+- *Hypothesis:* the wide spread of `ρ̂` at every distance (§8.3) causes the loss. A shortest path
+  picks the edges whose `ρ̂` is too high, as the max over landmarks picks the largest noise in the
+  tabular study (§3.1, result 2). The band of pairs at the cap (`ρ̂` near 0, §8.3) makes some
+  short edges very costly or removes them. Not measured: how many certified edges have `ρ̂` = 0,
+  or how much longer the FB routes are than the xy routes (the M2 stretch). Another explanation
+  is not excluded: the FB routes may suit the executor less, which tracks points at xy distances
+  along the walk.
+- **What it means.** In the recorded route, FB supplies the intentions (`B`) and the goal
+  landmark (`F`), and the frozen policies execute them; FB values do not order them. With these
+  frozen modules, FB values gave no gain in any of the three places where they ordered a
+  sequence: approach A and H2 lost, and approach B was level with the baseline (§4, §8.5). This
+  is evidence that condition (b) of the prediction in §3.1, accurate `ρ̂` at short range, does
+  not hold well enough to order routes.
+- **Limits.** One FB cost was tested: approach A's `ρ̂` with the head min and the clip, no trust
+  threshold `ρ_min`. The check used the held-out goals only (600 episodes per maze), as the rule
+  fixed in advance.
+
 ## 9. What worked and what did not
 
 | Item | Outcome | Evidence |
 |---|---|---|
-| **Recorded-route tracking**: routes over landmark edges that recorded trajectories travel; a region latent of the route ahead as the intention; `π_l` (medium) or `π_h` (large) acts | **worked on medium, confirmed on new episodes**: eval seeds 0–9 83.8 %, +3.3 pp [+1.2, +5.4] against `baseline_raw` (p = 0.003) and +5.3 pp against `baseline`, above the oracle (+2.2 pp, p = 0.037); the replication fixed in advance on eval seeds 10–19 gives +4.7 and +4.8 pp (p ≈ 1e-5); eval seeds 0–19 +5.0 and +4.0 pp. **Large: passed on eval seeds 0–9** (+3.5 pp, p = 0.009) **but the replication on eval seeds 10–19 did not confirm it** (+1.8 pp, p = 0.16; eval seeds 0–19 +2.7 pp, p = 0.004). The route uses no FB values | §7.1, §7.2, §8.7 |
+| **Recorded-route tracking**: routes over landmark edges that recorded trajectories travel; a region latent of the route ahead as the intention; `π_l` (medium) or `π_h` (large) acts | **worked on medium, confirmed on new episodes**: eval seeds 0–9 83.8 %, +3.3 pp [+1.2, +5.4] against `baseline_raw` (p = 0.003) and +5.3 pp against `baseline`, above the oracle (+2.2 pp, p = 0.037); the replication fixed in advance on eval seeds 10–19 gives +4.7 and +4.8 pp (p ≈ 1e-5); eval seeds 0–19 +5.0 and +4.0 pp. **Large: passed on eval seeds 0–9** (+3.5 pp, p = 0.009) **but the replication on eval seeds 10–19 did not confirm it** (+1.8 pp, p = 0.16; eval seeds 0–19 +2.7 pp, p = 0.004). The route uses no FB values: FB supplies the intentions (`B`) and the goal landmark (`F`), not their order | §7.1, §7.2, §8.7 |
+| **FB costs on the recorded edges** (H2, the FB arm of the recorded route): `−log ρ̂` instead of the xy length as the weight of the same certified edges | **did not work**: falsified at the held-out check fixed in advance, on both mazes. Medium 82.7 % against 88.8 % with xy weights (−6.2 pp [−9.8, −2.3], p = 0.002); large 48.2 % against 58.8 % (−10.7 pp [−15.7, −5.5], p = 7e-5) and −5.2 pp below `baseline` (p = 0.032). No wormhole can enter these edges, so FB values order the sequence worse than xy lengths even without wormholes; the runs on eval seeds 0–19 did not run | §8.7 |
 | Chain formula, graph Bellman equation, contraction, option interruption | hold exactly on tabular mazes | `tests/test_tabular_theory.py`, to 1e-8 |
 | `R̂ = 0` and guards in the tabular study | chaining beats the idealised `π_h` when `π_l` fails at long range (0.46 against 0.26) | §3.1 |
 | Room for the privileged oracle with this `π_l` | **none measurable** on medium and large: the oracle gains +1.0 pp and +1.2 pp against the stronger baseline (10 eval seeds), both not significant; on giant +2.0 pp at 2.5 % success; on teleport the walking route scores below the baseline. The oracle is not a bound: the recorded route is above it on medium (p = 0.037) and level with it on large | §8.2, §8.7 |
@@ -1654,6 +1722,9 @@ Limitations:
 - **The recorded route was tested with one landmark set** (seed 0) per maze, and its
   configurations differ little on the held-out goals, so the selected executor and `K` are close
   to arbitrary (§8.7). Why it is above the oracle was analysed on large only.
+- **The FB arm (H2) was tested with one FB cost** (approach A's `ρ̂`, head min) and stopped at
+  the held-out check, as fixed in advance, so its loss is measured on the held-out goals only
+  (§8.7).
 - **Flips** are 70–75 % of the failures with a high level on medium. Even the true route does not
   lower their count below `baseline_raw`'s, and no high level can repair a flipped episode (§8.2).
 - **Tuning on the evaluation tasks.** A's guards were tuned on the 5 medium tasks with other start
@@ -1681,10 +1752,9 @@ Next steps that the evidence suggests:
 
 - Test the recorded route with more landmark sets, and on giant and teleport, which it has not
   seen.
-- Run its FB arm: FB `ρ̂` as the weight of the recorded edges (hypothesis H2 of
-  `docs/hypotheses/h-papers.md`). Recorded edges cannot be wormholes, so this tests whether FB
-  values add to a route once the data guard its edges. That is the question of this project in
-  its cleanest form.
+- Find out why FB costs lose on the recorded edges (§8.7): count the certified edges with
+  `ρ̂` = 0 and score the FB routes with the M2 stretch. A different FB cost (the mean over heads,
+  a trust threshold) is a new test, not a repair of H2.
 - Force the oracle through the recorded route's cells on large tasks 1 and 3, to test whether the
   path choice alone explains why the recorded route is level with or above the oracle (§8.7).
 - Distil the recorded route's intention into `π_h` (hypothesis H3 of `docs/hypotheses/h-papers.md`), so that no
@@ -1724,6 +1794,13 @@ executor=window max_steps=150 --env antmaze-medium-navigate-v0 --seeds 10 11 12 
 `--method baseline` or `--method baseline_raw` and no `--opt` for `baseline.csv` and
 `baseline_raw.csv`.
 
+**The H2 held-out runs** (§8.7) came after it. Their commands: `uv run python -m fbplan.evaluate
+--method fbplan.controllers.planner:make_recorded_route --opt executor=window max_steps=150
+edge_weight=fb --env antmaze-medium-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --out
+results/medium/planner_ablations/h2_heldout/window_k150.csv`, and on large the same with
+`executor=high`, `--env antmaze-large-navigate-v0` and `--out
+results/large/planner_ablations/h2_heldout/high_k150.csv`.
+
 **Numbers that need one more step:**
 
 - one subset of the episodes (eval seeds 0–4 or 5–9, one task, a group of tasks; §6, §7.1, §8.7):
@@ -1745,11 +1822,11 @@ executor=window max_steps=150 --env antmaze-medium-navigate-v0 --seeds 10 11 12 
 ran from one code tree, which first repeated a committed eval-seed-0 run record by record: 84a8127
 (the Linux runs with 5 eval seeds, approach A and its ablations, the baseline rows on eval seeds
 5–9), e6b99d1 (B-clean), 0be1249 (T1), 6c603a3 (T4, the 2× families, T2, T3), 8a202e6
-(act-ahead), 5d7e642 (the recorded route on large), 2626146 (wave 3) and 8b4795f (the medium
-replication). A rerun of an approach A command at a later commit gives the same records with
-another hash (`README.md`, "Code versions"). The `π_h` families were trained at: 9557a55 (the
-retrained baselines, medium), a189a49 (the retrained baselines on large; the critics and B-clean,
-B-wide, B-region), 97d9200 (the 2× families) and 34b17a5 (T2).
+(act-ahead), 5d7e642 (the recorded route on large), 2626146 (wave 3), 8b4795f (the medium
+replication) and 140c261 (H2). A rerun of an approach A command at a later commit gives the
+same records with another hash (`README.md`, "Code versions"). The `π_h` families were trained
+at: 9557a55 (the retrained baselines, medium), a189a49 (the retrained baselines on large; the
+critics and B-clean, B-wide, B-region), 97d9200 (the 2× families) and 34b17a5 (T2).
 
 **Compute.** Evaluation: one Linux machine with an AMD EPYC 7662 CPU (128 cores), about 9 hours.
 Training: one RTX 3090 GPU, 13.9 hours, about 55 minutes per group of 5 seeds. Rented cost:
