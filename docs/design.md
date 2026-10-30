@@ -287,6 +287,19 @@ each file ranks its hypotheses and fixes their readings before any test ran.
     as for large: the same config on medium eval seeds 10–19 with `baseline` and `baseline_raw`;
     it confirms if H1 beats both rows on seeds 10–19 alone, paired, p < 0.05. The report shows
     seeds 0–9, 10–19 and 0–19 for both mazes.
+    Result: confirmed on medium (seeds 10–19: +4.7 and +4.8 pp, p < 0.001).
+  - **H2, FB orders the recorded route** (`docs/hypotheses/h-papers.md` H2; fixed on 2026-10-30
+    at 09:40 MSK, before any H2 result). The recorded-route controller of H1 with one change:
+    the weight of a certified edge is the FB cost `−log ρ̂` (the planner's convention: head min,
+    `ρ̂` clipped to [0, γ] for distinct landmarks) instead of its xy length. Everything else as
+    the selected H1 config of each maze: medium `window`, K 150; large `high`, K 150. No new
+    selection. Held-out check first, on the same held-out episodes as H1: H2 is falsified if it
+    scores more than 2 pp below H1 or not above `baseline`. If not falsified: eval seeds 0–19 on
+    medium and on large, paired against `baseline`, `baseline_raw` and H1. Readings, per maze:
+    (a) FB orders the sequence: H2 passes the gain rule on seeds 0–9 and on seeds 10–19 alone;
+    (b) FB ordering is as good as xy ordering: H2 − H1 over seeds 0–19 has a 95 % CI above
+    −2 pp; (c) FB values hurt even on certified edges: H2 − H1 significantly below 0. All rows
+    are reported, whatever they show.
   - Not in wave 1: an unfrozen `π_l` (h-exec H2, H5: low chance of a high-level gain, and every
     row would need it); the `z_r` norm knob (h-repr: c = 1 is best on medium); new critics
     (h-learn H5, H6) wait for the 2× result.
