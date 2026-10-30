@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-30, 03:00. Branch merged with `main` at 3e36461.
+Last update: 2026-10-30, 03:30. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -455,12 +455,20 @@ episodes); ensembles are single runs (T1, code 0be1249). Paired on the same 2,50
 | oracle (privileged, region r 0.5, lookahead 2) | 81.5 [80.0, 83.0] | +3.1 [+0.9, +5.3], p 0.0069 | +1.0 [−1.2, +3.2], p 0.37 |
 | baseline 2× (5 seeds, high_alpha 0.2) | 80.6 [79.1, 81.9] | +2.2 [−0.1, +4.4] | +0.1 [−2.0, +2.3] |
 | B clean 2× (5 seeds) | 80.1 [77.2, 82.0] | +1.6 [−1.6, +4.3] | −0.4 [−3.6, +2.3] |
+| T2 log-ratio baseline (5 seeds) | 76.1 [73.7, 77.8] | −2.4 [−5.2, +0.1] | −4.4 [−7.2, −1.9] |
 
 - With 10 eval seeds, baseline_raw − baseline = +2.0 pp (p 0.07); with 5 seeds it was +3.8.
 - 2× families on 10 eval seeds (seeds 5–9 from the code tree 6c603a3, the code of their seeds
   0–4): baseline 2× seeds 81.0, 77.9, 81.6, 82.0, 80.5; B clean 2× 80.8, 74.7, 82.5, 81.0,
   81.2 %. Baseline 2× − retrained = +2.2 [+0.0, +4.4]; B clean 2× − baseline 2× = −0.6
   [−3.8, +2.3]. The 5-seed reading holds: a π_h tuning effect, no gain of chaining.
+- T2, log-ratio advantage (h-learn H2; `--checkpoint retrained:logratio:<k>`, e-learner's
+  export at 03:12; code tree 6c603a3; `results/medium/baseline_retrained_logratio/` with eval
+  seeds 0–4, `results/medium_10seeds/` with 0–9): seeds 0–4 on 10 eval seeds 77.5, 77.5, 76.4,
+  77.2, 71.7 %, pooled 76.1 %; vs retrained −2.3 [−5.2, +0.2], vs baseline −2.4 [−5.2, +0.1],
+  vs baseline_raw −4.4 [−7.2, −1.9]. T2 does not pass (design.md §8: a pass would be a π_h
+  training improvement); it is worse than the upstream advantage. Held-out selection: seed 0
+  (eval seeds 0–4: 78.4 %), − selected retrained −0.7 (p 0.69), − baseline_raw −2.4 (p 0.13).
 - Headroom bound (f-report): the privileged oracle on eval seeds 0–9 is +3.1 pp over the
   baseline and +1.0 pp (not significant) over baseline_raw; seeds 5–9 ran in the main tree
   (84a8127), the code of its seeds 0–4.
