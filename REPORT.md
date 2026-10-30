@@ -364,7 +364,8 @@ would separate the quality of the critic from that of the actor.
 
 **Gate.** B-clean had to gain over the retrained baselines before any further stage. It did not
 (§7.1, §8.5), so B stops there: B-argmax, stage B2 (distilling A's routes into `π_h`,
-`docs/plans/approach-b.md` §6) and a policy on the expectile 0.7 critic did not run. B-wide and
+`docs/plans/approach-b.md` §6), a policy on the expectile 0.7 critic and the critic with
+`ρ_cap = 1.0` (the cap ablation, `docs/plans/approach-b.md` §5.1, §11) did not run. B-wide and
 B-region were trained before the gate; neither gains either (§7.1). One controlled experiment
 followed from the seed analysis of §8.5: both families retrained with the AWR weighting twice as
 sharp, with the reading fixed before any result (`docs/design.md` §8). At matched sharpness B is
@@ -537,8 +538,10 @@ baselines, the controlled reference of B (same recipe, input path and number of 
 65.8 % against 65.1 % for the retrained baselines.
 
 **The provided `π_h` is a typical seed of the upstream recipe.** The 5 retrained `π_h` score
-76.6–80.1 %, and none differs significantly from the provided one (pooled −0.1 pp). Two of the 5
-are significantly below `baseline_raw`. The choice between the provided and the retrained
+76.6–80.1 %, and none differs significantly from the provided one (pooled −0.1 pp). Their outputs
+also agree: on 2000 validation states × the 5 eval tasks, the cosine between a retrained and the
+provided `π_h` output is 0.955 (p10 0.90–0.92), the same as between two retrained seeds. Two of
+the 5 are significantly below `baseline_raw`. The choice between the provided and the retrained
 baseline does not change any conclusion about approach A.
 
 **The training seed matters, for B more than for the baseline.** B-clean seeds 0, 2 and 4 score

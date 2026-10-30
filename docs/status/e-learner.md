@@ -334,6 +334,18 @@ g-release's final pass (main 953030d) found that the A10 row above was wrong: co
       uv run python -m fbplan.learned.train_b policy --env $E --seed 0 --steps 20 --log-every 10 --variant clean --run-dir $N/run-clean
       uv run python -m fbplan.learned.train_b policy --env $E --seed 0 --steps 20 --log-every 10 --variant region --run-dir $N/run-region
 
+## Finishing step before the removal of the process files (2026-10-30, main 5618c39)
+
+My items of `docs/status/g-release.md` ("Owners must fix these first", "Facts that must move"):
+no links to `docs/status` or `docs/briefs` were in my files; tab names and bare hypothesis labels
+in `approach-b.md`, `logratio.py`, `train_b.py`, `value.py`, `awr2x_v1.sh`, `logratio.sh` and
+`test_learned_b.py` became code paths or `docs/hypotheses/h-learn.md` H1/H2. Facts moved: the ρ
+measurements → approach-b.md §5.1; the three cancelled runs → approach-b.md §11 and REPORT §5
+(ρ_cap 1.0 added; the other two were there); the cosine 0.955 → REPORT §7.1; the T2 cross-check →
+a test (E20, `test_advantages_give_the_t2_formula_computed_from_f_and_b`: A from `frozen.forward`
+in float64, max diff 1.4e-7; the mutants F(s,z) for F(w,z), F(w,z_w) for F(s,z_w) and raw goal z
+fail by 0.39-0.49). No number, method or result changed. `uv run pytest -q`: 514 passed.
+
 ## GPU time and cost
 
 vast.ai, a shared team account, label `fbplan-gpu`. Times in MSK, 2026-10-29 to 2026-10-30.

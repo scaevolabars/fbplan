@@ -7,8 +7,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from fbplan.frozen import forward
 from fbplan.learned.checkpoint import FROZEN_MODULES, with_fresh_high_actor
 from fbplan.learned.logratio import (
+    advantages,
     goal_latent_mask,
     log_ratio,
     logratio_loss,
@@ -76,6 +78,33 @@ def test_measure_is_upstream_successor_measure_extract(agent, batch):
     np.testing.assert_array_equal(
         measure(agent, obs, z, b_w), agent.successor_measure_extract(obs, z, b_w)
     )
+
+
+def t2_advantage(agent, obs, w, g):
+    """A of goal latents by the formula of docs/design.md §8 (T2), in float64 from F and B."""
+    b_w = np.asarray(agent.network.select("backward_repr")(w), np.float64)
+    b_g = np.asarray(agent.network.select("backward_repr")(g), np.float64)
+    z = b_g / np.linalg.norm(b_g, axis=-1, keepdims=True) * np.sqrt(b_g.shape[-1])
+
+    def f(x, intent):  # F_h(x, intent) of both heads [2, N, d]
+        return np.asarray(forward(agent, x, intent.astype(np.float32)), np.float64)
+
+    f_s_zw, f_w_zw, f_w_z, f_s_z = f(obs, b_w), f(w, b_w), f(w, b_g), f(obs, b_g)
+    rho = np.clip(np.sum(f_s_zw * b_w, -1) / np.sum(f_w_zw * b_w, -1), 0.0, 0.99)
+    switch = np.mean(np.sum(f_s_zw * z, -1) + rho * np.sum(f_w_z * z, -1), axis=0)
+    direct = np.mean(np.sum(f_s_z * z, -1), axis=0)
+    return np.log(np.maximum(switch, 1.0)) - np.log(np.maximum(direct, 1.0))
+
+
+def test_advantages_give_the_t2_formula_computed_from_f_and_b(agent, batch):
+    """The wiring of advantages(): which state and which latent enter each F term."""
+    obs, w, g = batch["observations"], batch["high_actor_targets"], batch["high_actor_goals"]
+    b = agent.network.select("backward_repr")
+    z_w, z_raw = b(w), b(g)
+    _, adv_log = advantages(agent, obs, w, agent.normalize_z(z_raw), z_raw, z_w)
+    expected = t2_advantage(agent, obs, w, g)
+    assert np.count_nonzero(expected) >= 5  # the floor at 1 leaves samples to compare (6 of 32)
+    np.testing.assert_allclose(adv_log, expected, rtol=1e-4, atol=1e-4)
 
 
 def test_goal_mask_marks_the_latents_that_sample_latents_takes_from_b(agent, batch):

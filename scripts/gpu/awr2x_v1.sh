@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Attribution control (h-learn's H1, docs/hypotheses/h-learn.md): B clean with V_1 where the
+# Attribution control (H1 of docs/hypotheses/h-learn.md): B clean with V_1 where the
 # targets use V_H, at the shared 2x temperature of B clean 2x and on the same batches. So it
 # separates the learned critic from the AWR temperature. Runs after scripts/gpu/awr2x.sh.
 #
