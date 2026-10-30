@@ -138,7 +138,7 @@ class TeleportOracleConfig:
     steps_per_cell: ant steps per cell move for gamma_cell. 40 is the median of successful
         medium episodes (baseline and oracle: 29-56 per task).
     follow: "pi_l" acts with pi_l(a | s, z_w); "pi_h" gives z_w to pi_h as its task and acts
-        with pi_l on the intention that pi_h picks (as c-planner's planner_high).
+        with pi_l on the intention that pi_h picks (as planner_high in controllers/planner.py).
     """
 
     objective: Literal["reach", "discounted"] = "reach"

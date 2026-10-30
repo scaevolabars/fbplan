@@ -1,6 +1,6 @@
 """Frozen checkpoints, environments and offline data.
 
-Owner: component a-frozen. Other components import only the public names below.
+Other modules import only the public names below.
 All access to upstream code (third_party/ssm) goes through `upstream_module`, so the rest of
 fbplan does not depend on the upstream sys.path layout.
 
@@ -96,7 +96,24 @@ _DRIVE_URL = "https://drive.usercontent.google.com/download?id={}&export=downloa
 # GitHub releases of the public repo. Key: as in trained_dir, for example
 # "baselines/medium/seed0". Per file: (release tag, sha256 of the content).
 # The asset name is the key with "/" replaced by "-", then "-" and the file name.
-# Release baselines-v1: the retrained baseline pi_h (fbplan.train_high), medium and large.
+#
+# A trained folder holds only the trained module (user decision, 2026-10-29): high_actor.pkl,
+# the modules_high_actor params as numpy arrays (2.7 MB in place of the 18.3 MB of the full
+# agent state), and flags.json. F, B and pi_l always come from the provided checkpoint, so a
+# release does not copy them again and a trained folder cannot change them. A reviewer
+# downloads about 135 MB in place of about 900 MB for about 50 checkpoints. Cost: no optimizer
+# state, so training cannot resume from a published folder.
+#
+# Release baselines-v1: the retrained baseline pi_h (fbplan.train_high), medium and large,
+# seeds 0-4; 20 assets, 26.9 MB; tag on public commit 7ae64a5, which has the loader for this
+# format. The training commit in flags.json is a hash from before publication: medium 9557a55
+# is public e5d66d7, large a189a49 is public 6f6439b.
+# Checks before the upload: every text value in the 10 pickles is a module key or a numpy
+# class name; every string in flags.json is a config value, a path relative to ~/.cache/fbplan
+# or a training commit; no file matches the private-data patterns of the publication check.
+# Checks after the upload: from an empty FBPLAN_BASELINE_DIR, `python -m fbplan.frozen
+# --trained` fetched the 20 assets through these hashes, and load_trained_model on each of the
+# 10 keys gave params equal to the local checkpoints.
 _TRAINED_FILES: dict[str, dict[str, tuple[str, str]]] = {
     "baselines/medium/seed0": {
         "flags.json": (

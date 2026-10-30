@@ -47,8 +47,8 @@ class ValueConfig:
     ema: rate of the target network, as upstream's tau for F and B.
     hop_cost: subtracted once per switch.
     critic: the value of the switch target and the advantage. "v_h" is the learned V_H; "v_1"
-        uses V_1 instead (no learned critic), the attribution control of h-learn's H1. Only
-        stage 2 sets it; V_H is always fit with "v_h".
+        uses V_1 instead (no learned critic), the attribution control of H1 in
+        docs/hypotheses/h-learn.md. Only stage 2 sets it; V_H is always fit with "v_h".
     """
 
     option: OptionConfig = field(default_factory=OptionConfig)

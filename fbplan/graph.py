@@ -10,8 +10,9 @@ hop_discount < 1 is a cost per hop: in shortest-path form it adds -log(hop_disco
 the edge cost -log rho, and it does not depend on the scale of z_r. Which edges are trusted
 is the planner's rule (fbplan.controllers.planner.trusted_edges); value iteration takes a mask.
 
-Data-certified edges (h-papers H1) need no FB value: an edge u -> w exists when a recorded
-trajectory passes u and then w (landmark_visits, certify_edges); shortest_paths orders them.
+Data-certified edges (docs/hypotheses/h-papers.md H1) need no FB value: an edge u -> w exists when a
+recorded trajectory passes u and then w (landmark_visits, certify_edges); shortest_paths orders
+them.
 """
 
 from __future__ import annotations
@@ -130,7 +131,7 @@ def extract_route(solution: GraphSolution, start: int) -> list[int]:
     return route
 
 
-# ----- data-certified edges (h-papers H1) -----
+# ----- data-certified edges (docs/hypotheses/h-papers.md H1) -----
 
 
 @dataclass(frozen=True)

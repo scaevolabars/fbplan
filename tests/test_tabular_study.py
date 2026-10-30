@@ -35,7 +35,7 @@ def exact() -> LandmarkModel:
 
 
 def test_option_model_on_the_exact_fake_equals_the_exact_option_tables(exact):
-    # The study's FB estimates come from c-planner's OptionModel; the truth from the maze.
+    # The study's FB estimates come from fbplan/option_model.py; the truth from the maze.
     maze, model, goal = exact.model.maze, exact.model, 77
     reward = np.eye(maze.n_states)[goal]  # r of the goal latent in full rank
     z_r = goal_latent(model, goal)

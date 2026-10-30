@@ -438,7 +438,7 @@ def test_cli_writes_one_record_per_episode(medium_model, tmp_path):
 
 
 def test_cli_follows_the_convention_help_for_every_argument_defaults_shown_4_workers():
-    # CLI convention: help for every argument, defaults in --help, 4 workers by default
+    # docs/design.md §7, CLI convention, items 6 and 7
     parser = evaluate.build_parser()
     assert parser.formatter_class is argparse.ArgumentDefaultsHelpFormatter
     assert all(action.help for action in parser._actions)

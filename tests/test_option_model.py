@@ -129,7 +129,7 @@ def test_unknown_config_values_are_rejected():
 
 
 def test_rho_is_the_exact_hitting_discount_on_the_tabular_medium_maze():
-    fb = TabularFB()  # b-theory's exact fake: full rank, no noise
+    fb = TabularFB()  # the exact tabular fake: full rank, no noise
     om = OptionModel(fb, OptionModelConfig())
     states = fb.maze.xy
     targets = [0, 37, fb.maze.n_states - 1]

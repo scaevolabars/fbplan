@@ -364,8 +364,8 @@ would separate the quality of the critic from that of the actor.
 
 **Gate.** B-clean had to gain over the retrained baselines before any further stage. It did not
 (§7.1, §8.5), so B stops there: B-argmax, stage B2 (distilling A's routes into `π_h`,
-`docs/plans/approach-b.md` §6) and a policy on the expectile 0.7 critic did not run, and a critic
-with the `ρ` cap at 1.0 was stopped during its training. B-wide and
+`docs/plans/approach-b.md` §6), a policy on the expectile 0.7 critic and a critic with the `ρ`
+cap at 1.0 (the cap ablation, `docs/plans/approach-b.md` §5.1, §11) did not run. B-wide and
 B-region were trained before the gate; neither gains either (§7.1). One controlled experiment
 followed from the seed analysis of §8.5: both families retrained with the AWR weighting twice as
 sharp, with the reading fixed before any result (`docs/design.md` §8). At matched sharpness B is
@@ -538,11 +538,11 @@ baselines, the controlled reference of B (same recipe, input path and number of 
 65.8 % against 65.1 % for the retrained baselines.
 
 **The provided `π_h` is a typical seed of the upstream recipe.** The 5 retrained `π_h` score
-76.6–80.1 %, and none differs significantly from the provided one (pooled −0.1 pp). Two of the 5
-are significantly below `baseline_raw`. Their outputs agree with the provided one: the cosine
-between each retrained `π_h` and the provided `π_h` on 2,000 validation states × the 5 eval tasks
-is about 0.955 (10th percentile 0.90–0.92), as between the retrained seeds (an offline check at
-training time, not committed). The choice between the provided and the retrained baseline does not change any
+76.6–80.1 %, and none differs significantly from the provided one (pooled −0.1 pp). Their outputs
+also agree: on 2,000 validation states × the 5 eval tasks, the cosine between a retrained and the
+provided `π_h` output is 0.955 (10th percentile 0.90–0.92), the same as between two retrained
+seeds (an offline check at training time, not committed). Two of the 5 are significantly below
+`baseline_raw`. The choice between the provided and the retrained baseline does not change any
 conclusion about approach A.
 
 **The training seed matters, for B more than for the baseline.** B-clean seeds 0, 2 and 4 score
@@ -1095,8 +1095,9 @@ execution of the waypoints is a main cost.
 act-ahead executor keeps the single-state plan of `planner_high` but gives `π_h` the region latent
 (radius 0.5) of the point 8 xy units ahead along the planned route, close to what the oracle gives
 `π_l` (`act_ahead_xy = 8`, landmark set 0; `results/medium/planner_ablations/high_act_ahead8/l0.csv`,
-paired with `results/medium/planner_high/l0.csv`; with the option off, the act-ahead code repeats
-that run exactly, 1,250 of 1,250 records):
+paired with `results/medium/planner_high/l0.csv`: a check run of `planner_high` at the act-ahead
+code (commit 8a202e6) with the option off repeats 1,250 of 1,250 records of that CSV, so the two
+runs pair):
 
 | Act-ahead (77.0 %) against | difference (pp) |
 |---|---|
@@ -1597,6 +1598,11 @@ of §8.2, that the oracle has no measurable room, holds for the oracle only.
   to side; `tests/test_planner.py`); AntMaze has no exact ties.
 - **The goal landmark depends on `F`.** A goal landmark far from the goal would send the route to
   the wrong place.
+- **Edge weights are straight xy lengths, not walked lengths.** An edge whose recorded walk goes
+  around a wall gets too small a weight, so some routes are long: with `K` 60 the route through its
+  landmarks is 1.21× the maze shortest path between its end landmarks at the 90th percentile on
+  large and 2.31× at the 99th (medium 1.03× and 1.09×; check M2 of
+  `docs/hypotheses/h-papers.md`).
 
 **Wave 3 and the medium replication** (readings fixed in `docs/design.md` §8 before each result):
 
@@ -1796,10 +1802,17 @@ Methods: name in the report, `--method` of `fbplan.evaluate`, and the `method` c
 | T2 log-ratio baseline | `baseline --checkpoint retrained:logratio:<seed>` | `baseline`, `checkpoint_variant` = `logratio` | `results/medium/baseline_retrained_logratio/`; 10 eval seeds `results/medium_10seeds/baseline_retrained_logratio/`; held-out goals `results/medium/heldout/retrained_logratio/` |
 | recorded route | `fbplan.controllers.planner:make_recorded_route --opt executor=<point, window or high> max_steps=<K>` (`max_steps` is `K`); selected: `window`, 150 on medium; `high`, 150 on large | `recorded_route` | `results/medium/planner_ablations/h1_eval/window_k150.csv`, `results/large/planner_ablations/h1_eval/high_k150.csv`, `results/large_seeds10-19/h1_high_k150.csv`; held-out grids `results/<env>/planner_ablations/h1_heldout/` |
 
-**Code identity checks for approach A.** A refactor of the planner code (commit c187bb7) kept its
-records identical: on eval seed 0, 10 episodes per task, `results/medium/planner/l0.csv` and
-`results/medium/planner_region/l0.csv` repeat 50 of 50 records (Mac). All Linux planner CSVs ran at
-commit 84a8127, which includes a tie-break fix (commit 06ea0a8); the Mac planner CSVs ran before
-that fix (commit 0de6e0a), so the planner rows of the platform check also differ in code (§6). The
-current code repeats the records of 84a8127 for the defaults and for every approach A option of
-§4, with another `config_hash` (`README.md`, "Code versions").
+**Code identity checks for approach A.** Approach A's code changed after some of its runs. Each
+change was checked on one machine on eval seed 0, comparing every record except `config_hash`:
+
+- after a tie-break fix (commit 06ea0a8): medium `planner/l0`, 250 of 250 records identical;
+- after a refactor (commit c187bb7): medium `planner/l0` and `planner_region/l0`, 10 episodes per
+  task, 50 of 50 records identical each;
+- the code of the committed approach A CSVs (commit 84a8127) against the current code (from commit
+  2d2925b on): the defaults and the 9 ablation options of §4, medium, 2 episodes per task, 100 of
+  100 records identical. So a rerun of an approach A command at a later commit gives the same
+  records with another hash (`README.md`, "Code versions"). Before 2d2925b,
+  `options.edge_reward=paper` stopped with an error.
+
+All Linux planner CSVs ran at commit 84a8127; the Mac planner CSVs ran before the tie-break fix
+(commit 0de6e0a), so the planner rows of the platform check also differ in code (§6).

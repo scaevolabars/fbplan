@@ -1,9 +1,12 @@
 # Status: a-frozen
 
-Last update: 2026-10-29.
+Last update: 2026-10-30.
 
 ## Done
 
+- Before the removal of the process files (2026-10-30): `frozen.py` has no component name in
+  its docstring; the `baselines-v1` contents, the modules-only decision and the upload checks
+  of section "Trained checkpoints" are now a comment at `_TRAINED_FILES`. No number changed.
 - `fbplan/frozen.py`: `load_model`, `make_env`, `load_dataset`, `download_checkpoint`,
   `dataset_path`, `load_numpy_pickle`, `upstream_module`, class `FrozenFBModel` (implements
   `FBModel`); since the first review also `maze_name`, `cache_dir`, `trained_dir`,

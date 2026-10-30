@@ -6,7 +6,7 @@ F(s, z)^T B(s') is the exact successor measure M^{pi_z}(s, s') and rho(s, w) = g
 Two knobs imitate FB errors: a wormhole overrides the measure on one F head for one
 (source, target) pair; a horizon makes FB and pi_z know nothing about targets farther away
 than `horizon` steps (zero measure, and pi_z stands still).
-Tests that need the ground truth of a real maze layout use b-theory's fbplan.tabular.fake_fb;
+Tests that need the ground truth of a real maze layout use fbplan.tabular.fake_fb;
 this fake stays for the controller tests, which need errors placed on one exact pair or head.
 """
 

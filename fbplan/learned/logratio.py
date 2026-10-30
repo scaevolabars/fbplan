@@ -1,4 +1,4 @@
-"""Log-ratio proxy advantage for the baseline pi_h (h-learn H2; docs/design.md §8, wave 1, T2).
+"""Log-ratio proxy advantage for the baseline pi_h (docs/design.md §8, wave 1, T2).
 
 For goal latents (z = B(g), normalized to norm sqrt(d) in the dot products) the AWR advantage is
 
@@ -22,7 +22,7 @@ import jax.numpy as jnp
 from fbplan.frozen import forward
 from fbplan.learned.checkpoint import Agent
 
-FLOOR = 1.0  # values below 1 count as 1, so the log stays finite (h-learn H2)
+FLOOR = 1.0  # values below 1 count as 1, so the log stays finite (docs/hypotheses/h-learn.md H2)
 RHO_CLIP = 0.99
 MAX_LOG_WEIGHT = 5.0  # upstream clips alpha * A at 5 before exp
 GOAL_ALPHA = 2.45

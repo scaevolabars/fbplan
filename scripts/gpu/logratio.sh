@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# T2 (docs/design.md §8, wave 1; h-learn's H2): the baseline pi_h with the log-ratio advantage
-# for goal latents (temperature 2.45) and upstream's proxy advantage for Gaussian latents (0.1).
+# T2 (docs/design.md §8, wave 1; H2 of docs/hypotheses/h-learn.md): the baseline pi_h with the
+# log-ratio advantage for goal latents (temperature 2.45) and upstream's proxy advantage for
+# Gaussian latents (0.1).
 # Upstream recipe otherwise; the models go to baselines/<maze>/logratio/seed<k>.
 #
 #   bash scripts/gpu/logratio.sh [env]          default antmaze-medium-navigate-v0
