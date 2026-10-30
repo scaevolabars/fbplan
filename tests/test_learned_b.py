@@ -9,12 +9,11 @@ import numpy as np
 import pytest
 
 from fbplan import frozen
-from fbplan.frozen import forward
+from fbplan.frozen import forward, trained_key
 from fbplan.learned import train_b
 from fbplan.learned.checkpoint import (
     FROZEN_MODULES,
     load_b_model,
-    trained_key,
     with_fresh_high_actor,
 )
 from fbplan.learned.high_policy import masked_mean_std, policy_update, switch_advantage

@@ -1,7 +1,8 @@
-"""Trained models of train_high and approach B: keys, a fresh pi_h, file helpers, export.
+"""Trained models of train_high and approach B: loaders, a fresh pi_h, run flags, export.
 
 A trained folder holds only what training changed (user decision, 2026-10-29). fbplan.frozen
-owns the folders, the pi_h format and the download:
+owns the folders, their keys (trained_key), the file helpers (save_flags, load_trained_file),
+the pi_h format and the download:
 
     high_actor.pkl   params of pi_h: frozen.save_trained_checkpoint, frozen.load_trained_model
     value.pkl        params of the V_H network (approach B stage 1): fbplan.learned.value
@@ -20,48 +21,22 @@ import json
 import subprocess
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import flax
 
 from fbplan import frozen
+from fbplan.frozen import TrainedKind, save_flags, trained_key  # evaluate.py reads trained_key here
 
 Agent = Any  # upstream agents.fbpiswitch.FBpiSwitchAgent
-Kind = Literal["baselines", "approach_b"]
 FROZEN_MODULES = ("modules_forward_repr", "modules_backward_repr", "modules_actor")
 SAMPLER_STREAM = 1  # fold_in tag: keeps batch sampling independent of the network init key
 _OLD_KEYS = {"rho_max": "rho_cap"}  # renamed config fields, for export
 
 
-def trained_key(kind: Kind, env_name: str, seed: int, name: str | None = None) -> str:
-    """Key of one trained model for fbplan.frozen.trained_dir and download_trained.
-
-    For example baselines/medium/seed0 or approach_b/medium/clean/seed0.
-    """
-    parts = [kind, frozen.maze_name(env_name), *([name] if name else []), f"seed{seed}"]
-    return "/".join(parts)
-
-
-def trained_dir(kind: Kind, env_name: str, seed: int, name: str | None = None) -> Path:
+def trained_dir(kind: TrainedKind, env_name: str, seed: int, name: str | None = None) -> Path:
     """frozen.trained_dir(trained_key(...)). Kept for tests/test_evaluate.py until it calls that."""
     return frozen.trained_dir(trained_key(kind, env_name, seed, name))
-
-
-def save_flags(flags: Mapping[str, Any], out_dir: Path) -> None:
-    """Write out_dir/flags.json (indented), creating the folder."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "flags.json").write_text(json.dumps(flags, indent=2))
-
-
-def load_trained_file(key: str, name: str) -> Any:
-    """File `name` of the trained folder `key`; frozen.download_trained(key) fetches a missing one.
-
-    The folder is frozen.trained_dir(key), the folder that download_trained writes.
-    """
-    folder = frozen.trained_dir(key)
-    if not all((folder / f).exists() for f in (name, "flags.json")):
-        frozen.download_trained(key)
-    return frozen.load_numpy_pickle(folder / name)
 
 
 def load_baseline_model(env_name: str, seed: int, name: str | None = None) -> frozen.FrozenFBModel:
