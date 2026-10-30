@@ -1,20 +1,25 @@
 from dataclasses import replace
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 from planner_fakes import GOAL, START, GridFB, navigate_dataset
 
 from fbplan.contracts import TaskSpec
+from fbplan.controllers import planner as planner_module
 from fbplan.controllers.baseline import NonHierController
 from fbplan.controllers.planner import (
+    FBRouteController,
     GraphPlannerController,
     GraphPlusHighController,
     PlannerConfig,
     RecordedRouteConfig,
     RecordedRouteController,
     config_from_options,
+    make_recorded_route,
     trusted_edges,
 )
+from fbplan.evaluate import config_hash
 from fbplan.graph import DIRECT, GraphSolution, value_iteration
 from fbplan.landmarks import LandmarkConfig, RegionField, region_latents
 from fbplan.option_model import OptionModelConfig
@@ -593,15 +598,17 @@ def one_hot(fb: GridFB, cell: tuple[int, int]) -> np.ndarray:
     return np.eye(fb.latent_dim)[fb.index[cell]]
 
 
-def recorded_route(fb, walks, at=START, max_steps=20, **overrides) -> RecordedRouteController:
-    """Landmarks at START and GOAL, the recorded walks as data, regions of radius 0.5 (one cell).
-    The controller has acted once, from the cell `at`."""
+def recorded_route(
+    fb, walks, at=START, max_steps=20, marks=(START, GOAL), cls=RecordedRouteController, **overrides
+) -> RecordedRouteController:
+    """Landmarks at the cells marks, the recorded walks as data, regions of radius 0.5 (one
+    cell). The controller has acted once, from the cell `at`."""
     xy = np.concatenate([np.asarray(w, dtype=float) for w in walks])
     terminals = np.concatenate([np.r_[np.zeros(len(w) - 1), 1.0] for w in walks])
     field = RegionField(fb.all_obs()[:, :2], fb.backward(fb.all_obs()), radius=0.5)
-    landmarks = np.stack([fb.obs(START), fb.obs(GOAL)])
+    landmarks = np.stack([fb.obs(cell) for cell in marks])
     cfg = RecordedRouteConfig(max_steps=max_steps, **overrides)
-    ctrl = RecordedRouteController(fb, landmarks, xy, terminals, field, cfg)
+    ctrl = cls(fb, landmarks, xy, terminals, field, cfg)
     ctrl.reset(task(fb), seed=0)
     ctrl.act(fb.obs(at))
     return ctrl
@@ -647,11 +654,12 @@ def test_recorded_route_uses_edges_only_in_their_recorded_direction():
     assert ctrl.step_info()["hops"] == 0
 
 
+@pytest.mark.parametrize("cls", [RecordedRouteController, FBRouteController])
 @pytest.mark.parametrize(("max_steps", "routed"), [(5, True), (4, False)])
-def test_recorded_route_first_hop_is_a_recorded_walk_of_at_most_max_steps(max_steps, routed):
-    # From (3, 1) the walk reaches GOAL 5 steps later.
+def test_recorded_route_first_hop_is_a_recorded_walk_of_at_most_max_steps(max_steps, routed, cls):
+    # From (3, 1) the walk reaches GOAL 5 steps later; with K = 4 no landmark is a first hop.
     spy = LatentSpy(GridFB())
-    ctrl = recorded_route(spy, [U_WALK], at=(3, 1), max_steps=max_steps, ahead_xy=2.0)
+    ctrl = recorded_route(spy, [U_WALK], at=(3, 1), max_steps=max_steps, cls=cls, ahead_xy=2.0)
     expected = one_hot(spy.fb, (5, 1)) if routed else spy.fb.infer_task_latent(1)
     np.testing.assert_array_equal(spy.low_z, expected)
     assert ctrl.step_info()["hops"] == int(routed)
@@ -686,12 +694,14 @@ def test_config_from_options_builds_a_recorded_route_config():
 EXECUTORS = ["point", "window", "high"]
 
 
-def recorded_route_on(fb: TabularFB, executor: str, count: int, max_steps: int):
+def recorded_route_on(
+    fb: TabularFB, executor: str, count: int, max_steps: int, cls=RecordedRouteController
+):
     observations, terminals = navigate_dataset(fb.maze, trajectories=100, length=100)
     cfg = RecordedRouteConfig(
         landmarks=LandmarkConfig(count=count), executor=executor, max_steps=max_steps
     )
-    return RecordedRouteController.from_dataset(fb, observations, terminals, cfg)
+    return cls.from_dataset(fb, observations, terminals, cfg)
 
 
 @pytest.mark.parametrize("executor", EXECUTORS)
@@ -713,3 +723,108 @@ def test_recorded_route_beats_the_task_policy_under_fb_noise_on_the_tabular_maze
         route_wins += successes(recorded_route_on(fb, executor, count=48, max_steps=10), fb)
         direct_wins += successes(NonHierController(fb), fb)
     assert route_wins >= direct_wins + 20
+
+
+# ----- FB costs on the recorded route (docs/hypotheses/h-papers.md H2) -----
+
+# Two corridors from LEFT to RIGHT. The upper one takes 12 steps. The lower one winds through a
+# pocket and takes 16 steps, but its middle landmark LOW_MID lies near the straight line from
+# LEFT to RIGHT, so in xy the lower route is the shorter one (6.3 against 8.5).
+TWO_WAYS = (
+    "#########",
+    "#.......#",
+    "#.#####.#",
+    "#.#...#.#",
+    "#.#.#.#.#",
+    "#.#.#.#.#",
+    "#...#...#",
+    "#########",
+)
+LEFT, RIGHT, UP_MID, LOW_MID = (1, 4), (7, 4), (4, 1), (4, 3)
+UPPER_WALK = [(1, 4), (1, 3), (1, 2), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1), (7, 1)]
+UPPER_WALK += [(7, 2), (7, 3), (7, 4)]
+LOWER_WALK = [(1, 4), (1, 5), (1, 6), (2, 6), (3, 6), (3, 5), (3, 4), (3, 3), (4, 3), (5, 3)]
+LOWER_WALK += [(5, 4), (5, 5), (5, 6), (6, 6), (7, 6), (7, 5), (7, 4)]
+
+
+def two_ways(fb, marks, cls) -> RecordedRouteController:
+    """K = 8: each walk certifies its two halves, neither walk the whole way."""
+    return recorded_route(
+        fb, [UPPER_WALK, LOWER_WALK], at=LEFT, max_steps=8, marks=marks, cls=cls, ahead_xy=2.0
+    )
+
+
+# Without a landmark at LEFT the first hop decides the route, so it must weigh as the edges do.
+@pytest.mark.parametrize("marks", [(LEFT, UP_MID, LOW_MID, RIGHT), (UP_MID, LOW_MID, RIGHT)])
+@pytest.mark.parametrize(
+    ("cls", "point"), [(RecordedRouteController, (1, 6)), (FBRouteController, (1, 2))]
+)
+def test_fb_costs_take_the_shorter_walk_where_xy_lengths_take_the_shorter_line(marks, cls, point):
+    spy = LatentSpy(GridFB(TWO_WAYS, goals={1: RIGHT}))
+    two_ways(spy, marks, cls)
+    np.testing.assert_array_equal(spy.low_z, one_hot(spy.fb, point))
+
+
+def test_fb_route_with_exact_rho_is_as_long_as_the_shortest_walk():
+    fb = GridFB(TWO_WAYS, goals={1: RIGHT})
+    ctrl = two_ways(fb, (LEFT, UP_MID, LOW_MID, RIGHT), FBRouteController)
+    steps = fb.dist[fb.index[LEFT], fb.index[RIGHT]]
+    assert steps == 12
+    assert ctrl.distances[0, 3] == pytest.approx(-steps * np.log(fb.discount))
+
+
+def test_fb_route_drops_a_certified_edge_whose_rho_is_zero():
+    # With horizon 4, FB knows nothing about GOAL from START (10 steps): rho = 0, no route.
+    spy = LatentSpy(GridFB(horizon=4))
+    with np.errstate(all="raise"):
+        ctrl = recorded_route(spy, [U_WALK], cls=FBRouteController, ahead_xy=2.0)
+    assert np.isinf(ctrl.distances[0, 1])
+    np.testing.assert_array_equal(spy.low_z, spy.fb.infer_task_latent(1))
+    assert ctrl.step_info()["hops"] == 0
+
+
+def test_fb_route_lengths_with_exact_rho_are_shortest_walks_on_the_tabular_maze():
+    # rho = gamma^d with d the geodesic, so a certified edge is never beaten by a longer route.
+    fb = TabularFB(FakeFBConfig(resolution=1))
+    ctrl = recorded_route_on(fb, "point", count=12, max_steps=5, cls=FBRouteController)
+    states = fb.maze.state_index(ctrl.landmarks)
+    src, dst = ctrl.edges.source, ctrl.edges.target
+    steps = fb.maze.geodesic_distances()[states[src], states[dst]]
+    assert len(src) > 0
+    np.testing.assert_allclose(ctrl.distances[src, dst], -steps * np.log(fb.discount), rtol=1e-9)
+
+
+@pytest.mark.parametrize("executor", EXECUTORS)
+def test_fb_route_solves_every_task_of_the_exact_tabular_maze(executor):
+    fb = TabularFB(FakeFBConfig(resolution=1))
+    ctrl = recorded_route_on(fb, executor, count=12, max_steps=5, cls=FBRouteController)
+    assert successes(ctrl, fb) == 15
+
+
+@pytest.mark.parametrize(
+    ("options", "cls"),
+    [
+        ({}, RecordedRouteController),
+        ({"edge_weight": "xy"}, RecordedRouteController),
+        ({"edge_weight": "fb"}, FBRouteController),
+    ],
+)
+def test_make_recorded_route_takes_the_edge_weight_option(monkeypatch, options, cls):
+    walk = np.asarray(U_WALK, dtype=np.float32)
+    data = {"observations": walk, "terminals": np.r_[np.zeros(len(walk) - 1), 1.0]}
+    monkeypatch.setattr(planner_module, "load_dataset", lambda env_name, split: data)
+    ctrl = make_recorded_route(GridFB(), **{"landmarks.count": 4, **options})
+    assert type(ctrl) is cls
+    with pytest.raises(ValueError, match="edge_weight"):
+        make_recorded_route(GridFB(), edge_weight="steps")
+
+
+# The committed H1 runs: results/medium/planner_ablations/h1_eval/window_k150.csv and
+# results/large/planner_ablations/h1_eval/high_k150.csv. A new config field would change them.
+@pytest.mark.parametrize(("executor", "expected"), [("window", "285be155"), ("high", "7422f2eb")])
+def test_h1_keeps_the_config_hash_of_its_committed_runs_and_h2_has_its_own(executor, expected):
+    config = RecordedRouteConfig(executor=executor, max_steps=150)
+    h1 = SimpleNamespace(name=RecordedRouteController.name, config=config)
+    h2 = SimpleNamespace(name=FBRouteController.name, config=config)
+    assert config_hash(h1) == expected
+    assert config_hash(h2) != expected
