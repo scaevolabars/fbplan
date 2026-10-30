@@ -535,7 +535,7 @@ def test_planner_solves_every_task_of_the_exact_tabular_medium_maze():
 
 
 def test_planner_beats_the_task_policy_under_fb_noise_on_the_tabular_maze():
-    # b-theory's study (docs/theory.md §9.1): with a greedy controller on noisy F, the task
+    # the tabular study (docs/theory.md §9.1): with a greedy controller on noisy F, the task
     # policy fails at long range and chaining short trusted edges recovers part of it.
     planner_wins, direct_wins = 0, 0
     for seed in range(3):
@@ -582,7 +582,7 @@ def test_planner_with_region_latents_solves_every_task_of_the_exact_tabular_maze
     assert successes(ctrl, fb) == 15
 
 
-# ----- recorded routes (h-papers H1) -----
+# ----- recorded routes (docs/hypotheses/h-papers.md H1) -----
 
 # The U corridor walked from START up, across and down to GOAL: 10 steps of 1 xy. START and
 # GOAL are 4 xy apart in a straight line, through the wall.
@@ -705,7 +705,7 @@ def test_recorded_route_solves_every_task_of_the_exact_tabular_maze(executor):
 
 @pytest.mark.parametrize("executor", EXECUTORS)
 def test_recorded_route_beats_the_task_policy_under_fb_noise_on_the_tabular_maze(executor):
-    # Under F noise pi_l(z_r) fails at long range (b-theory, docs/theory.md §9.1); the route
+    # Under F noise pi_l(z_r) fails at long range (docs/theory.md §9.1); the route
     # gives pi_l targets a few cells ahead. 10 steps of 2 xy: about K = 150 on AntMaze.
     route_wins, direct_wins = 0, 0
     for seed in range(3):

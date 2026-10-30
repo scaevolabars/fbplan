@@ -159,7 +159,7 @@ def test_value_iteration_rejects_mismatched_shapes():
         value_iteration(rho, None, direct[:2], mask)
 
 
-# ----- data-certified edges (h-papers H1) -----
+# ----- data-certified edges (docs/hypotheses/h-papers.md H1) -----
 
 # Two landmarks on a line, 4 xy apart. Each row is one recorded state; xy along x.
 MARKS = np.array([[0.0, 0.0], [4.0, 0.0]])
@@ -248,7 +248,8 @@ def test_shortest_paths_follow_the_cheapest_edges_and_give_the_next_hop():
 
 
 def test_certified_edges_on_the_medium_train_data_match_h_papers_m2(require_files):
-    """h-papers M2: 300 landmarks, radius 0.5 and K = 60 give 19,011 certified edges on medium."""
+    """docs/hypotheses/h-papers.md M2: 300 landmarks, radius 0.5 and K = 60 give 19,011 certified
+    edges on medium."""
     require_files.dataset("antmaze-medium-navigate-v0", "train")
     data = load_dataset("antmaze-medium-navigate-v0", "train")
     marks = select_landmarks(data["observations"], LandmarkConfig())
