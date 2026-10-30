@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-30, 04:03. Branch merged with `main` at 16816fb.
+Last update: 2026-10-30, 05:05. Branch merged with `main` at 2626146.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -116,13 +116,15 @@ vast.ai log (team account, label `fbplan-gpu-eval`):
 | 58259579 | Xeon Phi 7210, Texas | 0.333 | 17:08 | 19:07 | ~0.66 | 56 steps/s per worker (Mac 476) |
 | 58272696 | EPYC 7V13, Texas | 0.802 | 19:08 | 19:36 | ~0.37 | image never loaded, no SSH |
 | 58279543 | EPYC 7662, Belgium | 0.811 | 19:53 | 04:02 | ~6.61 | evaluation queue, 8.15 h |
+| 58331474 | EPYC 7662, Belgium (same machine) | 0.939 | 04:18 | 05:01 | ~0.67 | wave 3 (R, M), 0.72 h |
 
 Mistake: the queue was empty from 22:56 to 00:00 (waiting for B region), and my destroy watcher
 did not fire, because its emptiness test used `ls` on two folders, which prints their names
 even when they are empty. About 50 idle minutes were billed (~$0.70). The watcher now calls
 `runs/queue/idle_check.sh` (tested on the instance: busy → 1, empty → 0). Total vast.ai cost:
-about $7.6 (failed hosts ~$1.03 + instance 58279543 ~$6.61: 8.15 h at $0.811/h, $0.80 compute
-and $0.011 disk; times from `vastai show instance`). Budget: $50. No instance is running.
+about $8.3 (failed hosts ~$1.03 + instance 58279543 ~$6.61: 8.15 h at $0.811/h, $0.80 compute
+and $0.011 disk; + instance 58331474 ~$0.67 for wave 3; times from `vastai show instance`).
+Budget: $50. No instance is running.
 
 Selection rule now (coordinator): CPU model AMD EPYC Zen 2/3/4 or Xeon Gold/Platinum, ≥ 64
 effective cores, ≥ 128 GB RAM, reliability ≥ 0.99, ≤ $1/h; destroy after 15 min without SSH.
@@ -440,9 +442,104 @@ H1 held-out check (`results/large/planner_ablations/h1_heldout/`, c-planner's co
   | H1 recorded route (high, K 150) | 41.2 [39.4, 43.0] | +3.5 [+0.9, +6.0], p 0.0087 | +5.6 [+3.2, +8.1], p 1.8e-5 |
 
   H1 passes the gain rule on large: significant against both baseline rows. Against the
-  privileged oracle it is +2.2 [−0.4, +4.9], p 0.1 (not significant). Per task it gains on tasks 1, 2 and 4 and loses on task 3 (65.2 against
-  75.0 %). The route comes from recorded train trajectories, not from FB values; FB gives only
-  the goal landmark and π_h acts on the route point 8 xy ahead.
+  privileged oracle it is +2.2 [−0.4, +4.9], p 0.1 (not significant). Per task it gains on
+  tasks 1, 2 and 4 and loses on task 3 (65.2 against 75.0 %). The route comes from recorded
+  train trajectories, not from FB values; FB gives only the goal landmark and π_h acts on the
+  route point 8 xy ahead.
+
+## Wave 3: H1 replication on large and H1 on medium (design.md §8 "H1 result and wave 3")
+
+Instance 58331474 (vast.ai, label `fbplan-gpu-eval`): the same machine as 58279543
+(machine 151322, AMD EPYC 7662, 128 effective cores, Belgium), $0.934/h, 19 GB disk (the most
+this slice offers; the setup needs about 8 GB), created 04:18 on 2026-10-30. Code: 2626146 (no
+change in `fbplan/` since the H1 tree 5d7e642). Queue, in the coordinator's order:
+
+- Check: medium baseline, large baseline_raw and large H1 (high, K 150) on eval seed 0, compared
+  record by record (all columns but `wall_time_s`) with the committed CSVs.
+- (R) Large eval seeds 10–19: H1 (high, K 150), baseline, baseline_raw (2,500 episodes each).
+  Tables for seeds 10–19 and 0–19, paired against both rows.
+- (M) The H1 grid (executor point, window, high × K 60, 150) on the 10 medium held-out goals,
+  eval seeds 0 1 2, 20 episodes, with the oracle and the baseline on the same episodes; the
+  selection and falsification rules of "H1 on large"; if H1 is not falsified, the selected
+  config on medium eval seeds 0–9, paired against both rows of `results/medium_10seeds/`.
+
+Check: all three seed-0 runs repeat the committed records exactly (250 records each), so the
+new rows pair with the committed seeds 0–9 rows of both envs.
+
+(R) Replication (`results/large_seeds10-19/`: `h1_high_k150.csv` (method `recorded_route`,
+hash 7422f2eb), `baseline.csv`, `baseline_raw.csv`; 2,500 episodes each, same hashes as the
+seeds 0–9 rows), paired:
+
+| eval seeds | H1 | baseline | baseline_raw | H1 − baseline (pp) | H1 − baseline_raw (pp) |
+|---|---|---|---|---|---|
+| 0–9 | 41.2 | 37.7 | 35.5 | +3.5 [+0.9, +6.0], p 0.0087 | +5.6 [+3.2, +8.1], p 1.8e-5 |
+| 10–19 | 39.3 [37.5, 41.1] | 37.5 [35.8, 39.2] | 35.6 [34.0, 37.4] | +1.8 [−0.7, +4.4], p 0.16 | +3.7 [+1.2, +6.2], p 0.0053 |
+| 0–19 | 40.2 [39.0, 41.6] | 37.6 [36.4, 38.8] | 35.6 [34.4, 36.8] | +2.7 [+0.9, +4.5], p 0.0041 | +4.7 [+2.9, +6.5], p 5.1e-7 |
+
+- Reading (design.md §8): the replication does not confirm H1. On seeds 10–19 H1 beats
+  `baseline_raw` (p 0.005) but not `baseline` (+1.8 pp, p 0.16). Pooled over seeds 0–19 it beats
+  both rows (+2.7 and +4.7 pp), but the confirmation rule asks for seeds 10–19 alone.
+- Per task on seeds 10–19 (H1 − baseline) the pattern of seeds 0–9 repeats: task 2 +15.8 pp,
+  task 1 +5.0, tasks 4 and 5 +1.2 and +2.2, task 3 −15.0 (64.2 against 79.2 %).
+
+(M) H1 held-out check on medium (`results/medium/planner_ablations/h1_heldout/`, the commands of
+"H1 on large" with `--env antmaze-medium-navigate-v0`; 10 medium held-out goals, eval seeds
+0 1 2, 600 episodes per row, same episodes for all):
+
+| row | success | | row | success |
+|---|---|---|---|---|
+| point K 60 | 88.7 % (532) | | high K 60 | 88.8 % (533) |
+| point K 150 | 88.3 % (530) | | high K 150 | 86.3 % (518) |
+| window K 60 | 88.2 % (529) | | oracle (privileged) | 87.7 % (526) |
+| window K 150 | **88.8 % (533)** (selected) | | baseline | 86.0 % (516) |
+
+- Selection: window K 150 and high K 60 tie at 533 of 600; the tie rule (point, window, high,
+  then smaller K) selects window K 150. Falsification rule: selected − oracle = +1.2 pp (not
+  more than 2 pp below), − baseline = +2.8 pp (above): H1 is not falsified on medium. Paired,
+  for information: − baseline +2.8 [−0.7, +6.3] (p 0.14), − oracle +1.2 [−2.2, +4.5] (p 0.57);
+  oracle − baseline +1.7 (p 0.42). All 6 configs lie within 2.5 pp of each other.
+- Final run (`results/medium/planner_ablations/h1_eval/window_k150.csv`, method
+  `recorded_route`, hash 285be155, eval seeds 0–9, 2,500 episodes, paired on the same episodes
+  as `results/medium_10seeds/`):
+
+  | method | success [95 % CI] | vs baseline (pp) | vs baseline_raw (pp) | vs oracle (pp) |
+  |---|---|---|---|---|
+  | baseline | 78.4 [76.9, 80.0] | – | −2.0, p 0.07 | −3.1, p 0.0069 |
+  | baseline_raw | 80.5 [78.9, 82.0] | +2.0 [−0.2, +4.2], p 0.07 | – | −1.0, p 0.37 |
+  | oracle (privileged) | 81.5 [80.0, 83.0] | +3.1 [+0.9, +5.3], p 0.0069 | +1.0 [−1.2, +3.2], p 0.37 | – |
+  | H1 recorded route (window, K 150) | 83.8 [82.3, 85.1] | +5.3 [+3.2, +7.4], p 9.2e-7 | +3.3 [+1.2, +5.4], p 0.0027 | +2.2 [+0.2, +4.3], p 0.037 |
+
+  H1 passes the gain rule on medium: significant against both baseline rows, and also above the
+  privileged oracle (p 0.037). Per task (H1 − baseline): +5.4, +3.8, +9.2, +6.0, +2.2 pp; no task loses.
+  The route comes from recorded train trajectories, not from FB values; FB gives only the goal
+  landmark, and `π_l` acts on the mean region latent of the route points 4, 8 and 12 xy ahead.
+
+Commands (code 2626146 on instance 58331474; each eval seed list ran as 5 processes of 25
+workers, one per eval seed, joined into one CSV; the records equal one run with all seeds):
+
+- `results/large_seeds10-19/h1_high_k150.csv`: `uv run python -m fbplan.evaluate --method
+  fbplan.controllers.planner:make_recorded_route --opt executor=high max_steps=150 --env
+  antmaze-large-navigate-v0 --seeds 10 11 12 13 14 15 16 17 18 19 --episodes 50 --out ...`;
+  `baseline.csv` and `baseline_raw.csv`: the same with `--method baseline` or
+  `--method baseline_raw` and no `--opt`.
+- `results/medium/planner_ablations/h1_heldout/<E>_k<K>.csv`: `uv run python -m
+  fbplan.evaluate --method fbplan.controllers.planner:make_recorded_route --opt executor=<E>
+  max_steps=<K> --env antmaze-medium-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --out
+  ...` (E point, window, high; K 60, 150); `oracle.csv`, `baseline.csv`: `--method oracle` or
+  `--method baseline`, same other arguments, no `--opt`.
+- `results/medium/planner_ablations/h1_eval/window_k150.csv`: `uv run python -m fbplan.evaluate
+  --method fbplan.controllers.planner:make_recorded_route --opt executor=window max_steps=150
+  --env antmaze-medium-navigate-v0 --seeds 0 1 2 3 4 5 6 7 8 9 --episodes 50 --out ...`.
+- Tables: `uv run python analysis/tables.py <the CSVs> --reference baseline baseline_raw
+  [oracle]`; for seeds 0–19 add `results/large_10seeds/{baseline,baseline_raw}.csv` and
+  `results/large/planner_ablations/h1_eval/high_k150.csv` (rows of one method and hash merge).
+
+Instance 58331474: 04:18 to 05:01 on 2026-10-30 (0.72 h at $0.939/h, $0.933 compute and
+$0.005 disk): about $0.67, within the $3 budget of wave 3. Destroyed after the last pull; no
+instance is running. Setup note: on this host's A40 GPUs one test failed during the push,
+`tests/test_learned_logratio.py::test_with_gaussian_latents_only_the_update_is_upstream`
+(exact equality; difference 6e-11, e-learner's training code); the evaluation runs on the CPU
+and does not use that code.
 
 ## AWR sharpness at 2× (design.md §8; Linux, medium, 5 eval seeds, 1,250 episodes per run)
 
@@ -586,11 +683,12 @@ ensemble_raw_<family>.csv`; T1 rows for comparison):
 
 ## Next
 
-1. Nothing is queued. All planned Linux jobs ran, the last one the H1 final run on large. Their
+1. Nothing is queued. All planned Linux jobs ran, the last ones wave 3 of H1. Their
    CSVs are in `results/` (raw copies in `runs/linux/`); Mac-vs-Linux agreement is in
    `results/platform_check.csv`.
-2. Instance 58279543 was destroyed on 2026-10-30 at 04:02. Total vast.ai cost: about $7.6
-   (see the vast.ai log above). A new run needs a new instance with the selection rule above.
+2. Wave 3 is complete (R and M, section "Wave 3"). Instance 58331474 was destroyed on
+   2026-10-30 at 05:01. Total vast.ai cost: about $8.3 (see the vast.ai log above). A new run
+   needs a new instance with the selection rule above.
 3. X4 after c-planner exposes the shared helpers.
 
 ## Blockers
