@@ -45,13 +45,12 @@ set up; `devbox.json` only provides the pinned uv (`devbox run setup`, `devbox r
 | `baseline --checkpoint b:<variant>:<seed>` | approach B: learned multi-switch value `V_H` and a new `π_h`; variants `clean`, `wide`, `region`, `clean-awr2x` | `fbplan/learned/` |
 | `ensemble --opt family=<family> seeds=5` | test-time ensemble of the `π_h` of 5 training seeds (T1); `z_input=raw`: through the raw `z_r` path (T4) | `fbplan/controllers/baseline.py` |
 | `fbplan.controllers.trap_aware:make_trap_aware` | teleport: a penalty on the trap latent while the time left fits a walk (T3) | `fbplan/controllers/trap_aware.py` |
-| `fbplan.controllers.oracle_teleport:make_teleport_oracle` | privileged: walks the true route around the teleporters (diagnostic) | `fbplan/controllers/oracle_teleport.py` |
+| `oracle_teleport` | privileged: walks the true route around the teleporters (diagnostic) | `fbplan/controllers/oracle_teleport.py` |
 
 A controller is an alias of `fbplan/controllers/__init__.py` or a `module:attribute` path. The
 `method` column of a CSV holds the controller's name: `graph_planner` (`planner`),
 `graph_plus_high` (`planner_high`), `baseline_ensemble` and `baseline_ensemble_raw`
-(`ensemble`), `recorded_route`, `trap_aware`, `oracle_teleport`; the other names equal the
-alias. Controller options are `--opt key=value`; a dotted key sets a nested field.
+(`ensemble`), `recorded_route`, `trap_aware`; the other names equal the alias. Controller options are `--opt key=value`; a dotted key sets a nested field.
 
 ## Reproduce
 
@@ -69,14 +68,14 @@ scripts/reproduce.sh train         # train every π_h family (Linux with a GPU)
 |---|---|---|
 | `checkpoints` | downloads the frozen and the published trained checkpoints (sha256-checked) and the medium datasets | `~/.cache/fbplan/`, `~/.ogbench/data/` |
 | `train` | trains the retrained baseline `π_h`, its 2× and log-ratio variants, and approach B (3 critics, 4 policies), 5 seeds each; not in the default | `~/.cache/fbplan/`, `runs/train_*/` |
-| `eval` | every run in the table at the top of the script (228 CSVs), the failure classes and the parity check against upstream's evaluation loop | `results/` |
+| `eval` | every run in the table at the top of the script (231 CSVs), the failure classes and the parity check against upstream's evaluation loop | `results/` |
 | `tables` | every table of the report: success with 95 % CIs, paired tests against both baseline rows; the held-out seed selection and the Mac-against-Linux check | `runs/reproduce/tables.md`, `results/` |
 | `figures` | success per task and time to goal; FB calibration, wormholes and held-out goals; the tabular study and the time limit; the critic check of approach B | `docs/figures/`, `results/figures/` |
 
 **Protocol.** One eval seed is 5 tasks × 50 episodes. The reset seed of an episode comes from
 (eval seed, task, episode), so all methods see the same start states and the tables compare
 them paired. The main runs use eval seeds 0–4. The hypothesis tests and their reference rows use
-eval seeds 0–9, and the recorded route is replicated on the new eval seeds 10–19 of large. A
+eval seeds 0–9, and the recorded route is replicated on the new eval seeds 10–19. A
 choice between configs or training seeds uses only the 10 held-out goals of a maze (task ids
 101–110, `--heldout`, eval seeds 0–2, 20 episodes per goal), never the eval tasks. A gain
 counts only if it holds, paired, against both baseline rows (`baseline` and `baseline_raw`).
@@ -87,7 +86,7 @@ counts only if it holds, paired, against both baseline rows (`baseline` and `bas
 | `<maze>/planner_ablations/` | approach A ablations (landmark set 0); the recorded route: `h1_heldout/` (selection), `h1_eval/` (eval seeds 0–9) |
 | `medium/heldout/`, `medium/heldout_ensemble/`, `teleport/heldout/` | runs on the held-out goals: seed selection, ensembles, the T3 grid |
 | `<maze>_10seeds/` | eval seeds 0–9; its eval seeds 0–4 are the records of `<maze>/` |
-| `large_seeds10-19/` | the replication of the recorded route |
+| `medium_seeds10-19/`, `large_seeds10-19/` | the replication of the recorded route on new eval seeds |
 | `macos/` | the same runs on macOS (cross-platform check) |
 | `calibration/`, `heldout_goals/`, `figures/`, `platform_check.csv` | FB distance calibration, the held-out goal files, their figures, Mac against Linux |
 
@@ -111,7 +110,7 @@ with a different `config_hash`. So a replay of a committed approach A run
 **Time.** The eval stage writes the committed CSVs in `results/`, so `git diff` shows any
 change (the `wall_time_s` column always changes). An evaluation on the 5 eval tasks runs one
 process per eval seed and joins them in seed order, as the canonical runs did, and an eval seed
-that an earlier run of the same command made is reused. The stage holds about 244k episodes.
+that an earlier run of the same command made is reused. The stage holds about 251k episodes.
 The canonical runs took about 9 h on the 128-core machine. On a 12-core laptop with 4 workers,
 one 5-seed run on medium (1,250 episodes) takes about 11 min, so the whole stage takes days:
 run single lines of the table instead (below). `--workers N` sets the number of evaluation
