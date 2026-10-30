@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-30, 04:05. Branch merged with `main` at 3e36461.
+Last update: 2026-10-30, 04:03. Branch merged with `main` at 16816fb.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -77,7 +77,8 @@ time limit: slow or on a wrong route), not flips. The Linux queue recomputes all
 ## Linux evaluation instance (queue)
 
 Instance 58279543 (vast.ai, label `fbplan-gpu-eval`): AMD EPYC 7662 (Zen 2), 128 effective
-cores, 1 TB RAM, Belgium, $0.80/h, created 19:53. Code: commit 84a8127 (pushed with
+cores, 1 TB RAM, Belgium, $0.80/h, created 19:53 on 2026-10-29, destroyed 04:02 on 2026-10-30
+after the H1 final run (queue empty, all CSVs pulled into runs/linux/). Code: commit 84a8127 (pushed with
 `scripts/gpu/vast.sh push`; it includes c-planner's tie-break fix 06ea0a8 and `switch_steps`).
 JAX on the CPU. A queue runner (`runs/queue/runner.sh` on the instance) takes job files in
 name order; an eval job runs eval seeds 0–4 as 5 processes of 25 workers each, pinned to a
@@ -114,13 +115,14 @@ vast.ai log (team account, label `fbplan-gpu-eval`):
 | 58258733 | RTX A2000, Denmark | 0.154 | 16:57 | 17:07 | ~0 | host GPU error at start |
 | 58259579 | Xeon Phi 7210, Texas | 0.333 | 17:08 | 19:07 | ~0.66 | 56 steps/s per worker (Mac 476) |
 | 58272696 | EPYC 7V13, Texas | 0.802 | 19:08 | 19:36 | ~0.37 | image never loaded, no SSH |
-| 58279543 | EPYC 7662, Belgium | 0.80 | 19:53 | running | ~3.3 at 00:00 | evaluation queue |
+| 58279543 | EPYC 7662, Belgium | 0.811 | 19:53 | 04:02 | ~6.61 | evaluation queue, 8.15 h |
 
 Mistake: the queue was empty from 22:56 to 00:00 (waiting for B region), and my destroy watcher
 did not fire, because its emptiness test used `ls` on two folders, which prints their names
 even when they are empty. About 50 idle minutes were billed (~$0.70). The watcher now calls
-`runs/queue/idle_check.sh` (tested on the instance: busy → 1, empty → 0). Total vast.ai so
-far: about $4.3 (failed hosts ~$1.0 + this instance ~$3.3).
+`runs/queue/idle_check.sh` (tested on the instance: busy → 1, empty → 0). Total vast.ai cost:
+about $7.6 (failed hosts ~$1.03 + instance 58279543 ~$6.61: 8.15 h at $0.811/h, $0.80 compute
+and $0.011 disk; times from `vastai show instance`). Budget: $50. No instance is running.
 
 Selection rule now (coordinator): CPU model AMD EPYC Zen 2/3/4 or Xeon Gold/Platinum, ≥ 64
 effective cores, ≥ 128 GB RAM, reliability ≥ 0.99, ≤ $1/h; destroy after 15 min without SSH.
@@ -437,8 +439,8 @@ H1 held-out check (`results/large/planner_ablations/h1_heldout/`, c-planner's co
   | oracle (privileged) | 38.9 [37.0, 40.8] | +1.2 [−1.3, +3.8], p 0.37 | +3.4 [+0.8, +5.9], p 0.011 |
   | H1 recorded route (high, K 150) | 41.2 [39.4, 43.0] | +3.5 [+0.9, +6.0], p 0.0087 | +5.6 [+3.2, +8.1], p 1.8e-5 |
 
-  H1 passes the gain rule on large: significant against both baseline rows (and +2.3 over the
-  privileged oracle). Per task it gains on tasks 1, 2 and 4 and loses on task 3 (65.2 against
+  H1 passes the gain rule on large: significant against both baseline rows. Against the
+  privileged oracle it is +2.2 [−0.4, +4.9], p 0.1 (not significant). Per task it gains on tasks 1, 2 and 4 and loses on task 3 (65.2 against
   75.0 %). The route comes from recorded train trajectories, not from FB values; FB gives only
   the goal landmark and π_h acts on the route point 8 xy ahead.
 
@@ -584,11 +586,12 @@ ensemble_raw_<family>.csv`; T1 rows for comparison):
 
 ## Next
 
-1. Run the queue; pull the Linux CSVs into `results/<env>/`; tables against baseline,
-   baseline_raw and the pooled retrained baselines; report approach B clean as soon as done.
-2. Mac-vs-Linux agreement (unpaired) for every config run on both.
-3. Destroy the instance when the queue has been empty for 15 minutes.
-4. X4 after c-planner exposes the shared helpers.
+1. Nothing is queued. All planned Linux jobs ran, the last one the H1 final run on large. Their
+   CSVs are in `results/` (raw copies in `runs/linux/`); Mac-vs-Linux agreement is in
+   `results/platform_check.csv`.
+2. Instance 58279543 was destroyed on 2026-10-30 at 04:02. Total vast.ai cost: about $7.6
+   (see the vast.ai log above). A new run needs a new instance with the selection rule above.
+3. X4 after c-planner exposes the shared helpers.
 
 ## Blockers
 
