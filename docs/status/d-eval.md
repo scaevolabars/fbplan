@@ -1,6 +1,6 @@
 # Status: d-eval
 
-Last update: 2026-10-30, 03:30. Branch merged with `main` at 3e36461.
+Last update: 2026-10-30, 03:55. Branch merged with `main` at 3e36461.
 
 Platform decision (user, through the coordinator, 2026-10-29 19:50): all final numbers come
 from one Linux CPU instance that d-eval operates (queue below). The Mac results moved to
@@ -410,6 +410,25 @@ paired on the same episodes.
   seeds 0–9. All of these will run from the branch tree, updated with c-planner's H1 code: it
   holds the current large goal file (flip rule; md5 equal to main), while the instance's main
   tree (84a8127) still holds the old one and must not be used for large held-out runs.
+
+H1 held-out check (`results/large/planner_ablations/h1_heldout/`, c-planner's commands at
+3deb4a1, code tree 5d7e642 = main with H1; it repeats the committed baseline seed 0 exactly;
+10 large held-out goals, eval seeds 0 1 2, 600 episodes per row, same episodes for all):
+
+| row | success | | row | success |
+|---|---|---|---|---|
+| point K 60 | 52.0 % | | high K 60 | 57.0 % |
+| point K 150 | 57.0 % | | high K 150 | **58.8 %** (selected) |
+| window K 60 | 57.7 % | | oracle (privileged) | 53.0 % |
+| window K 150 | 56.8 % | | baseline | 53.3 % |
+
+- Selection (highest held-out success; ties to point, window, high, then smaller K): high, K 150
+  (353 of 600). Falsification rule: more than 2 pp below the oracle, or not above the baseline.
+  Selected − oracle = +5.8 pp, − baseline = +5.5 pp: H1 is not falsified. Paired, for
+  information: − baseline +5.5 [+0.3, +10.7] (p 0.045), − oracle +5.8 [+0.7, +11.0] (p 0.037);
+  oracle − baseline −0.3 (p 0.95) on these episodes.
+- Final run queued: high K 150 on large eval seeds 0–9, paired against both rows of
+  `results/large_10seeds/`; the gain rule decides.
 
 ## AWR sharpness at 2× (design.md §8; Linux, medium, 5 eval seeds, 1,250 episodes per run)
 
