@@ -70,7 +70,7 @@ class TinyAgent:
 
     Its F, B and pi_l stand in for the frozen modules in tests that train, save or reload pi_h.
     The agent is immutable: derive a variant with `tiny.agent.replace(...)`. An example batch:
-    `fbplan.learned.checkpoint.example_batch(tiny.agent, tiny.obs_dim)`.
+    `fbplan.frozen.example_batch(tiny.agent.network.params)`.
     """
 
     agent: Any  # upstream agents.fbpiswitch.FBpiSwitchAgent
