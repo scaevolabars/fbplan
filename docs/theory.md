@@ -317,7 +317,7 @@ exact controller; value from the task start (V* ≈ 11).
 
 Runs: the protocol of design.md §5 (5 eval seeds × 5 tasks × 50 episodes, paired start states),
 method defaults, on the Linux evaluation instance (d-eval, CSVs in `results/teleport/` and
-`results/giant/`, commands in `docs/status/b-theory.md`). Two replays of preliminary Mac runs
+`results/giant/`, commands in `scripts/reproduce.sh`). Two replays of preliminary Mac runs
 (the giant oracle's progress in §11.2, the check of the trap rule in §11.3) say so; no table
 mixes the two platforms.
 
@@ -584,14 +584,24 @@ T3 fails the rule of design.md §8 (a significant gain over both baseline rows).
   +2.3 pp [−2.0, +6.7] at λ = 0.5 (p 0.33) and +2.3 pp at λ = 1 (p 0.34). At the start states
   of the eval tasks (controller reset only, 5 reset seeds), the gate's walk estimate is 58–77
   steps on tasks 3, 4 and 5, whose safe walks are 14, 25 and 27 cells (about 560–1,100 steps at
-  40 steps per cell). On tasks 1 and 2, `ρ̂_walk ≤ 0` and the gate is closed. 58–77 steps is the
-  jump route: tasks 3–5 start 1–2 cells from an entry, and a good exit is next to the goal.
+  40 steps per cell). On tasks 1 and 2, `ρ̂_walk ≤ 0` at the start, so the gate is closed there.
+  58–77 steps is the jump route: tasks 3–5 start 1–2 cells from an entry, and a good exit is
+  next to the goal.
 - **F does not model the trap-averse route.** For λ from 0 to 4 in `z_c`, the walk estimate at
   the start of tasks 3–5 stays at 58–77 steps, and F's trap occupancy `F(s,z_c)ᵀẑ_trap / d`
   falls only from 0.15 to 0.11. But π_l does change its route under the penalty (the trap share
   falls by 3 points here, by half at λ = 1 in h-exec M11). So the gate stays open on the long
-  walks of tasks 4 and 5, where it should close. The other failures rise most on tasks 3 and 4
-  (8.2 → 21.4 % and 9.2 → 21.8 %).
+  walks of tasks 4 and 5, where it should close.
+- **The gate is closed at the start of tasks 1 and 2, but it opens later.** With a closed gate
+  the controller makes the baseline's calls, so an episode whose gate never opens repeats the
+  baseline's episode exactly. Only 1.0 % (task 1) and 0 % (task 2) of the episodes do. These two
+  tasks lose the most:
+
+  | teleport, 10 seeds | task 1 | task 2 | task 3 | task 4 | task 5 |
+  |---|---|---|---|---|---|
+  | success (pp) | −10.8 | −13.4 | −10.2 | −6.2 | −7.8 |
+  | other failures (%) | 29.6 → 46.2 | 22.2 → 40.8 | 8.2 → 21.4 | 9.2 → 21.8 | 18.6 → 21.0 |
+
 - **The held-out grid under-predicted the cost** (−1.7 pp against −9.7 pp on the eval tasks).
   The held-out goals are easier (baseline 48 % against 28 %), and only 3 of the 10 have an entry
   on the plain route. The selection could find the smallest λ, but not its cost on long walks.
@@ -610,4 +620,7 @@ baseline trap_aware/w0.5_ungated trap_aware/w1.0_ungated` and `uv run python ana
 results/teleport_10seeds/*.csv --label-root results/teleport_10seeds --reference baseline
 baseline_raw`. Trap and other failures: the CSV rule of §11.3 (for the held-out goals, the
 trap distance is from each goal's xy; the rule is less exact there). The gate check at the
-start states: `docs/status/b-theory.md`.
+start states (Mac, no episodes): `make_trap_aware(model, weight=λ, trap_radius=1.5)`, `reset` on
+each eval task, then `walk_steps` at the env reset state for `reset_seed(0, task, s)`, s = 0–4.
+Identical episodes: the same `steps` and `final_goal_dist` (within 1e-6) as the baseline row
+with the same task, eval seed and episode.
