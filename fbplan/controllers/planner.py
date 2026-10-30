@@ -12,13 +12,16 @@ With lookahead, it moves on along the planned route as soon as the next stop is 
 least as much from s as the current waypoint, so the agent does not slow down at each one.
 When w* is reached, the controller replans, or with switch_steps it takes the plan's next
 stop unless a replan saves more than switch_steps FB steps.
+
+RecordedRouteController (h-papers H1) plans without FB values: its edges are walks that train
+trajectories recorded, weighted by xy length, and it acts on the route point ahead.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field, is_dataclass, replace
 from functools import cached_property
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 import numpy as np
 
@@ -30,11 +33,17 @@ from fbplan.graph import (
     TIE_RTOL,
     GraphSolution,
     best_options,
+    certify_edges,
     extract_route,
+    landmark_visits,
     q_values,
+    reachable_visits,
+    shortest_paths,
+    trajectory_ends,
     value_iteration,
+    walked_xy,
 )
-from fbplan.landmarks import LandmarkConfig, RegionField, select_landmarks
+from fbplan.landmarks import LandmarkConfig, RegionField, pool_rows, select_landmarks
 from fbplan.option_model import OptionModel, OptionModelConfig, OptionTable
 
 
@@ -422,15 +431,211 @@ class GraphPlusHighController(GraphPlannerController):
         return np.asarray(self.fb.low_action(obs[None], intention))[0]
 
 
+Executor = Literal["point", "window", "high"]
+
+
+@dataclass(frozen=True)
+class RecordedRouteConfig:
+    """Recorded-route tracking (h-papers H1, docs/design.md §8). The route comes from recorded
+    train trajectories, not from FB values; FB only finds the goal and acts.
+
+    landmarks: landmark selection (fbplan.landmarks); only the landmark states are used. Its
+        pool also gives the train states that certify the first hop and the act regions.
+    options: the F head aggregation of the goal value.
+    certify_xy: a recorded state passes a landmark (or the agent) within this xy distance.
+    max_steps: K. Edge u -> w is certified when one train trajectory passes u and then w at
+        most K steps later; the first hop s -> w when the trajectory of a pool state near s
+        does. Weight: xy length. The route is the shortest one to the goal landmark, the
+        landmark with the largest F(w, z_r)^T z_r, and runs along recorded walks: of each hop,
+        the walk with the shortest xy path (then the fewest steps). A walk that turns back
+        would move the point ahead backwards.
+    executor: "point": pi_l on the region latent of the route point ahead_xy ahead;
+        "window": pi_l on the mean of the unit region latents of the points window_xy ahead
+        (the tracking window of Meta Motivo); "high": pi_h with the region latent of the point
+        ahead_xy ahead as its task. A point past the goal landmark takes z_r.
+    act_region_xy: radius of the act regions (fbplan.landmarks.RegionField).
+    """
+
+    landmarks: LandmarkConfig = field(default_factory=LandmarkConfig)
+    options: OptionModelConfig = field(default_factory=OptionModelConfig)
+    certify_xy: float = 0.5
+    max_steps: int = 60
+    executor: Executor = "point"
+    ahead_xy: float = 8.0
+    window_xy: tuple[float, ...] = (4.0, 8.0, 12.0)
+    act_region_xy: float = 0.5
+
+    def __post_init__(self) -> None:
+        if self.executor not in ("point", "window", "high"):
+            raise ValueError(f"unknown executor {self.executor!r}")
+        if self.max_steps < 1:
+            raise ValueError("max_steps must be >= 1")
+        if not self.window_xy or min(self.window_xy) <= 0 or self.ahead_xy <= 0:
+            raise ValueError("ahead_xy and window_xy must be > 0, window_xy not empty")
+
+
+class RecordedRouteController:
+    """Shortest routes over landmark edges that recorded trajectories travel; acts on the route
+    point ahead. The route is planned again at every step."""
+
+    name = "recorded_route"
+
+    def __init__(
+        self,
+        fb: FBModel,
+        landmarks: np.ndarray,
+        xy: np.ndarray,
+        terminals: np.ndarray,
+        region_field: RegionField,
+        config: RecordedRouteConfig | None = None,
+        search_rows: np.ndarray | None = None,
+    ) -> None:
+        """landmarks: observations [N, obs_dim]; xy [P, 2] and terminals [P]: the recorded
+        data in trajectory order; search_rows: the rows that certify the first hop (all)."""
+        self.fb = fb
+        self.config = config or RecordedRouteConfig()
+        self.landmarks = landmarks
+        self.region_field = region_field
+        self.xy = np.asarray(xy[:, :2], dtype=np.float64)
+        self.ends = trajectory_ends(terminals)
+        self.search_rows = np.arange(len(xy)) if search_rows is None else np.asarray(search_rows)
+        self._search_xy = self.xy[self.search_rows]
+        cfg, n = self.config, len(landmarks)
+        self.visits = landmark_visits(self.xy, landmarks[:, :2], cfg.certify_xy, self.ends)
+        self._arc = walked_xy(self.xy, self.ends)
+        self.edges = certify_edges(self.visits, self.ends, cfg.max_steps, self._arc)
+        src, dst = self.edges.source, self.edges.target
+        weights = np.full((n, n), np.inf)
+        weights[src, dst] = np.linalg.norm(landmarks[src, :2] - landmarks[dst, :2], axis=1)
+        self.distances, self.next_hop = shortest_paths(weights)
+        self._walk = np.full((n, n, 2), -1)  # rows of the recorded walk of each edge
+        self._walk[src, dst] = np.stack([self.edges.start, self.edges.end], axis=1)
+        self.options = OptionModel(fb, cfg.options)
+        self._goals: dict[bytes, int] = {}
+        self.z_r = np.zeros(0)
+        self.goal = 0
+        self._route: list[int] = []
+
+    @classmethod
+    def from_dataset(
+        cls,
+        fb: FBModel,
+        observations: np.ndarray,
+        terminals: np.ndarray,
+        config: RecordedRouteConfig | None = None,
+    ) -> RecordedRouteController:
+        """Landmarks, the first-hop search rows and the act regions from one pool of the data."""
+        config = config or RecordedRouteConfig()
+        pool = config.landmarks
+        marks = select_landmarks(observations, pool, fb)
+        rows = pool_rows(len(observations), pool.pool_size, pool.seed)
+        field = RegionField.from_data(
+            fb, observations, config.act_region_xy, pool.pool_size, pool.seed
+        )
+        return cls(fb, marks.observations, observations, terminals, field, config, rows)
+
+    def reset(self, task: TaskSpec, seed: int) -> None:
+        """Find the goal landmark of the task (cached per task). The policy is deterministic."""
+        self.z_r = np.asarray(task.z_r, dtype=np.float64)
+        key = self.z_r.tobytes()
+        if key not in self._goals:
+            self._goals[key] = int(np.argmax(self.options.direct_value(self.landmarks, self.z_r)))
+        self.goal = self._goals[key]
+        self._route = []
+
+    def act(self, obs: np.ndarray) -> np.ndarray:
+        path = self._plan(obs)
+        cfg = self.config
+        if cfg.executor == "window":
+            z = np.mean([_unit(self._latent_at(path, d)) for d in cfg.window_xy], axis=0)
+        else:
+            z = self._latent_at(path, cfg.ahead_xy)
+            if cfg.executor == "high":
+                z = np.asarray(self.fb.high_latent(obs[None], z[None]))[0]
+        return np.asarray(self.fb.low_action(obs[None], z[None]))[0]
+
+    def step_info(self) -> dict[str, float | int | str]:
+        return {
+            "goal_landmark": self.goal,
+            "hops": len(self._route),
+            "first_hop": self._route[0] if self._route else -1,
+        }
+
+    def _latent_at(self, path: np.ndarray | None, distance: float) -> np.ndarray:
+        point = None if path is None else point_along(path, distance)
+        return self.z_r if point is None else self.region_field.at(point)
+
+    def _plan(self, obs: np.ndarray) -> np.ndarray | None:
+        """The route from obs (self._route) and the xy path along its recorded walks, up to the
+        farthest act point. None without a certified route to the goal landmark."""
+        s = np.asarray(obs[:2], dtype=np.float64)
+        rows = self._near_rows(s)
+        visit, owner = reachable_visits(self.visits, rows, self.ends, self.config.max_steps)
+        hop = self.visits.label[visit]
+        cost = np.linalg.norm(self.landmarks[hop, :2] - s, axis=1) + self.distances[hop, self.goal]
+        if not np.isfinite(cost).any():
+            self._route = []
+            return None
+        start, end = rows[owner], self.visits.row[visit]
+        best = np.lexsort((end - start, self._arc[end] - self._arc[start], cost))[0]
+        route = [int(hop[best])]
+        while route[-1] != self.goal:
+            route.append(int(self.next_hop[route[-1], self.goal]))
+        self._route = route
+        walks = [(start[best], end[best])]
+        walks += [tuple(self._walk[a, b]) for a, b in zip(route[:-1], route[1:], strict=True)]
+        return self._path(s, walks)
+
+    def _path(self, s: np.ndarray, walks: list[tuple[int, int]]) -> np.ndarray:
+        """s, then the recorded rows of each walk, until the path is longer than every act point."""
+        reach = max(self.config.ahead_xy, *self.config.window_xy)
+        pieces, last, length = [s[None]], s, 0.0
+        for start, end in walks:
+            piece = self.xy[start : end + 1]
+            length += np.linalg.norm(np.diff(np.vstack([last[None], piece]), axis=0), axis=1).sum()
+            pieces.append(piece)
+            last = piece[-1]
+            if length > reach:
+                break
+        return np.vstack(pieces)
+
+    def _near_rows(self, s: np.ndarray) -> np.ndarray:
+        """Search rows within certify_xy of s; off the data, those of the nearest search row."""
+        dist2 = np.sum((self._search_xy - s) ** 2, axis=1)
+        radius2 = self.config.certify_xy**2
+        if dist2.min() > radius2:
+            dist2 = np.sum((self._search_xy - self._search_xy[np.argmin(dist2)]) ** 2, axis=1)
+        return self.search_rows[dist2 <= radius2]
+
+
+def point_along(points: np.ndarray, distance: float) -> np.ndarray | None:
+    """The point `distance` along the polyline points [M, 2]; None past its end."""
+    steps = np.linalg.norm(np.diff(points, axis=0), axis=1)
+    moves = steps > 0
+    points, steps = np.vstack([points[:1], points[1:][moves]]), steps[moves]
+    ends = np.cumsum(steps)
+    if len(ends) == 0 or distance > ends[-1]:
+        return None
+    k = int(np.searchsorted(ends, distance))
+    t = (distance - (ends[k] - steps[k])) / steps[k]
+    return points[k] + t * (points[k + 1] - points[k])
+
+
+def _unit(z: np.ndarray) -> np.ndarray:
+    return z / np.linalg.norm(z)
+
+
 C = TypeVar("C", bound=GraphPlannerController)
+Config = TypeVar("Config", PlannerConfig, RecordedRouteConfig)
 
 
-def config_from_options(options: dict[str, object]) -> PlannerConfig:
-    """PlannerConfig from flat CLI options; a dotted key ("landmarks.count") sets a nested field.
+def config_from_options(options: dict[str, object], base: Config | None = None) -> Config:
+    """A config (default: PlannerConfig()) with the flat CLI options applied; a dotted key
+    ("landmarks.count") sets a nested field.
 
     Unknown keys raise TypeError, so that a typo cannot silently fall back to a default.
     """
-    base = PlannerConfig()
+    base = PlannerConfig() if base is None else base
     top: dict[str, object] = {}
     groups: dict[str, dict[str, object]] = {}
     for key, value in options.items():
@@ -460,3 +665,13 @@ def make_planner_high(model: FBModel, **options: object) -> GraphPlusHighControl
 def _from_train_data(cls: type[C], model: FBModel, options: dict[str, object]) -> C:
     observations = load_dataset(model.env_name, "train")["observations"]
     return cls.from_dataset(model, observations, config_from_options(options))
+
+
+def make_recorded_route(model: FBModel, **options: object) -> RecordedRouteController:
+    """Controller factory for the evaluation CLI (h-papers H1): recorded routes from the env's
+    training data. Options as RecordedRouteConfig, e.g. executor=window max_steps=150."""
+    data = load_dataset(model.env_name, "train")
+    config = config_from_options(options, RecordedRouteConfig())
+    return RecordedRouteController.from_dataset(
+        model, data["observations"], data["terminals"], config
+    )

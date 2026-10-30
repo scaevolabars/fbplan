@@ -109,7 +109,7 @@ class RegionField:
     ) -> RegionField:
         """From the same random pool of dataset states as select_landmarks with this pool_size
         and seed."""
-        pool = observations[_draw_pool(np.random.default_rng(seed), len(observations), pool_size)]
+        pool = observations[pool_rows(len(observations), pool_size, seed)]
         return cls(pool[:, :2], batched_backward(fb, pool), radius)
 
     def at(self, point: np.ndarray) -> np.ndarray:
@@ -135,6 +135,12 @@ def region_latents(
             raise ValueError(f"no observation within {radius} of {centre}")
         out[i] = b[inside].mean(axis=0)
     return out
+
+
+def pool_rows(n: int, pool_size: int = 100_000, seed: int = 0) -> np.ndarray:
+    """Rows of the random pool of dataset states that select_landmarks and RegionField.from_data
+    use with this pool_size and seed."""
+    return _draw_pool(np.random.default_rng(seed), n, pool_size)
 
 
 def _draw_pool(rng: np.random.Generator, n: int, pool_size: int) -> np.ndarray:

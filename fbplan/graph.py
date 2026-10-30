@@ -9,6 +9,9 @@ where direct(u) = F(u, z_r)^T z_r is the value of switching to the task policy n
 hop_discount < 1 is a cost per hop: in shortest-path form it adds -log(hop_discount) to
 the edge cost -log rho, and it does not depend on the scale of z_r. Which edges are trusted
 is the planner's rule (fbplan.controllers.planner.trusted_edges); value iteration takes a mask.
+
+Data-certified edges (h-papers H1) need no FB value: an edge u -> w exists when a recorded
+trajectory passes u and then w (landmark_visits, certify_edges); shortest_paths orders them.
 """
 
 from __future__ import annotations
@@ -125,3 +128,129 @@ def extract_route(solution: GraphSolution, start: int) -> list[int]:
         route.append(nxt)
         nxt = int(solution.best_next[nxt])
     return route
+
+
+# ----- data-certified edges (h-papers H1) -----
+
+
+@dataclass(frozen=True)
+class Visits:
+    """Passes of recorded trajectories through landmark regions, in dataset-row order.
+
+    A visit is a run of consecutive rows of one trajectory within the radius of one landmark;
+    its row is the closest approach (the first one on a tie).
+    """
+
+    row: np.ndarray  # [V] dataset row
+    label: np.ndarray  # [V] landmark id
+
+
+@dataclass(frozen=True)
+class CertifiedEdges:
+    """Landmark edges that a recorded trajectory travels, each with one recorded walk: the pass
+    at `source` on dataset row `start`, the pass at `target` on row `end`. [E] each"""
+
+    source: np.ndarray
+    target: np.ndarray
+    start: np.ndarray
+    end: np.ndarray
+
+
+def trajectory_ends(terminals: np.ndarray) -> np.ndarray:
+    """The last row of each row's trajectory, from the OGBench `terminals` flags (1 on the last
+    row of a trajectory; the last row of the data always ends one). [P]"""
+    ends = np.flatnonzero(terminals)
+    if len(ends) == 0 or ends[-1] != len(terminals) - 1:
+        ends = np.append(ends, len(terminals) - 1)
+    return ends[np.searchsorted(ends, np.arange(len(terminals)))]
+
+
+def landmark_visits(
+    xy: np.ndarray, landmarks_xy: np.ndarray, radius: float, ends: np.ndarray, chunk: int = 8192
+) -> Visits:
+    """Visits of the recorded rows xy [P, 2] to the landmarks [N, 2]; a row belongs to its
+    nearest landmark if that is within radius. ends: trajectory_ends of the rows."""
+    labels = np.full(len(xy), -1)
+    dist2 = np.full(len(xy), np.inf)
+    for lo in range(0, len(xy), chunk):
+        d2 = np.sum((xy[lo : lo + chunk, None, :] - landmarks_xy[None, :, :]) ** 2, axis=-1)
+        nearest = np.argmin(d2, axis=1)
+        best = d2[np.arange(len(nearest)), nearest]
+        labels[lo : lo + chunk] = np.where(best <= radius**2, nearest, -1)
+        dist2[lo : lo + chunk] = best
+    rows = np.flatnonzero(labels >= 0)
+    new_run = np.ones(len(rows), dtype=bool)
+    new_run[1:] = (
+        (labels[rows[1:]] != labels[rows[:-1]])
+        | (rows[1:] != rows[:-1] + 1)
+        | (ends[rows[1:]] != ends[rows[:-1]])
+    )
+    run = np.cumsum(new_run) - 1
+    order = np.lexsort((rows, dist2[rows], run))  # by run, then distance, then row
+    closest = order[np.r_[True, run[order][1:] != run[order][:-1]]] if len(rows) else order
+    return Visits(rows[closest], labels[rows[closest]])
+
+
+def walked_xy(xy: np.ndarray, ends: np.ndarray) -> np.ndarray:
+    """Running xy path length of the rows [P]; steps across a trajectory end count 0, so the
+    walk from row a to a later row b of one trajectory is arc[b] - arc[a]."""
+    steps = np.linalg.norm(np.diff(xy, axis=0), axis=1)
+    steps[ends[:-1] == np.arange(len(xy) - 1)] = 0.0
+    return np.concatenate([[0.0], np.cumsum(steps)])
+
+
+def certify_edges(
+    visits: Visits, ends: np.ndarray, max_steps: int, arc: np.ndarray | None = None
+) -> CertifiedEdges:
+    """Edges u -> w (u != w) where one trajectory passes u and then w at most max_steps rows
+    later. Each keeps its shortest recorded walk (arc: walked_xy of the rows; None: all walks
+    are equally long), then the fastest, then the earliest."""
+    row, label = visits.row, visits.label
+    first, second = [], []
+    for offset in range(1, len(row)):
+        a, b = row[:-offset], row[offset:]
+        close = (b - a <= max_steps) & (ends[a] == ends[b])
+        if not close.any():
+            break  # rows increase, so larger offsets are farther apart
+        keep = np.flatnonzero(close & (label[:-offset] != label[offset:]))
+        first.append(keep)
+        second.append(keep + offset)
+    a = np.concatenate(first) if first else np.empty(0, dtype=int)
+    b = np.concatenate(second) if second else np.empty(0, dtype=int)
+    key = label[a] * (label.max(initial=0) + 1) + label[b]
+    walked = np.zeros(len(a)) if arc is None else arc[row[b]] - arc[row[a]]
+    order = np.lexsort((row[a], row[b] - row[a], walked, key))
+    fastest = order[np.r_[True, key[order][1:] != key[order][:-1]]] if len(order) else order
+    a, b = a[fastest], b[fastest]
+    return CertifiedEdges(label[a], label[b], row[a], row[b])
+
+
+def reachable_visits(
+    visits: Visits, rows: np.ndarray, ends: np.ndarray, max_steps: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """The visits that the trajectory of each dataset row in rows makes from that row on, at
+    most max_steps rows later: (visit index, index into rows), both [M]."""
+    lo = np.searchsorted(visits.row, rows, side="left")
+    hi = np.searchsorted(visits.row, np.minimum(rows + max_steps, ends[rows]), side="right")
+    counts = np.maximum(hi - lo, 0)
+    owner = np.repeat(np.arange(len(rows)), counts)
+    offsets = np.arange(counts.sum()) - np.repeat(np.cumsum(counts) - counts, counts)
+    return np.repeat(lo, counts) + offsets, owner
+
+
+def shortest_paths(weights: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """All-pairs shortest paths (Floyd-Warshall) over edge weights [N, N] (inf: no edge).
+
+    Returns the distances [N, N] and the next hop [N, N] from u towards w (-1: no path).
+    A path changes only for a strictly shorter one, so ties keep the earlier path.
+    """
+    n = len(weights)
+    dist = np.array(weights, dtype=np.float64)
+    np.fill_diagonal(dist, 0.0)
+    next_hop = np.where(np.isfinite(dist), np.arange(n)[None, :], -1)
+    for k in range(n):
+        via = dist[:, k, None] + dist[None, k, :]
+        shorter = via < dist
+        dist = np.where(shorter, via, dist)
+        next_hop = np.where(shorter, next_hop[:, k, None], next_hop)
+    return dist, next_hop

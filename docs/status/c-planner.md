@@ -1,8 +1,14 @@
 # Status: c-planner
 
-Last update: 2026-10-29.
+Last update: 2026-10-30.
 
 ## Summary
+
+H1 on large (2026-10-30, time-boxed, code done, runs for d-eval): the recorded-route controller
+of h-papers H1 is in `fbplan.controllers.planner` (`make_recorded_route`, commit 30661e8). Its
+route comes from recorded train trajectories, not from FB values. The 6-config held-out grid,
+the oracle and baseline rows on the same episodes, the selection rule and the final 10-seed
+command are in "H1 on large" below. No episode result yet (Linux runs).
 
 Act-ahead (2026-10-29, time-boxed, done): planner_high acting on the region latent 8 xy ahead
 along its own route closes about a third of its gap to the privileged oracle on held-out medium
@@ -225,6 +231,98 @@ for tuning), 300 landmarks from the train split:
   true shortest path; my waypoints are at most 6 xy units away and switch at 3.
 - The planner is far below the baseline on this set (68 against 92). The landmark set also moves
   it by several points (see "After the merge").
+
+## H1 on large: recorded-route tracking (2026-10-30, time-boxed)
+
+Brief: h-papers H1 (`docs/hypotheses/h-papers.md` §3, items 4–5); reading fixed in design.md §8
+"H1 on large". Code: `RecordedRouteController`, `RecordedRouteConfig`, `make_recorded_route`
+(`fbplan/controllers/planner.py`); `landmark_visits`, `certify_edges`, `walked_xy`,
+`reachable_visits`, `shortest_paths` (`fbplan/graph.py`); `pool_rows` (`fbplan/landmarks.py`).
+
+**Method.** The route comes from recorded trajectories, not from FB values.
+
+- Landmarks: 300 by farthest-point sampling on xy over the 100k train pool (seed 0), as approach A.
+- Edge u → w: one train trajectory passes within 0.5 xy of u and later within 0.5 xy of w, at
+  most K steps later (`terminals` split the trajectories). Weight: the xy length of the edge.
+- First hop s → w: the same rule from the pool states within 0.5 xy of s (off the data: those of
+  the nearest pool state). Weight: the xy length from s to w.
+- Route: the shortest path (Floyd–Warshall, once per env) to the goal landmark. It is planned
+  again at every step.
+- Executors (one config field): `point` gives `π_l` the region latent (radius 0.5) of the route
+  point 8 xy ahead; `window` gives `π_l` the mean of the unit region latents of the points
+  4, 8 and 12 xy ahead; `high` gives `π_h` the region latent of the point 8 xy ahead as its
+  task. A point past the goal landmark takes z_r (`window`: z_r / |z_r|). Without a certified
+  route the controller acts as with that fallback.
+
+**Choices that the brief leaves open** (made before any episode result, not tuned):
+
+1. Goal landmark: the landmark with the largest F(w, z_r)ᵀz_r (head min). The task gives only
+   z_r; `goal_xy` is privileged. On the 10 large held-out goals it lies 0.82 xy from the goal at
+   the median, 3.25 at most (privileged diagnostic, no selection). The point ahead hands over to
+   z_r 8 xy before it.
+2. Path of a hop: the recorded walk with the shortest xy path, then the fewest steps, then the
+   earliest. Reason (tabular trace): with the fastest walk, a first hop could take a walk that
+   first turns back; the point ahead then moved backwards and the agent alternated between two
+   states. Certification is unchanged (gap ≤ K).
+3. The first hop searches the 100k pool, not all 1M train rows (one step: 3–6 ms).
+
+**Checks.**
+
+- 27 new test cases (`tests/test_graph.py`, `tests/test_planner.py`): visits, certification in the
+  recorded direction within K and inside one trajectory, the shortest walk, shortest paths; the
+  point along the recorded walk (a straight line would cross the wall of the U maze), z_r past the
+  goal landmark, the window, `π_h`, the first-hop limit K; on b-theory's tabular maze every task
+  is solved (exact model, one state per maze cell), and under F noise (`rho_noise` 0.02, 2 × 2
+  states per cell, 3 seeds × 15 episodes) the route beats `π_l(z_r)` for every executor
+  (medium 36–39 of 45 against 7). Two mutants are caught: straight lines through the landmarks
+  (10 tests fail) and edges in both directions (4 tests fail).
+- Real data, large, no episodes: K = 60 gives 9,315 certified edges (h-papers M2: 9,315);
+  K = 150 gives 26,737. 98–99 % of landmark pairs are connected, and every sampled val state has
+  a route (median 4 hops with K = 60, 2 with K = 150).
+- One-episode smoke run per executor through `fbplan.evaluate` on the Mac: the CLI path works
+  (342 steps/s per worker for `point`, 174 for `window`). One traced episode follows the route to
+  6 xy from the goal and then fails near the goal on z_r. This is a code check, not a result.
+- Known limit: with re-planning at every step, two equally short walks can take turns as the
+  route. In the tabular maze with 2 × 2 states per cell and exactly tied `π_l` moves this makes
+  the agent step from side to side; AntMaze has no exact ties.
+
+**Commands for d-eval** (Linux, at most 4 workers, nice). Held-out grid: the 10 large held-out
+goals, eval seeds 0 1 2, 20 episodes per goal and seed (600 episodes per row), with the oracle
+and the baseline on the same episodes. All defaults except the two grid fields (landmarks seed 0,
+`certify_xy` 0.5, `ahead_xy` 8, `window_xy` (4, 8, 12), `act_region_xy` 0.5).
+
+```
+nice -n 10 uv run python -m fbplan.evaluate --method fbplan.controllers.planner:make_recorded_route --env antmaze-large-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers 4 --opt executor=point max_steps=60 --out results/large/planner_ablations/h1_heldout/point_k60.csv
+nice -n 10 uv run python -m fbplan.evaluate --method fbplan.controllers.planner:make_recorded_route --env antmaze-large-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers 4 --opt executor=point max_steps=150 --out results/large/planner_ablations/h1_heldout/point_k150.csv
+nice -n 10 uv run python -m fbplan.evaluate --method fbplan.controllers.planner:make_recorded_route --env antmaze-large-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers 4 --opt executor=window max_steps=60 --out results/large/planner_ablations/h1_heldout/window_k60.csv
+nice -n 10 uv run python -m fbplan.evaluate --method fbplan.controllers.planner:make_recorded_route --env antmaze-large-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers 4 --opt executor=window max_steps=150 --out results/large/planner_ablations/h1_heldout/window_k150.csv
+nice -n 10 uv run python -m fbplan.evaluate --method fbplan.controllers.planner:make_recorded_route --env antmaze-large-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers 4 --opt executor=high max_steps=60 --out results/large/planner_ablations/h1_heldout/high_k60.csv
+nice -n 10 uv run python -m fbplan.evaluate --method fbplan.controllers.planner:make_recorded_route --env antmaze-large-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers 4 --opt executor=high max_steps=150 --out results/large/planner_ablations/h1_heldout/high_k150.csv
+nice -n 10 uv run python -m fbplan.evaluate --method oracle --env antmaze-large-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers 4 --out results/large/planner_ablations/h1_heldout/oracle.csv
+nice -n 10 uv run python -m fbplan.evaluate --method baseline --env antmaze-large-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers 4 --out results/large/planner_ablations/h1_heldout/baseline.csv
+uv run python analysis/tables.py results/large/planner_ablations/h1_heldout/*.csv --label-root results/large/planner_ablations/h1_heldout --reference baseline oracle
+```
+
+Selection and reading (fixed now, before any H1 result; design.md §8, h-papers H1 item 5):
+
+1. Select the config with the highest held-out success. Ties (equal success counts) go to the
+   simpler config: `point`, then `window`, then `high`; then the smaller K.
+2. H1 is falsified if the selected config scores more than 2 pp below the oracle, or not above
+   the baseline, on these held-out episodes. Then route methods on large stop.
+3. Otherwise the selected config runs on the 5 large eval tasks, eval seeds 0–9, paired against
+   both baseline rows of `results/large_10seeds/`; the gain rule of design.md §8 decides.
+
+Final run (replace `<E>` and `<K>` by the selected config):
+
+```
+nice -n 10 uv run python -m fbplan.evaluate --method fbplan.controllers.planner:make_recorded_route --env antmaze-large-navigate-v0 --seeds 0 1 2 3 4 5 6 7 8 9 --episodes 50 --workers 4 --opt executor=<E> max_steps=<K> --out results/large/planner_ablations/h1_eval/<E>_k<K>.csv
+uv run python analysis/tables.py results/large_10seeds/baseline.csv results/large_10seeds/baseline_raw.csv results/large_10seeds/oracle.csv results/large/planner_ablations/h1_eval/<E>_k<K>.csv --reference baseline baseline_raw
+```
+
+Cost (from the Mac smoke speed): about 6–12 minutes per grid row with 4 workers, about 1 hour
+for the grid with the oracle and the baseline; the final run 2,500 episodes, about 30–50 minutes.
+The report must say that the route comes from recorded trajectories, not from FB values; FB
+gives only the goal landmark and the executor.
 
 ## Act-ahead: an oracle-like executor on the planner's route (2026-10-29, time-boxed)
 
@@ -527,9 +625,11 @@ following does not touch. The option stays, off by default, as an ablation.
 
 ## Next
 
-1. d-eval reruns the ablation table on Linux (commands above). When the CSVs are on main, I
+1. H1 on large: d-eval runs the held-out grid and, if H1 is not falsified, the final 10-seed run
+   (commands in "H1 on large"). Then I write the H1 result for the report.
+2. d-eval reruns the ablation table on Linux (commands above). When the CSVs are on main, I
    compare them with the Mac cross-check and write the ablation table for the report.
-2. d-eval: `oracle.region_latents` can import `fbplan.landmarks.region_latents`, and
+3. d-eval: `oracle.region_latents` can import `fbplan.landmarks.region_latents`, and
    `analysis/failures.RecordingController` can become public so that `planner_routes.py` imports
    it (X4, X5). e-learner: `train_b.latent_table` can import `batched_backward` (X4).
 
@@ -540,6 +640,13 @@ following does not touch. The option stays, off by default, as an ablation.
 
 ## Requests to the coordinator
 
+- Merge c-planner for H1 (30661e8 and this status). New public API, no change to existing
+  behaviour: `fbplan.graph.{Visits, CertifiedEdges, trajectory_ends, landmark_visits,
+  walked_xy, certify_edges, reachable_visits, shortest_paths}`,
+  `fbplan.landmarks.pool_rows`, `fbplan.controllers.planner.{RecordedRouteConfig,
+  RecordedRouteController, make_recorded_route, point_along}`; `config_from_options` takes an
+  optional base config. Hand the H1 commands to d-eval. A short alias (e.g.
+  `recorded_route`) in `fbplan/controllers/__init__.py` is optional; that file is not mine.
 - Merge c-planner: review fixes (c187bb7), ablation commands and Mac cross-check. API changes
   for other components: `fbplan.graph.trusted_edges(rho, rho_min, exclude_diagonal, rho_max)`
   lost `top_k` (b-theory's study and d-eval's calibration call it compatibly); new public
