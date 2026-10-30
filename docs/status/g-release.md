@@ -215,7 +215,13 @@ uv run --locked ruff check . && uv run --locked pytest
 git commit -m "Remove the process files before submission"
 ```
 
-**Owners must fix these first** (after the patch, `git grep` finds them):
+**Check on main 52bf9c3** (2026-10-30, scratch worktree, removed after): the patch applies
+cleanly; `git rm` removes 19 files; no link to `docs/status/` or `docs/briefs/` remains; no tab
+name or "coordinator" remains outside `results/`; every hypothesis label stands next to its
+`docs/hypotheses/` path; `uv sync --locked`, ruff and pytest (524 passed) pass. The owners
+fixed the items below before this check.
+
+**Owners must fix these first** (list at 953030d; done by 52bf9c3):
 
 Links to `docs/status/` (dead after the removal):
 - f-report: REPORT.md:1165, 1186, 1316, 1355, 1485, 1686. 1686 points to the c-planner and d-eval
