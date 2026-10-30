@@ -1,11 +1,12 @@
 """Write the held-out goals for hyperparameter selection (plan B decision 8) and draw them.
 
     uv run python analysis/heldout_goals.py [--envs antmaze-medium-navigate-v0 ...]
+        [--table-dir results/heldout_goals] [--fig-dir results/figures]
 
-For each env: results/heldout_goals/<env>.csv (fbplan.evaluate.select_heldout_goals with its
-defaults and the validation split, so the file is reproducible) and
-results/figures/heldout_goals_<env>.png. It prints the number of validation states within the
-goal radius of each goal (the states that make z).
+For each env: <table-dir>/<env>.csv (fbplan.evaluate.select_heldout_goals with its defaults and
+the validation split, so the file is reproducible; fbplan.evaluate reads the goals from
+results/heldout_goals/) and <fig-dir>/heldout_goals_<env>.png. It prints the number of
+validation states within the goal radius of each goal (the states that make z).
 """
 
 from __future__ import annotations
@@ -21,7 +22,6 @@ import numpy as np  # noqa: E402
 
 from fbplan.evaluate import (  # noqa: E402
     HeldoutGoal,
-    heldout_goals_path,
     select_heldout_goals,
     write_heldout_goals,
 )
@@ -59,23 +59,37 @@ def plot_goals(
     plt.close(fig)
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("--envs", nargs="+", default=ENVS, choices=ENVS, help="OGBench envs")
+    parser.add_argument(
+        "--fig-dir", type=Path, default=Path("results/figures"), help="folder of the figures"
+    )
+    parser.add_argument(
+        "--table-dir", type=Path, default=Path("results/heldout_goals"),
+        help="folder of the goal tables, one <env>.csv per env",
+    )
+    return parser
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--envs", nargs="+", default=ENVS)
-    parser.add_argument("--fig-dir", type=Path, default=Path("results/figures"))
-    args = parser.parse_args()
+    args = build_parser().parse_args()
     for env_name in args.envs:
         env = make_env(env_name)
         obs = load_dataset(env_name, "val")["observations"]
         xy = obs[:, :2]
         goals = select_heldout_goals(env, obs)
-        write_heldout_goals(goals, heldout_goals_path(env_name))
+        table = args.table_dir / f"{env_name}.csv"
+        write_heldout_goals(goals, table)
         maze = MazeGeometry.from_env(env)
         eval_goals = np.array([info["goal_xy"] for info in env.unwrapped.task_infos])
         plot_goals(maze, eval_goals, goals, f"{env_name}: held-out goals (ids) and eval goals",
                    args.fig_dir / f"heldout_goals_{env_name}.png")
         radius = env.unwrapped._goal_tol
-        print(f"{env_name}: {len(goals)} goals -> {heldout_goals_path(env_name)}")
+        print(f"{env_name}: {len(goals)} goals -> {table}")
         for goal in goals:
             inside = int((np.linalg.norm(xy - goal.goal_xy, axis=1) <= radius).sum())
             print(f"  {goal.task_id}: start {goal.init_ij} goal {goal.goal_ij} "

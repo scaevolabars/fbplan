@@ -16,7 +16,7 @@ ControllerFactory = Callable[..., Controller]
 
 # Controller names (EpisodeRecord.method) that read privileged information, such as the true
 # maze map. Tables and figures mark them; they are references, not methods.
-PRIVILEGED = frozenset({"oracle"})
+PRIVILEGED = frozenset({"oracle", "oracle_teleport"})
 
 ALIASES = {
     "baseline": "fbplan.controllers.baseline:BaselineController",
@@ -24,6 +24,7 @@ ALIASES = {
     "ensemble": "fbplan.controllers.baseline:make_ensemble",
     "nonhier": "fbplan.controllers.baseline:NonHierController",
     "oracle": "fbplan.controllers.oracle:make_oracle",
+    "oracle_teleport": "fbplan.controllers.oracle_teleport:make_teleport_oracle",
     "planner": "fbplan.controllers.planner:make_planner",
     "planner_high": "fbplan.controllers.planner:make_planner_high",
 }

@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from fbplan.contracts import TaskSpec
-from fbplan.controllers import resolve_controller
+from fbplan.controllers import PRIVILEGED, resolve_controller
 from fbplan.controllers.baseline import (
     BaselineController,
     EnsembleBaselineController,
@@ -37,10 +37,10 @@ class _FakeFB:
     def backward(self, obs):
         return np.concatenate([obs[:, :2], np.ones((len(obs), 2))], axis=1)
 
-    def high_latent(self, obs, z_task, temperature=0.0, seed=None):
+    def high_latent(self, obs, z_task):
         return z_task + obs[:, :4]
 
-    def low_action(self, obs, z, temperature=0.0, seed=None):
+    def low_action(self, obs, z):
         self.low_latents.append(np.asarray(z)[0].copy())
         return np.tanh(z[:, :2] - obs[:, :2])
 
@@ -106,7 +106,7 @@ class _FixedIntention(_FakeFB):
         self.intention = np.asarray(intention, float)
         self.tasks: list[np.ndarray] = []
 
-    def high_latent(self, obs, z_task, temperature=0.0, seed=None):
+    def high_latent(self, obs, z_task):
         self.tasks.append(np.asarray(z_task)[0].copy())
         return self.intention[None]
 
@@ -185,6 +185,14 @@ def test_resolve_controller_accepts_aliases_and_module_paths():
     assert resolve_controller("fbplan.controllers.baseline:NonHierController") is NonHierController
 
 
+def test_teleport_oracle_has_an_alias_and_is_marked_privileged():
+    from fbplan.controllers.oracle_teleport import TeleportOracleController, make_teleport_oracle
+
+    assert resolve_controller("oracle_teleport") is make_teleport_oracle
+    assert TeleportOracleController.name == "oracle_teleport"
+    assert "oracle_teleport" in PRIVILEGED
+
+
 def test_resolve_controller_rejects_unknown_names():
     with pytest.raises(ValueError, match="unknown controller"):
         resolve_controller("planner-that-does-not-exist")
@@ -241,13 +249,7 @@ def test_geodesic_distance_is_infinite_when_only_a_pinch_joins_two_cells():
     assert np.isinf(maze.geodesic_distances(a[None], b[None])).all()
 
 
-def test_region_latents_average_b_over_states_within_the_radius():
-    obs = np.stack([_obs_at(xy) for xy in ([0.2, 0.0], [-0.2, 0.4], [3.0, 3.0], [8.0, 0.1])])
-    latents = region_latents(_FakeFB(), obs, np.array([[0.0, 0.0], [8.0, 0.0]]), radius=1.0)
-    np.testing.assert_allclose(latents[:, :2], [[0.0, 0.2], [8.0, 0.1]])
-
-
-def test_region_latents_reject_a_region_without_states():
+def test_region_latents_of_the_oracle_reject_a_region_without_states():
     with pytest.raises(ValueError, match="no dataset state"):
         region_latents(_FakeFB(), _obs_at([0.0, 0.0])[None], np.array([[5.0, 5.0]]), radius=1.0)
 

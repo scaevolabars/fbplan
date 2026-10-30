@@ -1,5 +1,6 @@
 """Tests of the pure functions in analysis/. The scripts are not a package; they load by path."""
 
+import argparse
 import importlib.util
 import sys
 from pathlib import Path
@@ -164,3 +165,29 @@ def test_compare_platforms_gives_successes_the_unpaired_difference_and_identical
 def test_select_seed_takes_the_highest_held_out_success_and_the_lower_id_on_ties():
     assert heldout_selection.select_seed({0: 0.5, 1: 0.7, 2: 0.7, 3: 0.6}) == 1
     assert heldout_selection.select_seed({4: 0.9, 2: 0.9}) == 2
+
+
+CLI_SCRIPTS = (*SCRIPTS, "parity", "heldout_goals")
+
+
+@pytest.mark.parametrize("name", CLI_SCRIPTS)
+def test_cli_follows_the_convention_help_for_every_argument_defaults_shown_4_workers(name):
+    # X11 of docs/status/g-release.md, items 6 and 7
+    parser = _load(name).build_parser()
+    assert parser.formatter_class is argparse.ArgumentDefaultsHelpFormatter
+    for action in parser._actions:
+        assert action.help, f"{name}: {action.option_strings or action.dest} has no help"
+        if action.dest == "workers":
+            assert action.default == 4
+
+
+def test_calibration_writes_figures_to_fig_dir_and_keeps_out_dir_as_its_old_name():
+    parser = calibration.build_parser()
+    assert parser.parse_args(["--fig-dir", "a"]).fig_dir == Path("a")
+    assert parser.parse_args(["--out-dir", "b"]).fig_dir == Path("b")
+
+
+def test_heldout_goals_writes_its_tables_to_table_dir():
+    parser = _load("heldout_goals").build_parser()
+    assert parser.parse_args([]).table_dir == Path("results/heldout_goals")
+    assert parser.parse_args(["--table-dir", "t"]).table_dir == Path("t")

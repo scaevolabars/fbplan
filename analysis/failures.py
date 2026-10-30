@@ -1,7 +1,7 @@
 """Why episodes fail: replay the failed episodes of a result CSV and classify them.
 
     uv run python analysis/failures.py results/medium/baseline.csv --method baseline \
-        [--opt key=value ...] [--workers 10] [--out results/medium/failures/baseline.csv]
+        [--opt key=value ...] [--workers 4] [--out results/medium/failures/baseline.csv]
 
 Resets are seeded, so a replay with the same controller config and checkpoint repeats the
 episode exactly (the script checks the config hash and the outcome; it reads the checkpoint
@@ -118,14 +118,21 @@ def failure_table(episodes: pd.DataFrame, failures: pd.DataFrame) -> pd.DataFram
     return table
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("csv", type=Path)
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("csv", type=Path, help="evaluation CSV of one run")
     parser.add_argument("--method", required=True, help="the --method of the evaluation run")
     parser.add_argument("--opt", nargs="*", default=[], help="the --opt of the evaluation run")
-    parser.add_argument("--workers", type=int, default=10)
+    parser.add_argument("--workers", type=int, default=4, help="worker processes")
     parser.add_argument("--out", type=Path, help="default: <csv folder>/failures/<csv name>")
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
 
     df = load_results([args.csv])
     for column in ["env_name", "config_hash"]:

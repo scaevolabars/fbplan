@@ -51,12 +51,28 @@ def _diff(df: pd.DataFrame, method: str, reference: str) -> str:
     return f"{100 * r.diff:+.1f} [{100 * r.low:+.1f}, {100 * r.high:+.1f}], p {r.p_value:.2g}"
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--results", type=Path, default=Path("results/medium"),
+        help="folder with heldout/<family>/seed<k>.csv and the eval-task CSVs",
+    )
+    parser.add_argument(
+        "--reference", default="retrained", choices=sorted(FAMILIES),
+        help="family whose selected seed is the reference of the paired comparisons",
+    )
+    parser.add_argument(
+        "--out", type=Path, default=Path("results/medium/heldout_selection.csv"),
+        help="CSV of the selection table",
+    )
+    return parser
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--results", type=Path, default=Path("results/medium"))
-    parser.add_argument("--reference", default="retrained", choices=sorted(FAMILIES))
-    parser.add_argument("--out", type=Path, default=Path("results/medium/heldout_selection.csv"))
-    args = parser.parse_args()
+    args = build_parser().parse_args()
 
     selected, rows = {}, []
     for family, folder in FAMILIES.items():

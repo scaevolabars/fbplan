@@ -21,6 +21,7 @@ from typing import Literal
 
 import numpy as np
 
+from fbplan import landmarks
 from fbplan.contracts import FBModel, TaskSpec
 from fbplan.frozen import load_dataset, make_env
 from fbplan.maze import Cell, MazeGeometry
@@ -35,24 +36,15 @@ def nearest_observations(observations: np.ndarray, points_xy: np.ndarray) -> np.
 
 
 def region_latents(
-    model: FBModel,
-    observations: np.ndarray,
-    centres_xy: np.ndarray,
-    radius: float,
-    batch_size: int = 8192,
+    model: FBModel, observations: np.ndarray, centres_xy: np.ndarray, radius: float
 ) -> np.ndarray:
-    """[C, d] mean B(s) over the dataset states within `radius` (in xy) of each centre."""
-    b = np.concatenate([
-        np.asarray(model.backward(observations[i : i + batch_size]))
-        for i in range(0, len(observations), batch_size)
-    ])
-    latents = []
-    for centre in centres_xy:
-        near = np.linalg.norm(observations[:, :2] - centre, axis=1) <= radius
-        if not near.any():
-            raise ValueError(f"no dataset state within {radius} of {centre}")
-        latents.append(b[near].mean(axis=0))
-    return np.stack(latents)
+    """[C, d] waypoint latents: fbplan.landmarks.region_latents (mean raw B over the dataset
+    states within `radius` xy of each centre). Both oracles raise "no dataset state" when a
+    waypoint has none."""
+    try:
+        return landmarks.region_latents(model, observations, centres_xy, radius)
+    except ValueError as error:
+        raise ValueError(f"no dataset state within {radius} of a waypoint: {error}") from error
 
 
 @dataclass(frozen=True)

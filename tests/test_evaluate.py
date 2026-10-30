@@ -1,3 +1,4 @@
+import argparse
 import dataclasses
 import itertools
 
@@ -15,7 +16,6 @@ from fbplan.evaluate import (
     HELDOUT_OFFSET,
     Checkpoint,
     config_hash,
-    goal_latent,
     load_heldout_goals,
     main,
     make_tasks,
@@ -409,13 +409,12 @@ def test_raw_baseline_equals_baseline_for_a_task_latent_of_norm_sqrt_d(medium_mo
 
 
 def test_task_latent_infers_eval_tasks_upstream_and_heldout_goals_the_same_way(medium_model):
-    info = frozen.make_env(MEDIUM).unwrapped.task_infos[1]
-    z_task = medium_model.infer_task_latent(2)
-    np.testing.assert_array_equal(goal_latent(medium_model, tuple(info["goal_ij"])), z_task)
-    np.testing.assert_array_equal(task_latent(medium_model, 2), z_task)
+    np.testing.assert_array_equal(
+        task_latent(medium_model, 2), medium_model.infer_task_latent(2)
+    )
     goal = load_heldout_goals(MEDIUM)[0]
     np.testing.assert_array_equal(
-        task_latent(medium_model, goal.task_id), goal_latent(medium_model, goal.goal_ij)
+        task_latent(medium_model, goal.task_id), medium_model.infer_goal_latent(goal.goal_ij)
     )
 
 
@@ -436,3 +435,11 @@ def test_cli_writes_one_record_per_episode(medium_model, tmp_path):
           "--out", str(out)])
     df = pd.read_csv(out)
     assert df[["task_id", "eval_seed", "episode"]].values.tolist() == [[2, 0, 0], [2, 0, 1]]
+
+
+def test_cli_follows_the_convention_help_for_every_argument_defaults_shown_4_workers():
+    # X11 of docs/status/g-release.md, items 6 and 7
+    parser = evaluate.build_parser()
+    assert parser.formatter_class is argparse.ArgumentDefaultsHelpFormatter
+    assert all(action.help for action in parser._actions)
+    assert parser.parse_args(["--method", "baseline"]).workers == 4

@@ -36,12 +36,26 @@ def compare_platforms(linux: pd.DataFrame, macos: pd.DataFrame) -> dict[str, flo
     }
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--linux", type=Path, default=Path("results"), help="folder of the Linux CSVs"
+    )
+    parser.add_argument(
+        "--macos", type=Path, default=Path("results/macos"), help="folder of the Mac CSVs"
+    )
+    parser.add_argument(
+        "--out", type=Path, default=Path("results/platform_check.csv"),
+        help="CSV of the comparison",
+    )
+    return parser
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--linux", type=Path, default=Path("results"))
-    parser.add_argument("--macos", type=Path, default=Path("results/macos"))
-    parser.add_argument("--out", type=Path, default=Path("results/platform_check.csv"))
-    args = parser.parse_args()
+    args = build_parser().parse_args()
 
     rows = []
     for mac_csv in sorted(args.macos.rglob("*.csv")):

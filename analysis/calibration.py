@@ -1,7 +1,7 @@
 """FB distance calibration and wormhole count on one maze.
 
     uv run python analysis/calibration.py [--env antmaze-medium-navigate-v0] [--n 400]
-        [--head-agg min] [--rho-min 0.3 0.5 0.7] [--max-edge-xy 6] [--out-dir results/figures]
+        [--head-agg min] [--rho-min 0.3 0.5 0.7] [--max-edge-xy 6] [--fig-dir results/figures]
         [--table-dir results/calibration]
 
 For n validation states s, w (uniform sample, fixed seed) it compares the FB distance
@@ -32,7 +32,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from fbplan.controllers.planner import PlannerConfig  # noqa: E402
-from fbplan.frozen import load_dataset, load_model, make_env  # noqa: E402
+from fbplan.frozen import ENV_NAMES, load_dataset, load_model, make_env  # noqa: E402
 from fbplan.graph import trusted_edges  # noqa: E402
 from fbplan.maze import MazeGeometry, draw_walls  # noqa: E402
 from fbplan.option_model import OptionModel, OptionModelConfig, OptionTable  # noqa: E402
@@ -147,22 +147,38 @@ def plot_wormholes(
     plt.close(fig)
 
 
-def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--env", default="antmaze-medium-navigate-v0")
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--env", default="antmaze-medium-navigate-v0", choices=ENV_NAMES, help="OGBench env"
+    )
     parser.add_argument("--n", type=int, default=400, help="number of sampled states")
-    parser.add_argument("--head-agg", default="min", choices=["min", "mean"])
-    parser.add_argument("--rho-min", type=float, nargs="+", default=[PLANNER.rho_min, 0.5, 0.7])
+    parser.add_argument(
+        "--head-agg", default="min", choices=["min", "mean"], help="how the F heads combine"
+    )
+    parser.add_argument(
+        "--rho-min", type=float, nargs="+", default=[PLANNER.rho_min, 0.5, 0.7],
+        help="trust thresholds, one table row each",
+    )
     parser.add_argument("--max-edge-xy", type=float, default=PLANNER.max_edge_xy,
                         help="the planner's xy cap")
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--out-dir", type=Path, default=Path("results/figures"))
-    parser.add_argument("--table-dir", type=Path, default=Path("results/calibration"))
-    return parser.parse_args()
+    parser.add_argument("--seed", type=int, default=0, help="seed of the state sample")
+    parser.add_argument(
+        "--fig-dir", "--out-dir", type=Path, default=Path("results/figures"),
+        help="folder of the figures (--out-dir: old name)",
+    )
+    parser.add_argument(
+        "--table-dir", type=Path, default=Path("results/calibration"),
+        help="folder of the wormhole tables",
+    )
+    return parser
 
 
 def main() -> None:
-    args = _parse_args()
+    args = build_parser().parse_args()
     model = load_model(args.env)
     data = load_dataset(args.env, "val")
     idx = np.random.default_rng(args.seed).choice(len(data["observations"]), args.n, replace=False)
@@ -180,7 +196,7 @@ def main() -> None:
     tag = f"{args.env}, n = {args.n}, F heads: {args.head_agg}"
     plot_calibration(geo, fb_distance(rho, model.discount), median_speed,
                      f"FB distance vs. maze geodesic ({tag})",
-                     args.out_dir / f"calibration_{args.env}_{args.head_agg}.png")
+                     args.fig_dir / f"calibration_{args.env}_{args.head_agg}.png")
     print(f"{tag}: {plotted.sum()} walkable ordered pairs; rho clipped low {table.n_clipped_low}, "
           f"high {table.n_clipped_high}; rho = 0 for {np.mean(rho == 0):.1%}")
     print(f"step speed: median {median_speed:.3f}, p99 {top_speed:.3f} xy units per step\n")
@@ -202,7 +218,7 @@ def main() -> None:
     drawn = pairs[np.argsort(-geodesic[mask])[:MAX_DRAWN]]
     plot_wormholes(maze, obs[:, :2], drawn,
                    f"{len(drawn)} longest of {len(pairs)} wormholes, rho >= {rho_min}\n{tag}",
-                   args.out_dir / f"wormholes_{args.env}_{args.head_agg}.png")
+                   args.fig_dir / f"wormholes_{args.env}_{args.head_agg}.png")
 
 
 if __name__ == "__main__":

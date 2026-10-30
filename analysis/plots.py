@@ -72,13 +72,22 @@ def plot_env(table: pd.DataFrame, env_name: str, path: Path, privileged: set[str
     plt.close(fig)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("csv", nargs="+", type=Path)
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("csv", nargs="+", type=Path, help="evaluation CSVs")
     parser.add_argument("--label-root", type=Path, help="name rows by CSV path below this folder")
     parser.add_argument("--cluster", help="column of a shared random factor, e.g. config_hash")
-    parser.add_argument("--out-dir", type=Path, default=Path("results/figures"))
-    args = parser.parse_args()
+    parser.add_argument(
+        "--out-dir", type=Path, default=Path("results/figures"), help="folder of the figures"
+    )
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
     df = labelled_results(args.csv, label_root=args.label_root)
     if args.cluster is not None:
         df = df.assign(method=df["method"].map(pool_label))
