@@ -15,7 +15,7 @@ from fbplan.controllers.planner import (
     config_from_options,
     trusted_edges,
 )
-from fbplan.graph import DIRECT, GraphSolution
+from fbplan.graph import DIRECT, GraphSolution, value_iteration
 from fbplan.landmarks import LandmarkConfig, RegionField, region_latents
 from fbplan.option_model import OptionModelConfig
 from fbplan.tabular.env import rollout as rollout_tabular
@@ -110,11 +110,19 @@ def test_planner_reaches_a_goal_beyond_the_horizon_through_waypoints():
     assert len({w for w in waypoints if w >= 0}) == 2
 
 
-def test_a_task_whose_value_iteration_does_not_converge_raises():
+def test_a_task_whose_value_iteration_does_not_converge_warns_and_plans_with_the_last_sweep():
     fb = GridFB(horizon=4)  # waypoints add value beyond the horizon: one sweep is no fixed point
-    ctrl = GraphPlannerController(fb, fb.all_obs(), replace(HORIZON_CFG, vi_max_iters=1))
-    with pytest.raises(RuntimeError, match="did not converge"):
+    cfg = replace(HORIZON_CFG, vi_max_iters=1)
+    ctrl = GraphPlannerController(fb, fb.all_obs(), cfg)
+    with pytest.warns(RuntimeWarning, match="did not converge"):
         ctrl.reset(task(fb), seed=0)
+    direct = ctrl.options.direct_value(ctrl.landmarks, task(fb).z_r)
+    one_sweep = value_iteration(
+        ctrl.edge_rho, None, direct, ctrl.trusted, cfg.hop_discount, 1, cfg.vi_tol
+    )
+    assert not ctrl.plan.solution.converged
+    np.testing.assert_array_equal(ctrl.plan.solution.values, one_sweep.values)
+    assert ctrl.act(fb.all_obs()[0]).shape == (2,)
 
 
 @pytest.mark.parametrize("cfg", [HORIZON_CFG, RHO_RULE_CFG], ids=["xy_rule", "rho_rule"])

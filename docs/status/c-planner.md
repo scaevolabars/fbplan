@@ -9,7 +9,8 @@ H1, finishing items (2026-10-30): the recorded-route controller passed the gain 
 37.7 % and 35.5 %; seeds 10–19 do not confirm large against `baseline`). For f-report: the method
 is in "Recorded-route tracking (H1): method for f-report", the commands for all 31 CSVs in my
 folders in "Commands for every CSV in results/*/planner_ablations/". Review findings: K2, X15 and
-C12 leftovers fixed; X6 kept by choice; X18 explained, decision open (see "Items still open").
+C12 leftovers fixed; X6 kept by choice; X18 decided (a): keep the hashes, name code 84a8127;
+checked: HEAD (from 2d2925b) repeats the records of 84a8127 for every approach A option.
 
 H1 (2026-10-30): the recorded-route controller of h-papers H1 (`make_recorded_route`, commit
 30661e8) passed the gain rule on large (d-eval, Linux, eval seeds 0–9: 41.2 % against
@@ -340,11 +341,9 @@ uv run python -m fbplan.evaluate --method fbplan.controllers.planner:make_record
 ```
 
 Approach A ablations, landmark set 0, 5 eval seeds. Code 84a8127 (the code of the main planner
-CSVs, so they pair). The current code writes another hash for the same command (X18, below).
-Records: the default path repeats them (d-eval's check at 8a202e6, `planner_high/l0.csv`, 1,250
-of 1,250; approach A's code is unchanged since then except two refactors that keep behaviour);
-the ablation options were not rerun after the review refactor c187bb7. `<maze>` is medium for
-all 9, and also large for the first 3:
+CSVs, so they pair). The current code (2d2925b or later) gives the same records with another
+hash (X18, below; checked for the defaults and all 9 options). `<maze>` is medium for all 9, and
+also large for the first 3:
 
 ```
 uv run python -m fbplan.evaluate --method planner --env antmaze-<maze>-navigate-v0 --seeds 0 1 2 3 4 --episodes 50 --workers 4 --opt landmarks.seed=0 max_edge_xy=None --out results/<maze>/planner_ablations/no_xy_cap/l0.csv
@@ -812,7 +811,8 @@ the same outcomes and step counts for all 5 tasks.
 | C12 N rest: duplicate test constants | Done: no duplicate constants left in my tests. |
 | X11 c-planner rows | `planner_routes.py`: done in C10. `name` = alias: see X6. |
 | X6 S: `Controller.name` ≠ CLI alias | Not changed, by choice. The 54 committed approach A CSVs carry `graph_planner` and `graph_plus_high`, and REPORT.md's method table maps each alias to that column. A rename would split old and new rows of one config. `recorded_route` already equals the alias that d-eval can add. |
-| X18 M: a new config field changes `config_hash` | Explained, needs a decision (d-eval owns `config_hash`). The 42 approach A CSVs from 84a8127 (30 main, 12 ablations) carry hashes of that commit's fields: `top_k` and `landmarks.space` present (removed in C9), `act_ahead_xy` and `act_region_xy` absent (added for act-ahead). I rebuilt that payload: 42 of 42 hashes match. The H1 rows and `high_act_ahead8` match the current code. Options: (a) keep the hashes and name the code commit 84a8127 in the command tables (done above for my CSVs; no rerun); (b) d-eval hashes only non-default fields: every committed hash of every owner changes once; (c) rerun the approach A CSVs on Linux (hours of cloud time, no new result). Recommendation: (a). |
+| X18 M: a new config field changes `config_hash` | Explained, needs a decision (d-eval owns `config_hash`). The 42 approach A CSVs from 84a8127 (30 main, 12 ablations) carry hashes of that commit's fields: `top_k` and `landmarks.space` present (removed in C9), `act_ahead_xy` and `act_region_xy` absent (added for act-ahead). I rebuilt that payload: 42 of 42 hashes match. The H1 rows and `high_act_ahead8` match the current code. Options: (a) keep the hashes and name the code commit 84a8127 in the command tables (done above for my CSVs; no rerun); (b) d-eval hashes only non-default fields: every committed hash of every owner changes once; (c) rerun the approach A CSVs on Linux (hours of cloud time, no new result). Recommendation: (a). **Decided (coordinator, 2026-10-30): (a)**, no rerun; g-release states in the README that the approach A CSVs come from 84a8127 and that a rerun at HEAD gives the same records with another `config_hash`. **Checked** (Mac, one platform, so chaotic dynamics cannot differ): the code of 84a8127 (`git archive`) against HEAD, medium, eval seed 0, 2 episodes per task, for the defaults and the 9 ablation options. 100 of 100 records identical (success, steps, final distance), only `config_hash` differs, and the old tree writes exactly the committed hashes. One fix was needed first: since C7, `options.edge_reward=paper` stopped with a `RuntimeError` (value iteration does not converge in 1000 sweeps on medium), while 84a8127 planned with the last sweep. 2d2925b restores that behaviour with a `RuntimeWarning` (C7, below). So the README sentence holds from 2d2925b on. |
+| C7 S (changed 2026-10-30) | `_solve` now gives a `RuntimeWarning` (not a `RuntimeError`) when value iteration has not converged after `vi_max_iters` sweeps, and plans with the last sweep, as the committed runs did. Test: the warning, the values of one sweep, and an action. |
 
 Also new (2026-10-30): the module docstring of `fbplan/controllers/planner.py` describes H1 in a
 few lines; the `RecordedRouteConfig` docstring documents every field; a real-data test pins the
@@ -936,9 +936,10 @@ following does not touch. The option stays, off by default, as an ablation.
 
 ## Requests to the coordinator
 
-- Merge c-planner (707f67a docs and a real-data test, 65529e2 review leftovers, this status).
-  No change of behaviour. f-report: the H1 method section and the command list are ready.
-- X18: choose option (a), (b) or (c) of "Items still open for my area"; I recommend (a).
+- Merge c-planner (707f67a docs and a real-data test, 65529e2 review leftovers, 2d2925b the
+  C7 fix, this status). 2d2925b makes the committed `edge_reward=paper` ablation rerun again
+  (it crashed since C7); no other change of behaviour. f-report: the H1 method section and the
+  command list are ready. g-release: the README sentence on X18 holds from 2d2925b on.
 - Done: H1 code merged (2f731f7); medium H1 commands merged (91a93aa). A short alias (e.g. `recorded_route`) in
   `fbplan/controllers/__init__.py` is still optional; that file is not mine.
 - Merge c-planner: review fixes (c187bb7), ablation commands and Mac cross-check. API changes

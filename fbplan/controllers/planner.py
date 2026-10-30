@@ -25,6 +25,7 @@ of the unit region latents 4, 8 and 12 xy ahead ("window"), or pi_h with that po
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field, is_dataclass, replace
 from functools import cached_property
 from typing import Literal, TypeVar
@@ -105,7 +106,8 @@ class PlannerConfig:
         (design.md §4.A). With exact values this is never worse (option interruption);
         commitment guards against noisy values.
     vi_max_iters, vi_tol: value iteration stops at relative change vi_tol; a task whose
-        value iteration has not converged after vi_max_iters sweeps raises an error.
+        value iteration has not converged after vi_max_iters sweeps gives a RuntimeWarning and
+        plans with the last sweep.
     """
 
     landmarks: LandmarkConfig = field(default_factory=LandmarkConfig)
@@ -301,7 +303,14 @@ class GraphPlannerController:
             cfg.vi_tol,
         )
         if not solution.converged:
-            raise RuntimeError(f"value iteration did not converge in {cfg.vi_max_iters} sweeps")
+            # A signal, not an error: the committed runs plan with the last sweep (edge_reward
+            # "paper" on medium does not converge in 1000 sweeps).
+            warnings.warn(
+                f"value iteration did not converge in {cfg.vi_max_iters} sweeps; "
+                "the plan uses the last sweep",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         return TaskPlan(z_r, solution)
 
     def _needs_replan(self) -> bool:
