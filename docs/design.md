@@ -276,6 +276,14 @@ Shared contracts: `fbplan/contracts.py` (`FBModel`, `Controller`, `TaskSpec`, `E
     goals, the falsification rule of 'H1 on large' against the medium oracle and `baseline`,
     then the selected config on medium eval seeds 0–9 against both rows; the gain rule decides.
     All rows are reported, whatever they show.
+  - **Wave 3 results and the medium replication** (fixed on 2026-10-30 at 05:20 MSK, before any
+    replication result). (R) Large seeds 10–19: H1 +1.8 pp over `baseline` (p 0.16), so the
+    replication does not confirm H1 on large; pooled seeds 0–19 +2.7 pp (p 0.004). (M) Medium:
+    held-out check passed (window, K 150); seeds 0–9: 83.8 % against `baseline` 78.4 % (+5.3 pp)
+    and `baseline_raw` 80.5 % (+3.3 pp [+1.2, +5.4], p 0.003): H1 passes on medium. Replication,
+    as for large: the same config on medium eval seeds 10–19 with `baseline` and `baseline_raw`;
+    it confirms if H1 beats both rows on seeds 10–19 alone, paired, p < 0.05. The report shows
+    seeds 0–9, 10–19 and 0–19 for both mazes.
   - Not in wave 1: an unfrozen `π_l` (h-exec H2, H5: low chance of a high-level gain, and every
     row would need it); the `z_r` norm knob (h-repr: c = 1 is best on medium); new critics
     (h-learn H5, H6) wait for the 2× result.
