@@ -39,7 +39,6 @@ export JAX_PLATFORMS=cpu
 # Controllers without an alias in fbplan/controllers/__init__.py.
 ROUTE=fbplan.controllers.planner:make_recorded_route
 TRAP=fbplan.controllers.trap_aware:make_trap_aware
-TELEPORT_ORACLE=fbplan.controllers.oracle_teleport:make_teleport_oracle
 
 # Evaluation runs, one per line: CSV below results/, maze, eval seeds, episodes per task and
 # eval seed, method, more fbplan.evaluate arguments. {a..b} stands for one line per value.
@@ -68,7 +67,8 @@ medium/oracle_sweep/state_l{1..3}.csv             medium 0   50 oracle --opt way
 medium/oracle_sweep/region_r0.5_l{1..3}.csv       medium 0   50 oracle --opt waypoint=region radius=0.5 lookahead={1..3}
 medium/oracle_sweep/region_r1.0_l{1..3}.csv       medium 0   50 oracle --opt waypoint=region radius=1.0 lookahead={1..3}
 medium/oracle_sweep/region_r1.5_l{1..3}.csv       medium 0   50 oracle --opt waypoint=region radius=1.5 lookahead={1..3}
-# Medium, recorded route (H1): the grid on the held-out goals, then the selected config
+# Medium, recorded route (H1): the grid on the held-out goals, then the selected config, and
+# its replication on the new eval seeds 10-19
 medium/planner_ablations/h1_eval/window_k150.csv  medium 0-9 50 $ROUTE --opt executor=window max_steps=150
 medium/planner_ablations/h1_heldout/point_k60.csv   medium 0-2 20 $ROUTE --heldout --opt executor=point max_steps=60
 medium/planner_ablations/h1_heldout/point_k150.csv  medium 0-2 20 $ROUTE --heldout --opt executor=point max_steps=150
@@ -78,6 +78,9 @@ medium/planner_ablations/h1_heldout/high_k60.csv    medium 0-2 20 $ROUTE --heldo
 medium/planner_ablations/h1_heldout/high_k150.csv   medium 0-2 20 $ROUTE --heldout --opt executor=high max_steps=150
 medium/planner_ablations/h1_heldout/oracle.csv      medium 0-2 20 oracle --heldout
 medium/planner_ablations/h1_heldout/baseline.csv    medium 0-2 20 baseline --heldout
+medium_seeds10-19/h1_window_k150.csv              medium 10-19 50 $ROUTE --opt executor=window max_steps=150
+medium_seeds10-19/baseline.csv                    medium 10-19 50 baseline
+medium_seeds10-19/baseline_raw.csv                medium 10-19 50 baseline_raw
 # Medium, approach A ablations on landmark set 0: one change of the defaults per run
 medium/planner_ablations/no_xy_cap/l0.csv         medium 0-4 50 planner --opt landmarks.seed=0 max_edge_xy=None
 medium/planner_ablations/reached_1.5_no_lookahead/l0.csv medium 0-4 50 planner --opt landmarks.seed=0 reached_xy=1.5 lookahead=False
@@ -153,8 +156,8 @@ teleport/baseline_raw.csv                         teleport 0-4 50 baseline_raw
 teleport/nonhier.csv                              teleport 0-4 50 nonhier
 teleport/planner/l{0..2}.csv                      teleport 0-4 50 planner --opt landmarks.seed={0..2}
 teleport/planner_high/l{0..2}.csv                 teleport 0-4 50 planner_high --opt landmarks.seed={0..2}
-teleport/oracle_teleport.csv                      teleport 0-4 50 $TELEPORT_ORACLE
-teleport/oracle_teleport_pi_h.csv                 teleport 0-4 50 $TELEPORT_ORACLE --opt follow=pi_h
+teleport/oracle_teleport.csv                      teleport 0-4 50 oracle_teleport
+teleport/oracle_teleport_pi_h.csv                 teleport 0-4 50 oracle_teleport --opt follow=pi_h
 # Teleport, trap-aware control (T3): the grid on the held-out goals, then the selected config
 teleport/heldout/baseline.csv                     teleport 0-2 20 baseline --heldout
 teleport/heldout/baseline_raw.csv                 teleport 0-2 20 baseline_raw --heldout
@@ -502,11 +505,15 @@ report_tables() {
   heading "Ensembles on the medium held-out goals (8.6)"
   py analysis/tables.py $m/heldout_ensemble/*.csv --label-root $m/heldout_ensemble \
     --reference t1_retrained t4_retrained
-  heading "Recorded route (H1) on medium: held-out grid, then eval seeds 0-9 (8.7)"
+  heading "Recorded route (H1) on medium: held-out grid, eval seeds 0-9, 10-19 and 0-19 (7.1, 8.7)"
   py analysis/tables.py $m/planner_ablations/h1_heldout/*.csv \
     --label-root $m/planner_ablations/h1_heldout --reference baseline oracle
   py analysis/tables.py $t/baseline.csv $t/baseline_raw.csv $t/oracle.csv \
     $m/planner_ablations/h1_eval/window_k150.csv --reference baseline baseline_raw oracle
+  py analysis/tables.py results/medium_seeds10-19/*.csv --reference baseline baseline_raw
+  py analysis/tables.py $t/baseline.csv $t/baseline_raw.csv \
+    $m/planner_ablations/h1_eval/window_k150.csv results/medium_seeds10-19/*.csv \
+    --reference baseline baseline_raw
   heading "Large, 5 eval seeds (7.2)"
   # shellcheck disable=SC2046 # main_runs prints one path per word
   py analysis/tables.py $(main_runs large) --label-root $l --cluster config_hash
@@ -532,19 +539,22 @@ report_tables() {
   py analysis/tables.py $(main_runs giant) --label-root results/giant --cluster config_hash
 }
 
+# Print whether a file that --smoke rebuilt ($1, below results/) equals the committed one.
+compare_file() {
+  if cmp -s "$root/$1" "results/$1"; then
+    echo "$1: equal to the committed file"
+  else
+    echo "$1: differs from the committed file"
+  fi
+}
+
 # Write a table that the report quotes ($1, below results/) from the committed CSVs. --smoke
-# writes it below runs/smoke/ and prints whether it equals the committed file.
+# writes it below runs/smoke/ and compares it with the committed file.
 derived_csv() {
   local csv=$1
   shift
   py "$@" --out "$root/$csv"
-  if $smoke; then
-    if cmp -s "$root/$csv" "results/$csv"; then
-      echo "$csv: equal to the committed file"
-    else
-      echo "$csv: differs from the committed file"
-    fi
-  fi
+  if $smoke; then compare_file "$csv"; fi
 }
 
 stage_tables() {
@@ -585,8 +595,11 @@ stage_figures() {
     # shellcheck disable=SC2046 # main_runs prints one path per word
     py analysis/plots.py $(main_runs medium) --label-root "$root/medium" --cluster config_hash \
       --out-dir "$report_dir"
-    py analysis/calibration.py --env "$(env_id medium)" --n 50 --out-dir "$figure_dir" \
+    py analysis/calibration.py --env "$(env_id medium)" --n 50 --fig-dir "$figure_dir" \
       --table-dir "$root/calibration"
+    py analysis/heldout_goals.py --envs "$(env_id medium)" --fig-dir "$figure_dir" \
+      --table-dir "$root/heldout_goals"
+    compare_file "heldout_goals/$(env_id medium).csv"
   else
     for maze in medium large giant teleport; do
       # shellcheck disable=SC2046 # main_runs prints one path per word
@@ -596,15 +609,14 @@ stage_figures() {
     for maze in medium large; do
       for agg in min mean; do
         py analysis/calibration.py --env "$(env_id "$maze")" --head-agg "$agg" \
-          --out-dir "$figure_dir" --table-dir "$root/calibration"
+          --fig-dir "$figure_dir" --table-dir "$root/calibration"
       done
     done
     for maze in giant teleport; do
-      py analysis/calibration.py --env "$(env_id "$maze")" --out-dir "$theory_dir" \
+      py analysis/calibration.py --env "$(env_id "$maze")" --fig-dir "$theory_dir" \
         --table-dir "$theory_dir"
     done
-    # It always writes the goal files to results/heldout_goals/, so --smoke skips it.
-    py analysis/heldout_goals.py --fig-dir "$figure_dir"
+    py analysis/heldout_goals.py --fig-dir "$figure_dir" --table-dir "$root/heldout_goals"
   fi
   # Time to goal (report 8.4): the figure, and on stdout the numbers that the report quotes.
   py analysis/report_figures.py "$root/medium" --out-dir "$report_dir"
