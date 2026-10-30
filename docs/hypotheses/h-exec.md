@@ -2,7 +2,7 @@
 
 Lens: the frozen `π_l` caps success. Which intentions `z`, or which rules for when and how to
 switch them, change what `π_l` does? Does success depend on properties of `z` that `π_h` does not
-use? Is unfreezing `π_l` worth its cost? Brief: `docs/briefs/hypotheses.md`.
+use? Is unfreezing `π_l` worth its cost?
 
 ## Summary
 
@@ -20,14 +20,14 @@ use? Is unfreezing `π_l` worth its cost? Brief: `docs/briefs/hypotheses.md`.
 - **Power:** paired episodes are almost independent (M6), so a gain must be about +4 pp to pass
   the rule. All five hypotheses have a low probability of a gain (0.02–0.12).
 
-## 1. New measurements (this session)
+## 1. New measurements
 
 All runs below are cheap checks on macOS (arm64), 4 workers, at most 2 minutes each. Medium
 runs use the 10 held-out goals (`task_id` 101–110), 40 episodes per goal, eval seed 50: 400
 episodes, the same start states in every run. Nothing ran on the 5 eval tasks. Mac and Linux
 agree on success rates, not on single episodes (REPORT §6), so these numbers are not comparable
-episode by episode with `results/`. Scripts stay outside the repository (brief, Rules); §6 lists
-what they compute, so that any owner can redo them.
+episode by episode with `results/`. Scripts stay outside the repository; §5 lists what they
+compute, so that anyone can redo them.
 
 **M1. Flips come from the data.** In the medium train split, 10.0 % of the states are flipped
 (torso z-axis below the horizon), 210 of the 1,000 episodes flip, 193 end flipped, and none
@@ -74,7 +74,9 @@ flip is an effect of the unusual state, not its cause.
 **M5. The raw `z_r` path is not better on held-out goals.** On the eval tasks (Linux),
 `baseline_raw` beats `baseline` by +3.8 pp [+0.7, +6.8]. On the 10 held-out goals (Mac) it is
 −3.2 pp [−8.0, +1.5], with 49 flips against 32. Both runs give the same jitter. This bears on
-the bar, not on my lens: see the note to the coordinator in §5.
+the bar, not on my lens: the `baseline_raw` bar on medium may be goal-specific. A Linux run of
+`baseline_raw` on the held-out goals (600 episodes, a few CPU minutes) would show whether the bar
+reflects the 5 eval goals rather than the method. The rule stays as fixed.
 
 **M6. Paired episodes are almost independent.** On Linux medium, 30.5–33.2 % of the episodes
 end differently between `baseline` and `baseline_raw`, the oracle, a retrained seed or a B seed.
@@ -199,7 +201,7 @@ end in the trap, `docs/theory.md` §11.3) and its lever is measured, and because
    it), and `d̂(s) = log ρ̂_walk / log γ`. Then `g(s) = 1` while `d̂(s) ≤ 1000 − t`, else 0.
    λ ∈ {0.5, 1}. Falsified if no gated setting beats λ = 0 by ≥ 5 pp on the 200 episodes, or if
    the trap share does not fall.
-5. **Full test.** d-eval first adds teleport held-out goals (`select_heldout_goals`, as for medium).
+5. **Full test.** Teleport held-out goals are added first (`select_heldout_goals`, as for medium).
    Select λ ∈ {0.5, 1, 2} × gate {none, time} on them (3 eval seeds × 20 episodes per goal; teleport
    episodes run to about 900 steps, about 4 min per setting with 4 workers). Then one run on the 5
    eval tasks × 50 episodes × 5 eval seeds, paired with `results/teleport/baseline.csv` and
@@ -227,7 +229,7 @@ end in the trap, `docs/theory.md` §11.3) and its lever is measured, and because
    executor change, not as a high-level gain. The high-level question on `π_l'` is then whether
    the oracle gains room over the baseline; only if it does is a high-level method worth a run.
    I recommend this reading. The other reading ("`π_h` + `π_l'` beats `π_h` + `π_l`") changes the
-   frozen setting of the assignment, and the coordinator must decide on it.
+   frozen setting of the assignment and needs a decision on scope before a run.
 3. **Evidence.** For: M9; REPORT §7.2–7.3; `docs/theory.md` §11.2 (on giant, 65–200 steps per cell
    for the oracle against 40 on medium). Against: `F` is the successor measure of the old `π_l`.
    A changed `π_l` makes `F`, `ρ̂`, B's critic and `π_h`'s training signal slightly off-policy; a
@@ -238,7 +240,7 @@ end in the trap, `docs/theory.md` §11.3) and its lever is measured, and because
    against all actions; (b) the flip rate within 50 steps after those actions. Falsified if the
    top-weighted actions are not ≥ 15 % faster, or if they flip more often.
 5. **Full test.** Fine-tune `π_l'` from the frozen weights, 5 seeds, about 200k steps each on one
-   GPU (5 `π_h` seeds took 55 min on an RTX 3090 at $0.21/h; e-learner's log). Evaluate on large
+   GPU (5 `π_h` seeds took 55 min on an RTX 3090 at $0.21/h; README.md). Evaluate on large
    and giant: `baseline`, `baseline_raw` and the oracle, each with `π_l` and with `π_l'`, 1,250
    episodes per row (about 4 CPU hours on Linux for large and giant). Report the executor lift.
    The high-level gain rule applies only on `π_l'`: a method beats `baseline`/`π_l'` and
@@ -332,20 +334,7 @@ end in the trap, `docs/theory.md` §11.3) and its lever is measured, and because
 - **Retraining `F` and `B` with a larger γ, or `π_l` from scratch.** That is retraining FB, which
   the task forbids.
 
-## 5. Notes for the coordinator
-
-- **The `baseline_raw` bar on medium may be goal-specific.** On the held-out goals the raw path
-  scores −3.2 pp [−8.0, +1.5] against the normalized one (M5, Mac, 400 episodes), the opposite
-  sign of the eval tasks (+3.8 pp). Not significant, and Mac only, but a Linux run of
-  `baseline_raw` on the held-out goals (600 episodes, a few CPU minutes) would show whether the
-  bar reflects these 5 goals rather than the method. The rule stays as fixed.
-- **Power.** Paired episodes are almost independent (M6): a gain must be about +4 pp to pass the
-  rule with reasonable probability at 1,250 episodes.
-- **H1 needs teleport held-out goals** (d-eval).
-- **H2 and H5 need a decision on scope**: an unfrozen `π_l` is fair only as a new executor for
-  every row, and then its lift is not a high-level gain.
-
-## 6. Reproduction of the measurements
+## 5. Reproduction of the measurements
 
 Scratch scripts outside the repository; each step below is enough to redo them.
 

@@ -1,8 +1,7 @@
 """Shared contracts between components.
 
-Every component codes against the types in this module. The coordinator owns this file:
-if you need a change, write the request in your docs/status/<component>.md and tell the user.
-Math and notation are in docs/design.md.
+Every component codes against the types in this module. Math and notation are in
+docs/design.md.
 """
 
 from __future__ import annotations

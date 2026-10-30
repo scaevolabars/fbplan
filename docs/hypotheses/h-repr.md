@@ -1,6 +1,6 @@
 # Hypotheses for a gain: representations and the task latent (h-repr)
 
-Session h-repr, 2026-10-29. Brief: `docs/briefs/hypotheses.md`. Lens: how the task latent and
+Written on 2026-10-29. Lens: how the task latent and
 the intention latents are built from the frozen `B`, what the FB option model and γ imply, and
 which FB-side changes could create headroom.
 
@@ -77,14 +77,14 @@ the intention latents, not the task latent.
    (REPORT.md §8.4). Against: A with region latents is worse, but there the latent also enters
    `ρ̂` (REPORT.md §4, §8.4); `π_h`'s output is already a weighted mean over subgoals, so part of
    the smoothing exists; B-region (window of ±5 trajectory steps, with B's critic) is pending.
-4. **Cheap falsification test.** Read B-region against B-clean when d-eval reports it
+4. **Cheap falsification test.** Read B-region against B-clean once its evaluation is in
    (`results/medium/b_region/`, pooled, `--cluster checkpoint_seed`). If B-region is not above
    B-clean, drop H1: the latent type then does not help through `π_h`. No new run.
 5. **Full test.** One change to the upstream recipe: the AWR target of `high_actor_loss` becomes
    the 0.5-xy region mean of `w` (precomputed per train state with a KD-tree); the advantage
    keeps `B(w)`. Variant: the region latent in the advantage too (consistent option, but `ρ̂`
    gets flatter, REPORT.md §4). 5 seeds, 500k steps, `high_alpha` as the retrained baselines;
-   about 1.5 GPU-h for 5 parallel seeds (e-learner's rate for the retrained baselines). Evaluate
+   about 1.5 GPU-h for 5 parallel seeds (the rate of the retrained baselines). Evaluate
    5 × 1,250 episodes and the 600-episode held-out set per seed (about 1 CPU-h). Decide by the
    gain rule: pooled and held-out-selected rows, significant against `baseline` and
    `baseline_raw`; the controlled reference is the 5 retrained baselines.
@@ -101,7 +101,7 @@ the intention latents, not the task latent.
    (teleport). This beats both rows.
 2. **Mechanism.** Most failures end in an absorbing state: 70–75 % of the medium failures are
    flips (REPORT.md §8.2), and 54.7 % of all teleport baseline episodes end in the trap
-   (`docs/status/d-eval.md`, teleport table). `π_h` was trained on the goal value only, so it never
+   (`docs/theory.md` §11.3, teleport table). `π_h` was trained on the goal value only, so it never
    trades goal progress against flip or trap risk. By FB linearity, `z_abs = E[1_abs·B]` gives
    the occupancy `F(s,z_w)ᵀz_abs` for any intention. The candidates come from `π_h`, so the
    choice stays inside `π_h`'s distribution, and a max over 3 candidates collects little FB noise
@@ -127,7 +127,7 @@ the intention latents, not the task latent.
    below 10 % of its spread over states, the choice has nothing to choose: reject. Also check
    that the argmax with λ = 2 picks a lower-risk candidate than `c = 1` in at least 20 % of the
    states near an entry.
-5. **Full test.** A controller (about 60 lines, d-eval or a new owner) and the data-only
+5. **Full test.** A controller (about 60 lines) and the data-only
    absorbing rules of A3. λ ∈ {0.5, 1, 2, 4} in reward units on the medium held-out goals
    (4 × 600 episodes); teleport first needs 10 held-out goals (`analysis/heldout_goals.py`).
    Select λ* by held-out success, then 1,250 eval episodes per maze, paired against both rows.
@@ -161,7 +161,7 @@ the intention latents, not the task latent.
    held-out episodes at `c` = 1.0, 1.2, 1.4 (about 4 min): if neither 1.2 nor 1.4 is above 1.0,
    drop H3. First repair the `z_r` of large held-out goals 102 and 103, which are 74–77 %
    flipped states (A1).
-5. **Full test.** A `scale` option for `BaselineController` (d-eval, about 5 lines; the scratch
+5. **Full test.** A `scale` option for `BaselineController` (about 5 lines; the scratch
    controller of A5 is the reference). Held-out grid `c` ∈ {0.85, 1.0, 1.15, 1.3, 1.5} plus
    `baseline_raw`, design.md §8 protocol (eval seeds 0 1 2, 20 episodes per goal); rule fixed in
    advance: the highest held-out success, ties to the `c` nearer 1. Then 1,250 eval episodes at
@@ -229,8 +229,8 @@ the intention latents, not the task latent.
 3. **Evidence.** For: the oracle sweep; the teleport analysis; on giant (γ = 0.995) the FB
    distance saturates beyond about 45 xy units (REPORT.md §7.3). Against: a larger γ degrades
    long-range `ρ̂` (giant); the comparison would be against a new FB model, not a new high level.
-4. **Cheap falsification test.** None with the frozen model. A tabular check on b-theory's
-   teleport maze: recover `P(trap)` from exact `ρ` at γ and γ'.
+4. **Cheap falsification test.** None with the frozen model. A tabular check on the teleport maze
+   of the tabular code (`fbplan/tabular/`): recover `P(trap)` from exact `ρ` at γ and γ'.
 5. **Full test.** Out of scope: FB pretraining per maze (hours of GPU per seed, 5 seeds), a new
    `π_l`, and retrained baselines on it for fairness.
 6. **Constraint check.** Unfreezes `F`, `B` and `π_l`; this is why it ranks last.
@@ -241,7 +241,7 @@ the intention latents, not the task latent.
 `baseline` and `baseline_raw` are the same policy at two values of one knob (`c = 1` and
 `c ≈ 0.95`). On the 600 held-out episodes they do not differ (−0.7 pp [−4.5, +3.3], A5), and
 the knob's curve falls below `c = 1`. On the eval tasks the raw row is +3.8 pp [+0.7, +6.8]
-(Linux) and +2.6 pp, p = 0.11 (Mac, `docs/status/d-eval.md`). If this is noise, the rule
+(Linux) and +2.6 pp, p = 0.11 (Mac, `results/macos/medium/`). If this is noise, the rule
 "significant against both rows" sets the medium bar about 3 pp above the true success of the
 policy, and a real gain of 2–3 pp cannot pass it. Two readings remain open: noise, or an effect
 specific to the 5 eval tasks. A re-run of both rows on 5 more eval seeds (2 × 1,250 episodes,
@@ -265,7 +265,7 @@ about 0.3 CPU-h) would separate them without any selection on the eval tasks.
 
 ## Appendix: the cheap checks
 
-All on CPU with the frozen checkpoints; scripts outside the repository (session scratchpad).
+All on CPU with the frozen checkpoints; scripts outside the repository.
 `n(·)` scales a vector to norm `√d`.
 
 **A1. Construction of `z_r` (medium; 5 eval goals and 10 held-out goals).** For each goal, the
@@ -345,4 +345,4 @@ bootstrap stratified by goal, exact McNemar p.
 A first pass on 100 of these episodes (eval seed 0, 10 per goal) gave `c = 0.7` +9 pp; the
 600-episode run reverses it. The retrained baselines score 83.7–87.8 % on the same held-out
 protocol on Linux (`results/medium/heldout_selection.csv`), so `c = 1` at 85.7 % is typical. The
-rollouts used 9.0 min of wall time with 4 workers in 9 runs, within the brief's 10 minutes.
+rollouts used 9.0 min of wall time with 4 workers in 9 runs, within a budget of 10 minutes.
