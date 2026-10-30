@@ -1,6 +1,6 @@
 # Status: f-report
 
-Last update: 2026-10-30, 06:10. Branch merged with `main` at 953030d.
+Last update: 2026-10-30, 06:45. Branch merged with `main` at 5618c39.
 
 ## Done
 
@@ -273,6 +273,14 @@ Last update: 2026-10-30, 06:10. Branch merged with `main` at 953030d.
     §10 "Not done"), F12 (§11 figure command → `reproduce.sh`). `docs/hypotheses/` references
     stay.
   - Status line: "complete; items that did not run are listed in §10".
+- Before the removal of the process files (g-release's list, main 5618c39; 33811f9 named in the
+  request is not in the repository): no link to `docs/status` or `docs/briefs` and no bare
+  hypothesis label in REPORT.md (labels removed or given their `docs/hypotheses/` path). Facts
+  moved into REPORT.md, no number changed: §5 the stopped `ρ` cap 1.0 critic; §7.1 the cosine
+  0.955 of retrained and provided `π_h`; §8.4 the act-ahead pairing check (1,250 of 1,250);
+  §8.6 the T2 weight cross-check (2.2e-5); appendix the approach A code identity checks
+  (c187bb7, 06ea0a8, 84a8127). The c-planner facts for §8.7 and the platform shift (§6) were
+  already in.
 - Private defense sheet for the reviewer call (coordinator request): written outside the
   repository, not committed; updated for B, the seed selection, the ablations, giant, and the
   10-seed protocol and T1.
