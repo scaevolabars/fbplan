@@ -264,6 +264,18 @@ Shared contracts: `fbplan/contracts.py` (`FBModel`, `Controller`, `TaskSpec`, `E
     stop. Otherwise the selected config runs on large eval seeds 0–9, paired against both
     baseline rows, and the gain rule decides. The report states that the route comes from
     recorded trajectories, not from FB values.
+  - **H1 result and wave 3** (fixed on 2026-10-30 at 04:20 MSK, before any wave-3 result).
+    H1 on large passed the gain rule: 41.2 % against `baseline` 37.7 % (+3.5 pp [+0.9, +6.0],
+    p 0.009) and `baseline_raw` 35.5 % (+5.6 pp), eval seeds 0–9. Because many tests ran, two
+    confirmatory steps follow, with the same code and the selected config (`high`, K 150):
+    (R) replication on large eval seeds 10–19 (new episodes), H1 and both baseline rows on one
+    platform; it confirms if H1 beats both rows there, paired, p < 0.05; the report shows seeds
+    0–9, 10–19 and 0–19. (M) medium: G0 had dropped route methods on medium because the oracle
+    had no room, but H1 beats the oracle on large (+2.3 pp), so the oracle does not bound H1.
+    H1 on medium follows h-papers H1 item 5: the same grid and tie rule on the medium held-out
+    goals, the falsification rule of 'H1 on large' against the medium oracle and `baseline`,
+    then the selected config on medium eval seeds 0–9 against both rows; the gain rule decides.
+    All rows are reported, whatever they show.
   - Not in wave 1: an unfrozen `π_l` (h-exec H2, H5: low chance of a high-level gain, and every
     row would need it); the `z_r` norm knob (h-repr: c = 1 is best on medium); new critics
     (h-learn H5, H6) wait for the 2× result.
