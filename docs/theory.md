@@ -1,6 +1,6 @@
 # Theory: chaining switches with successor measures
 
-Status: report appendix, owned by b-theory. Notation follows `docs/design.md` §3 and the paper
+Status: report appendix. Notation follows `docs/design.md` §3 and the paper
 (arXiv 2605.13207, §3–5, App. B.1). Every claim marked ✓ has a numeric check in
 `tests/test_tabular_theory.py` (exact to 1e-8, on the deterministic medium maze and on the
 stochastic teleport maze).
@@ -236,7 +236,7 @@ profitable. Setting `R̂ = 0` restores 1.00 with the exact controller.
 Independent noise creates no gross wormholes: no pair has `ρ̂ > 2γ^d` at any noise level up to
 0.04 (`study_wormholes.csv`). The harm comes from many small overestimates compounded by the max.
 "Wormhole" here means `ρ̂ > 2γ^d` (`study.rho_bound_wormholes`, the true ρ is at most `γ^d`).
-d-eval's AntMaze calibration uses another definition: a trusted pair whose FB distance is
+The AntMaze calibration (`analysis/calibration.py`) uses another definition: a trusted pair whose FB distance is
 shorter than the time to walk the geodesic at the ant's top speed (§11.2).
 
 ![calibration](figures/theory/calibration.png)
@@ -309,14 +309,14 @@ exact controller; value from the task start (V* ≈ 11).
 3. Choose `ρ_min` so that every hop stays in the range where π_l reliably reaches its subgoal;
    commit to w* until it is reached, with a timeout.
 4. Expect gains where π_l fails at long range, not where the direct policy already works. The
-   oracle-waypoint controller (d-eval) measures exactly this headroom on AntMaze.
+   oracle-waypoint controller (`fbplan/controllers/oracle.py`) measures exactly this headroom on AntMaze.
 5. In continuous states the chain value is approximate (§7): keep hops few and the reach radius
    small compared with the scale on which option values change.
 
 ## 11. Bonus mazes: teleport and giant
 
 Runs: the protocol of design.md §5 (5 eval seeds × 5 tasks × 50 episodes, paired start states),
-method defaults, on the Linux evaluation instance (d-eval, CSVs in `results/teleport/` and
+method defaults, on the Linux evaluation instance (CSVs in `results/teleport/` and
 `results/giant/`, commands in `scripts/reproduce.sh`). Two replays of preliminary Mac runs
 (the giant oracle's progress in §11.2, the check of the trap rule in §11.3) say so; no table
 mixes the two platforms.
@@ -377,8 +377,9 @@ steps, c = 40, the median pace of successful medium episodes):
   about 290 steps from 30 to 50 units, and falls beyond. For pairs 60–75 units apart on foot
   (480–555 steps at the median speed; `0.99^walk` = 0.004–0.008), it is 150–190 steps:
   `ρ̂` = 0.15–0.22. These pairs join the left and the right side of the maze, which the
-  teleporters connect. (Distances from an independent raster check; the figure's geodesic is
-  too short for some pairs, see the caveat in §11.2.)
+  teleporters connect. (Distances from the independent raster check
+  `uv run python analysis/raster_geodesic.py --env antmaze-teleport-navigate-v0`; the figure's
+  geodesic is too short for some pairs, see the caveat in §11.2.)
 - A jump that is repeated after each bad exit is worth `(1/3) / (1 − γ^40/3) = 0.43` at γ = 0.99
   and 40 steps per re-jump, times the discount of the walks to the entry and from the exit. So
   `ρ̂` has the size of the risk-neutral jump value, not of the walk: FB estimates `E[γ^H]` of the
@@ -407,15 +408,15 @@ of tasks 1–4.
 The privileged oracle (true shortest path, waypoints 2 cells ahead) measures the pace on giant
 itself. It succeeds in 2.5 % of the episodes (§11.3; 0 % on tasks 1 and 3). Of its 1,219
 failures, 21.7 % are flips, 0.7 % are stuck, and 77.6 % are still moving at the time limit
-(`results/giant/failures/oracle.csv`, d-eval's `analysis/failures.py`). A replay of eval seed 0
+(`results/giant/failures/oracle.csv`, `analysis/failures.py`). A replay of eval seed 0
 of the preliminary Mac run (249 of 250 failures) measures the progress: in 1,000 steps the
 oracle covers a median of 14, 15.5, 6, 15 and 5 cells of the 30-, 26-, 30-, 26- and 17-cell
 walks (`cells_left`), so 65–200 steps per cell against about 40 on medium. On giant, π_l follows
 even perfect waypoints too slowly for the time limit; the route is not the bottleneck.
 
 **ρ at long range.** The checkpoint uses γ = 0.995 (horizon 200 steps). A 1,000-step route has
-`ρ = 0.995^1000 = 0.0067`. FB calibration on 400 val states (d-eval's
-`uv run python analysis/calibration.py --env antmaze-giant-navigate-v0 --out-dir docs/figures/theory
+`ρ = 0.995^1000 = 0.0067`. FB calibration on 400 val states
+(`uv run python analysis/calibration.py --env antmaze-giant-navigate-v0 --out-dir docs/figures/theory
 --table-dir docs/figures/theory`):
 
 ![giant calibration](figures/theory/calibration_antmaze-giant-navigate-v0_min.png)
@@ -425,16 +426,18 @@ even perfect waypoints too slowly for the time limit; the route is not the bottl
   the 600-step cap (`ρ̂` < 0.05) at about 65 units. The spread is wide: from 20 units (5 cells)
   on, the upper quartile is at the cap, and 26–60 % of the pairs have `ρ̂` < 0.05. The task
   walks are 52–92 units on foot (420–740 steps at the median speed, `0.995^walk` = 0.02–0.12).
-  (Bins of an independent raster check; see the caveat.)
+  (Bins of the independent raster check
+  `uv run python analysis/raster_geodesic.py --env antmaze-giant-navigate-v0`; see the caveat.)
 - Caveat: the figure's point geodesic (`MazeGeometry.geodesic_distances`) is too short for some
   pairs. Two wall cells that share an edge leave a thin slit after the shrink of the wall boxes,
   and a straight segment along that grid line passes between them. The giant task 5 measures
   21.2 xy units, but its walk is 17 cells (raster check: 51.9). Against an octile Dijkstra on a
-  0.5-unit raster (at most 8 % too long), 31 % of the giant pairs are more than 15 % too short
-  (large 13 %, teleport 16 %, medium 0.2 %). The bins in this section use the raster distance.
+  0.5-unit raster (at most 8 % too long; `analysis/raster_geodesic.py --env <env>`), 31 % of the
+  giant pairs are more than 15 % too short (large 13 %, teleport 16 %, medium 0.2 %). The bins in
+  this section use the raster distance.
 - `ρ̂ ≤ 0` (clipped to 0) for 23.9 % of the pairs (medium 10.2 %). At ρ_min 0.3, 11.1 % of the
-  trusted pairs are wormholes in d-eval's sense (FB distance shorter than the walk at the ant's
-  top speed; medium 5.5 %), some across the whole maze. With the slit issue this count is a
+  trusted pairs are wormholes in the sense of `analysis/calibration.py` (FB distance shorter
+  than the walk at the ant's top speed; medium 5.5 %), some across the whole maze. With the slit issue this count is a
   lower bound. The planner's 6-unit xy cap removes all but 801 of the 4,782 (table:
   `docs/figures/theory/wormholes_antmaze-giant-navigate-v0_min.csv`):
 
@@ -473,7 +476,7 @@ episodes, cluster bootstrap over the sets). The oracles are privileged: they rea
 **Teleport: most failures end in the trap.** A trapped ant ends its episode inside cell (1,7), so
 its final distance to the goal is within 2 xy units of the trap centre's (26.8 for goal (7,10),
 33.9 for goal (7,1)). On eval seed 0 of the Mac baseline this rule finds all 129 trapped
-episodes of an exact replay (d-eval's `replay_failures`, trap = `cells_left = −1`) and adds 3 of
+episodes of an exact replay (`replay_failures` in `analysis/failures.py`, trap = `cells_left = −1`) and adds 3 of
 the 48 other failures. (`analysis/failures.py` now has the exact `trapped` class; the rule here
 needs only the CSV.) Over all episodes:
 
@@ -524,25 +527,41 @@ route, and the oracle shows that the route alone is worth about +2 points here.
 
 ### 11.4 Time-aware trap avoidance (T3)
 
-T3 of design.md §8 (h-exec H1) tests the last remedy of §11.1 in the intention: a penalty on the
-absorbing trap, applied only while a walk still fits in the steps left. Controller:
-`fbplan/controllers/trap_aware.py`; tests on the exact tabular maze:
+T3 of design.md §8 (`docs/hypotheses/h-exec.md` H1) tests the last remedy of §11.1 in the
+intention: a penalty on the absorbing trap, applied only while a walk still fits in the steps
+left. Controller: `fbplan/controllers/trap_aware.py`; tests on the exact tabular maze:
 `tests/test_tabular_trap_aware.py`.
 
-- `z_t = normalize(π_h(s,z_r) − λ·g(s,t)·ẑ_trap)`. `ẑ_trap` is the centred mean of B over the
-  train states that follow a trajectory's last jump (xy step > 2) and stay within a radius of
-  their mean. The rule reads no map; at radius 2.5–4.0 it marks all 247 train trajectories
-  that end in the trap. The radius hardly matters: `ẑ_trap` at radius 1.5, 2.5 and 4.0 have
-  cosines ≥ 0.997.
+- `z_t = normalize(π_h(s,z_r) − λ·g(s,t)·ẑ_trap)`. `ẑ_trap` is the centred mean of B over a
+  seeded pool of 200,000 train states, with the trap states marked: the states that follow a
+  trajectory's last jump (xy step > 2) and stay within a radius of their mean.
+- Data checks of the trap rule on the train split (the map checks the rule; the rule does not
+  read the map). Jumps are ≥ 2.27 xy units and walking steps ≤ 0.37, so the threshold 2
+  separates them. At radius 2.5–4.0 the rule marks all 247 train trajectories that end in the
+  trap cell, with 10–14 false alarms; the trap states are 16.4 % of the train states.
+  `B(s)ᵀẑ_trap` separates the trap cell with AUC 0.991. The radius hardly matters: `ẑ_trap` at
+  radius 1.5, 2.5 and 4.0 have cosines ≥ 0.997.
 - The gate g is open while `log ρ̂_walk / log γ ≤ 1000 − t`, with
   `ρ̂_walk = min_h F_h(s,z_c)ᵀẑ_r / F_goal` and `z_c = normalize(ẑ_r − λẑ_trap)`.
+- `F_goal` deviates from `docs/hypotheses/h-exec.md` H1, which takes it over the train states in
+  the goal ball: the controller cannot know these without `goal_xy`. It takes the median of the
+  same value over the 64 pool states with the highest `B(s)ᵀẑ_r`. On the 5 start–goal pairs of
+  `docs/hypotheses/h-exec.md` M11, these states lie at a median 2.4–3.3 xy units from the goal,
+  and `F_goal` is within 20 % of the goal ball's value.
 - On the tabular maze (exact F and B) the controller walks where the walk fits (success 1.0,
   trap 0, against a trap share of 0.42–0.72 for the baseline) and hands back to the baseline
   where it does not. ✓
 
-**Selection on the 10 teleport held-out goals** (Linux, eval seeds 0–2, 600 episodes per row).
-The rule was fixed before the runs: the gated row with the highest success. Success (%) and the
-paired difference against the baseline (pp):
+**Selection on the 10 teleport held-out goals** (Linux, eval seeds 0–2, 20 episodes per goal and
+eval seed, 600 episodes per row). The rule was fixed on 2026-10-30, before any held-out result:
+
+- Candidates: the 6 gated rows, λ ∈ {0.5, 1, 2} × radius ∈ {1.5, 2.5}. The rule takes the
+  candidate with the highest held-out success; ties go to the smaller λ, then to radius 2.5.
+  Nothing else is tuned.
+- Control, not a candidate: the ungated rows (gate `none`, radius 2.5, λ ∈ {0.5, 1, 2}), the
+  setting of `docs/hypotheses/h-exec.md` M11. References: baseline and baseline_raw.
+
+Success (%) and the paired difference against the baseline (pp):
 
 | teleport held-out | λ = 0.5 | λ = 1 | λ = 2 |
 |---|---|---|---|
@@ -553,7 +572,7 @@ paired difference against the baseline (pp):
 The baseline has 48.2 % and baseline_raw 46.5 %. The rule selects λ = 0.5, radius 1.5. No row
 beats the baseline.
 
-**Final run** (5 eval tasks, eval seeds 0–9, 2,500 episodes per row, paired; d-eval):
+**Final run** (5 eval tasks, eval seeds 0–9, 2,500 episodes per row, paired):
 
 | teleport, 10 seeds | task 1 | task 2 | task 3 | task 4 | task 5 | all | vs. baseline (pp) | vs. baseline_raw (pp) |
 |---|---|---|---|---|---|---|---|---|
@@ -573,8 +592,8 @@ T3 fails the rule of design.md §8 (a significant gain over both baseline rows).
   54.8 to 51.8 %. The other failures rise from 17.6 to 30.2 %; all of them run to the 1,000-step
   limit (flips and slow walks; the CSV cannot separate them), with a median final distance of
   17.7 xy units (baseline 21.7). Successes are slower (median 502 → 574 steps). This is the
-  trade-off of §11.1 and h-exec M11: an episode that does not jump must walk, and the safe walks
-  do not fit at π_l's pace.
+  trade-off of §11.1 and `docs/hypotheses/h-exec.md` M11: an episode that does not jump must
+  walk, and the safe walks do not fit at π_l's pace.
 - **The penalty also costs where there is nothing to avoid.** On the 4 held-out goals where at
   most 10 % of the baseline episodes end in the trap (104, 105, 106, 108), λ = 0.5 loses 7.1 pp
   (63.7 → 56.7 %) and λ = 1 loses 17.1 pp; the trap share does not fall there (3.3 → 5.8 %). On
@@ -584,14 +603,15 @@ T3 fails the rule of design.md §8 (a significant gain over both baseline rows).
   +2.3 pp [−2.0, +6.7] at λ = 0.5 (p 0.33) and +2.3 pp at λ = 1 (p 0.34). At the start states
   of the eval tasks (controller reset only, 5 reset seeds), the gate's walk estimate is 58–77
   steps on tasks 3, 4 and 5, whose safe walks are 14, 25 and 27 cells (about 560–1,100 steps at
-  40 steps per cell). On tasks 1 and 2, `ρ̂_walk ≤ 0` at the start, so the gate is closed there.
+  40 steps per cell). On tasks 1 and 2 the median estimate is inf (`ρ̂_walk ≤ 0`), so the gate
+  is closed at the start.
   58–77 steps is the jump route: tasks 3–5 start 1–2 cells from an entry, and a good exit is
   next to the goal.
 - **F does not model the trap-averse route.** For λ from 0 to 4 in `z_c`, the walk estimate at
   the start of tasks 3–5 stays at 58–77 steps, and F's trap occupancy `F(s,z_c)ᵀẑ_trap / d`
   falls only from 0.15 to 0.11. But π_l does change its route under the penalty (the trap share
-  falls by 3 points here, by half at λ = 1 in h-exec M11). So the gate stays open on the long
-  walks of tasks 4 and 5, where it should close.
+  falls by 3 points here, by half at λ = 1 in `docs/hypotheses/h-exec.md` M11). So the gate
+  stays open on the long walks of tasks 4 and 5, where it should close.
 - **The gate is closed at the start of tasks 1 and 2, but it opens later.** With a closed gate
   the controller makes the baseline's calls, so an episode whose gate never opens repeats the
   baseline's episode exactly. Only 1.0 % (task 1) and 0 % (task 2) of the episodes do. These two
@@ -611,16 +631,21 @@ T3 fails the rule of design.md §8 (a significant gain over both baseline rows).
 10 seeds). None beats the baseline. The frozen π_l walks too slowly for the long safe walks,
 and FB cannot tell where a walk fits: at long range its F holds the value of the jump (§11.1),
 also for a trap-averse `z_c`. I see no other high-level remedy for teleport in the frozen
-setting that the measurements support. A faster π_l (h-exec H2, out of scope for now) comes
-first.
+setting that the measurements support. A faster π_l (`docs/hypotheses/h-exec.md` H2, out of
+scope for now) comes first.
 
-Numbers: `uv run python analysis/tables.py results/teleport/heldout/*.csv
-results/teleport/heldout/trap_aware/*.csv --label-root results/teleport/heldout --reference
-baseline trap_aware/w0.5_ungated trap_aware/w1.0_ungated` and `uv run python analysis/tables.py
-results/teleport_10seeds/*.csv --label-root results/teleport_10seeds --reference baseline
-baseline_raw`. Trap and other failures: the CSV rule of §11.3 (for the held-out goals, the
-trap distance is from each goal's xy; the rule is less exact there). The gate check at the
-start states (Mac, no episodes): `make_trap_aware(model, weight=λ, trap_radius=1.5)`, `reset` on
-each eval task, then `walk_steps` at the env reset state for `reset_seed(0, task, s)`, s = 0–4.
-Identical episodes: the same `steps` and `final_goal_dist` (within 1e-6) as the baseline row
-with the same task, eval seed and episode.
+Numbers:
+
+- Success and paired differences: `uv run python analysis/tables.py
+  results/teleport/heldout/*.csv results/teleport/heldout/trap_aware/*.csv --label-root
+  results/teleport/heldout --reference baseline trap_aware/w0.5_ungated
+  trap_aware/w1.0_ungated` and `uv run python analysis/tables.py results/teleport_10seeds/*.csv
+  --label-root results/teleport_10seeds --reference baseline baseline_raw`.
+- Trap and other failures, per task, the low-trap groups and the identical episodes (the CSV
+  rule of §11.3; for the held-out goals the trap distance is from each goal's xy, and the rule
+  is less exact there): `uv run python analysis/trap_split.py
+  results/teleport_10seeds/baseline.csv results/teleport_10seeds/baseline_raw.csv
+  results/teleport_10seeds/trap_aware.csv` and `uv run python analysis/trap_split.py
+  results/teleport/heldout/baseline.csv results/teleport/heldout/trap_aware/*.csv`.
+- The gate check at the start states (Mac, controller reset only, no episodes):
+  `uv run python analysis/trap_gate.py`.

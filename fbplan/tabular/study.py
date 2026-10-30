@@ -175,7 +175,7 @@ def plan_route(lm: LandmarkModel, plan: Plan, start: int) -> list[int]:
 def rho_bound_wormholes(rho_hat: np.ndarray, dist: np.ndarray, gamma: float) -> np.ndarray:
     """Pairs whose rho_hat is more than twice the bound gamma^dist (true rho <= gamma^dist).
 
-    This is the tabular definition. d-eval's `analysis/calibration.py` uses another one for the
+    This is the tabular definition. `analysis/calibration.py` uses another one for the
     ant: a trusted pair whose FB distance is shorter than the time to walk the geodesic at the
     ant's top speed.
     """

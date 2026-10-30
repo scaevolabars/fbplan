@@ -225,6 +225,16 @@ def test_where_the_walk_does_not_fit_the_gate_hands_back_to_the_baseline(model, 
     assert gated_success >= baseline_success - 0.1
 
 
+def test_it_exposes_the_trap_latent_and_the_trap_averse_task_latent(model, data):
+    controller = TrapAwareController.from_data(model, data, _config(weight=0.5))
+    task = model.task_spec(1)
+    controller.reset(task, seed=0)
+    d = model.latent_dim
+    z_hat = normalize_z(np.asarray(task.z_r, dtype=np.float64), d)
+    assert np.linalg.norm(controller.z_trap) == pytest.approx(np.sqrt(d))
+    np.testing.assert_allclose(controller.z_c, normalize_z(z_hat - 0.5 * controller.z_trap, d))
+
+
 def test_data_without_a_trap_is_rejected(model, data):
     with pytest.raises(ValueError, match="no trap"):
         TrapAwareController.from_data(model, data, _config(jump_xy=100.0))

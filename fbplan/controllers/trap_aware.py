@@ -1,4 +1,6 @@
-"""Trap-averse intentions with a time gate on teleport (design.md §8 T3, h-exec H1).
+"""Trap-averse intentions with a time gate on teleport (design.md §8 T3).
+
+Hypothesis: H1 of docs/hypotheses/h-exec.md.
 
 The baseline maximises a discounted value, so it takes the teleporters even when a walk would
 reach the goal in time; a third of the jumps end in a closed trap (docs/theory.md §11.1). This
@@ -7,9 +9,9 @@ left; otherwise it acts exactly as the baseline:
 
     z_t = normalize(pi_h(s, z_r) - weight * g(s, t) * z_trap)
 
-- Trap, from the offline data only (no maze map; h-exec's rule): a trajectory whose states
-  after its last jump (an xy step above `jump_xy`) all stay within `trap_radius` of their mean
-  xy ends in a trap, and those states are trap states.
+- Trap, from the offline data only (no maze map; the rule of docs/hypotheses/h-exec.md M10):
+  a trajectory whose states after its last jump (an xy step above `jump_xy`) all stay within
+  `trap_radius` of their mean xy ends in a trap, and those states are trap states.
   `z_trap = normalize(mean((1[trap] - p) B(s)))` over a seeded pool of train states (p = trap
   share of the pool). FB is linear in the reward, so `-z_trap` adds "avoid the trap" to the
   reward of the intention.
@@ -149,6 +151,16 @@ class TrapAwareController:
         pool_backward = _backward(model, pool_obs)
         z_trap = _centred_latent(pool_backward, mask[pool], model.latent_dim)
         return cls(model, pool_obs, pool_backward, z_trap, config)
+
+    @property
+    def z_trap(self) -> np.ndarray:
+        """The trap latent [d] (norm sqrt(d))."""
+        return self._z_trap
+
+    @property
+    def z_c(self) -> np.ndarray:
+        """The trap-averse task latent of the current task [d], as the gate uses it."""
+        return self._z_c
 
     def reset(self, task: TaskSpec, seed: int) -> None:
         self._z_r = task.z_r  # passed to pi_h as the baseline passes it
