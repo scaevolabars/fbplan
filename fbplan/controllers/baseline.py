@@ -8,8 +8,8 @@ reference against upstream `utils/evaluation.evaluate`.
 normalization (a reference row, docs/design.md §8).
 `NonHierController` drops pi_h and gives the task latent z_r directly to pi_l.
 `EnsembleBaselineController` averages the intentions of the pi_h of several training seeds
-(test-time ensemble, docs/hypotheses/h-learn.md H3); `RawEnsembleBaselineController` does the
-same through baseline_raw's input path (T4 of docs/design.md §8).
+(a test-time ensemble); `RawEnsembleBaselineController` does the same through baseline_raw's
+input path.
 All act at temperature 0 (deterministic), as the upstream evaluation default.
 """
 
@@ -146,7 +146,7 @@ def make_ensemble(
 ) -> Controller:
     """Ensemble of the pi_h of seeds 0..seeds-1 of `family`, loaded like --checkpoint.
 
-    z_input: "normalized" (T1, the FBModel path) or "raw" (T4, baseline_raw's path).
+    z_input: "normalized" (the FBModel path) or "raw" (baseline_raw's path).
     """
     if z_input not in ("normalized", "raw"):
         raise ValueError(f"z_input must be normalized or raw, not {z_input!r}")
