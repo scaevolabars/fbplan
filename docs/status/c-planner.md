@@ -4,11 +4,16 @@ Last update: 2026-10-30.
 
 ## Summary
 
-H1 on large (2026-10-30, time-boxed, code done, runs for d-eval): the recorded-route controller
-of h-papers H1 is in `fbplan.controllers.planner` (`make_recorded_route`, commit 30661e8). Its
-route comes from recorded train trajectories, not from FB values. The 6-config held-out grid,
-the oracle and baseline rows on the same episodes, the selection rule and the final 10-seed
-command are in "H1 on large" below. No episode result yet (Linux runs).
+H1 (2026-10-30): the recorded-route controller of h-papers H1 (`make_recorded_route`, commit
+30661e8) passed the gain rule on large (d-eval, Linux, eval seeds 0–9: 41.2 % against
+`baseline` 37.7 %, +3.5 pp [+0.9, +6.0]; against `baseline_raw` +5.6 pp). Its route comes from
+recorded train trajectories, not from FB values. Wave 3: the commands for the medium held-out
+grid, the medium oracle and baseline rows and the final medium run are in "H1 on medium" below.
+Why H1 is above the privileged oracle on large: see "H1 against the oracle on large". In short,
+not `π_h` and not shorter routes: where both follow the same cells (tasks 2, 4, 5) they score
+the same; H1 leads on tasks 1 and 3, where it takes another equally short cell path and the
+oracle's path loses to the baseline. The lead over the oracle is not significant (+2.2 pp,
+p 0.1).
 
 Act-ahead (2026-10-29, time-boxed, done): planner_high acting on the region latent 8 xy ahead
 along its own route closes about a third of its gap to the privileged oracle on held-out medium
@@ -232,6 +237,137 @@ for tuning), 300 landmarks from the train split:
 - The planner is far below the baseline on this set (68 against 92). The landmark set also moves
   it by several points (see "After the merge").
 
+## H1 on medium (wave 3): commands for d-eval (2026-10-30)
+
+Reading fixed in design.md §8, "H1 result and wave 3", step (M) (main 2626146; the commit
+e56cf6a named in the brief is not in this repository, 2626146 holds the text). Same code,
+defaults, grid and tie rule as on large (h-papers H1 item 5); the falsification rule of
+"H1 on large", against the medium oracle and `baseline`.
+
+**Code tree.** Main at 2626146 or later (it holds the H1 code, 30661e8). The medium held-out
+goal file is unchanged since its first version (349058d, md5 e495064bb67b6f2a4c6a1ba4eef32ad9),
+so every tree has the same medium held-out goals.
+
+**Smoke on medium** (Mac, code check, not a result): K = 60 gives 19,011 certified edges
+(h-papers M2 for 300 landmarks, r 0.5, K 60: 19,011), K = 150 gives 52,688. 99 % of landmark
+pairs are connected, and every sampled val state has a route (median 2 hops with K 60, 1 with
+K 150). On the 10 medium held-out goals the goal landmark lies 0.93 xy from the goal at the
+median, 2.12 at most (privileged diagnostic, no selection). One CLI episode (`high`, K 150,
+goal 101, eval seed 0) succeeds in 640 steps.
+
+**Held-out grid** (Linux, at most 4 workers, nice): the 10 medium held-out goals, eval seeds
+0 1 2, 20 episodes per goal and seed (600 episodes per row), with the oracle and the baseline on
+the same episodes.
+
+```
+nice -n 10 uv run python -m fbplan.evaluate --method fbplan.controllers.planner:make_recorded_route --env antmaze-medium-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers 4 --opt executor=point max_steps=60 --out results/medium/planner_ablations/h1_heldout/point_k60.csv
+nice -n 10 uv run python -m fbplan.evaluate --method fbplan.controllers.planner:make_recorded_route --env antmaze-medium-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers 4 --opt executor=point max_steps=150 --out results/medium/planner_ablations/h1_heldout/point_k150.csv
+nice -n 10 uv run python -m fbplan.evaluate --method fbplan.controllers.planner:make_recorded_route --env antmaze-medium-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers 4 --opt executor=window max_steps=60 --out results/medium/planner_ablations/h1_heldout/window_k60.csv
+nice -n 10 uv run python -m fbplan.evaluate --method fbplan.controllers.planner:make_recorded_route --env antmaze-medium-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers 4 --opt executor=window max_steps=150 --out results/medium/planner_ablations/h1_heldout/window_k150.csv
+nice -n 10 uv run python -m fbplan.evaluate --method fbplan.controllers.planner:make_recorded_route --env antmaze-medium-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers 4 --opt executor=high max_steps=60 --out results/medium/planner_ablations/h1_heldout/high_k60.csv
+nice -n 10 uv run python -m fbplan.evaluate --method fbplan.controllers.planner:make_recorded_route --env antmaze-medium-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers 4 --opt executor=high max_steps=150 --out results/medium/planner_ablations/h1_heldout/high_k150.csv
+nice -n 10 uv run python -m fbplan.evaluate --method oracle --env antmaze-medium-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers 4 --out results/medium/planner_ablations/h1_heldout/oracle.csv
+nice -n 10 uv run python -m fbplan.evaluate --method baseline --env antmaze-medium-navigate-v0 --heldout --seeds 0 1 2 --episodes 20 --workers 4 --out results/medium/planner_ablations/h1_heldout/baseline.csv
+uv run python analysis/tables.py results/medium/planner_ablations/h1_heldout/*.csv --label-root results/medium/planner_ablations/h1_heldout --reference baseline oracle
+```
+
+Selection and reading (fixed now, before any medium H1 result):
+
+1. Select the config with the highest held-out success. Ties (equal success counts) go to the
+   simpler config: `point`, then `window`, then `high`; then the smaller K.
+2. H1 is falsified on medium if the selected config scores more than 2 pp below the medium
+   oracle, or not above `baseline`, on these held-out episodes. Then H1 on medium stops; all rows
+   are still reported.
+3. Otherwise the selected config runs on the 5 medium eval tasks, eval seeds 0–9, paired against
+   both baseline rows of `results/medium_10seeds/`; the gain rule of design.md §8 decides. On
+   medium the stronger row is `baseline_raw` (80.5 % against 78.4 %; oracle 81.5 %).
+
+Final run (replace `<E>` and `<K>` by the selected config):
+
+```
+nice -n 10 uv run python -m fbplan.evaluate --method fbplan.controllers.planner:make_recorded_route --env antmaze-medium-navigate-v0 --seeds 0 1 2 3 4 5 6 7 8 9 --episodes 50 --workers 4 --opt executor=<E> max_steps=<K> --out results/medium/planner_ablations/h1_eval/<E>_k<K>.csv
+uv run python analysis/tables.py results/medium_10seeds/baseline.csv results/medium_10seeds/baseline_raw.csv results/medium_10seeds/oracle.csv results/medium/planner_ablations/h1_eval/<E>_k<K>.csv --reference baseline baseline_raw
+```
+
+Cross-check: h-papers M1 has the medium held-out oracle at 89.5 % and `baseline` at 85.5 % on
+the same 600 episodes (Mac). The Linux rows replace them for the rule.
+
+Cost, from the Linux speed of the large H1 runs (42–99 steps/s per worker) and about 260k
+steps per medium held-out row: about 11–15 minutes per `point` or `high` row and 26 minutes per
+`window` row with 4 workers; about 2 hours for the grid with the oracle and the baseline. The
+final run (2,500 episodes, about 1.35M steps): about 1 hour for `point` or `high`, about
+2 h 15 min for `window`.
+
+## H1 against the privileged oracle on large (note for the report, 2026-10-30)
+
+Question (coordinator): why does H1 score above the privileged oracle on large (41.2 % against
+38.9 %, eval seeds 0–9)?
+
+Answer: not because of `π_h` and not because of shorter routes. Where H1 and the oracle follow
+the same cells, they score the same. H1 leads on eval tasks 1 and 3, where it takes another cell
+path of the same length, and the oracle's path there loses to the baseline. The lead over the
+oracle is not significant: +2.2 pp [−0.4, +4.9], p 0.1 (d-eval).
+
+The two controllers differ in three parts:
+
+- Route. Oracle: the BFS cell path on the true map, with a fixed order between equally short
+  paths. H1: the shortest path over certified landmark edges (xy weights), along recorded walks.
+- Target. Oracle: the region latent of the cell centre 2 cells (8 xy) ahead; it jumps one cell
+  at a time. H1: the region latent of the point 8 xy ahead along the walks; it moves with the
+  agent.
+- Executor. Oracle: `π_l`. Selected H1 config: `π_h` on the target, then `π_l`.
+
+Evidence:
+
+1. Route geometry (offline, privileged scoring only; the route that H1 plans from the train
+   state nearest the start, cells by `MazeGeometry.cell_of`, compared with
+   `MazeGeometry.path` and with the cells on any shortest BFS path). On all 5 eval tasks and on
+   9 of 10 held-out goals, H1's route is a shortest cell path. On eval tasks 2, 4 and 5 and on
+   held-out goals 101–105 and 108–110 it passes through exactly the oracle's cells. On tasks 1
+   and 3 (and held-out goal 107) it takes another shortest cell path. Task 3: the oracle goes
+   through cells (1,6)–(1,10), H1 through (5,7)–(5,10). On held-out goal 106 H1's route is
+   longer (19 cell visits against 14). The route is planned again at every step, so the
+   executed path can differ.
+2. Eval seeds 0–9, paired, split by check 1 (a split after the fact):
+
+   | tasks | H1 − oracle (pp) | oracle − baseline (pp) | H1 − baseline (pp) |
+   |---|---|---|---|
+   | 2, 4, 5 (same cells) | −1.5 [−4.8, +1.8] | +8.5 [+5.2, +11.9] | +6.9 [+3.7, +10.2] |
+   | 1, 3 (another shortest path) | +7.9 [+3.7, +12.1] | −9.6 [−13.7, −5.4] | −1.7 [−5.8, +2.4] |
+
+   On the same cells, H1's executor matches the oracle's, and both gain 7–9 pp over the
+   baseline. On tasks 1 and 3 the oracle's path loses 9.6 pp to the baseline; H1's path loses
+   1.7 pp (not significant). Task 3 alone: oracle 54.2 %, H1 65.2 %, baseline 75.0 %.
+3. `π_h` is not the cause. On the same 600 large held-out episodes, `π_l` alone on H1's target
+   (`point`, K 150) scores 57.0 % against the oracle's 53.0 % (+4.0 pp [−0.8, +9.0]). `π_h`
+   adds +1.8 pp [−3.3, +7.2] (`high`, K 150: 58.8 %). Five of the six configs score
+   56.8–58.8 %; only `point` with K 60 is lower (52.0 %).
+4. The held-out goals show a partly different picture. On the 8 held-out goals where H1 uses
+   the oracle's cells, the selected config is +7.3 pp [+1.5, +12.9] above the oracle (`point`,
+   K 150: +5.2 pp [−0.4, +10.6]). The selected config is the best of 6 on these episodes, so
+   this estimate is biased upward. So the moving target on recorded walks may help on some
+   goals, but the eval tasks do not confirm it (−1.5 pp on tasks 2, 4, 5).
+5. Not speed. Median steps of successes: H1 642, oracle 635, baseline 616. For all three rows,
+   74–78 % of the failures end 8 xy or more from the goal: the ant stops or flips on the way,
+   not near the goal.
+
+For the report:
+
+- The privileged oracle is not an upper bound for route following. It is one route follower,
+  with a fixed order between equally short paths and cell-centre targets. On task 3, where the
+  two take different equally short paths, H1 is 11 pp above the oracle; on the same cells the
+  two are level.
+- Write "H1 matches the oracle without the map (+2.2 pp, not significant)", not "H1 beats the
+  oracle".
+- H1's path choice on tasks 1 and 3 is not a designed advantage. Its order between equally short
+  paths comes from the xy length through the landmarks, so it depends on where the landmarks
+  are. On medium it can go either way.
+- Not tested: whether the path alone causes the task 3 gap (the oracle forced through H1's
+  cells on tasks 1 and 3). It needs a small option in `fbplan/controllers/oracle.py` (not my
+  file) and about 15 minutes on Linux.
+- The route check of item 1 is a scratch script, not committed. If the report cites it, I can
+  add it to `analysis/planner_routes.py`.
+
 ## H1 on large: recorded-route tracking (2026-10-30, time-boxed)
 
 Brief: h-papers H1 (`docs/hypotheses/h-papers.md` §3, items 4–5); reading fixed in design.md §8
@@ -323,6 +459,16 @@ Cost (from the Mac smoke speed): about 6–12 minutes per grid row with 4 worker
 for the grid with the oracle and the baseline; the final run 2,500 episodes, about 30–50 minutes.
 The report must say that the route comes from recorded trajectories, not from FB values; FB
 gives only the goal landmark and the executor.
+
+**Result** (d-eval, Linux; `docs/status/d-eval.md`, "H1 held-out check"):
+
+- Held-out grid (600 episodes per row): point 52.0 / 57.0 %, window 57.7 / 56.8 %, high
+  57.0 / 58.8 % (K 60 / 150); oracle 53.0 %, baseline 53.3 %. Selected: `high`, K 150. Not
+  falsified (+5.8 pp over the oracle, +5.5 pp over the baseline).
+- Final run, eval seeds 0–9 (2,500 episodes): 41.2 % [39.4, 43.0]; − baseline +3.5 pp
+  [+0.9, +6.0] (p 0.009), − baseline_raw +5.6 pp [+3.2, +8.1]: H1 passes the gain rule.
+- Measured Linux speed: 42–99 steps/s per worker (Mac smoke: 174–342). The grid took about
+  3 h 15 min of run time, the final run about 2 h 20 min.
 
 ## Act-ahead: an oracle-like executor on the planner's route (2026-10-29, time-boxed)
 
@@ -625,8 +771,8 @@ following does not touch. The option stays, off by default, as an ablation.
 
 ## Next
 
-1. H1 on large: d-eval runs the held-out grid and, if H1 is not falsified, the final 10-seed run
-   (commands in "H1 on large"). Then I write the H1 result for the report.
+1. H1 on medium (wave 3): d-eval runs the held-out grid and, if H1 is not falsified, the final
+   10-seed run (commands in "H1 on medium"). Then I write the medium H1 result for the report.
 2. d-eval reruns the ablation table on Linux (commands above). When the CSVs are on main, I
    compare them with the Mac cross-check and write the ablation table for the report.
 3. d-eval: `oracle.region_latents` can import `fbplan.landmarks.region_latents`, and
@@ -640,13 +786,10 @@ following does not touch. The option stays, off by default, as an ablation.
 
 ## Requests to the coordinator
 
-- Merge c-planner for H1 (30661e8 and this status). New public API, no change to existing
-  behaviour: `fbplan.graph.{Visits, CertifiedEdges, trajectory_ends, landmark_visits,
-  walked_xy, certify_edges, reachable_visits, shortest_paths}`,
-  `fbplan.landmarks.pool_rows`, `fbplan.controllers.planner.{RecordedRouteConfig,
-  RecordedRouteController, make_recorded_route, point_along}`; `config_from_options` takes an
-  optional base config. Hand the H1 commands to d-eval. A short alias (e.g.
-  `recorded_route`) in `fbplan/controllers/__init__.py` is optional; that file is not mine.
+- Merge c-planner (status only: the medium H1 commands and the note on the oracle). Hand the
+  commands of "H1 on medium" to d-eval. No code change.
+- Done: H1 code merged (2f731f7). A short alias (e.g. `recorded_route`) in
+  `fbplan/controllers/__init__.py` is still optional; that file is not mine.
 - Merge c-planner: review fixes (c187bb7), ablation commands and Mac cross-check. API changes
   for other components: `fbplan.graph.trusted_edges(rho, rho_min, exclude_diagonal, rho_max)`
   lost `top_k` (b-theory's study and d-eval's calibration call it compatibly); new public
