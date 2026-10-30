@@ -152,6 +152,14 @@
   command per seed k: `uv run python -m fbplan.learned.train_b policy --env antmaze-medium-navigate-v0 --seed k --variant region`.
 - **AWR 2x started (23:53 MSK)** on 58234389 with code 97d9200 (`push --no-tests` after region):
   `bash scripts/gpu/awr2x.sh > runs/awr2x.log` in tmux session `awr2x`.
+- **T2 ready for d-eval (03:10 MSK, 2026-10-30):** log-ratio baseline `pi_h` seeds 0-4, trained
+  on 58234389 (02:12-03:08 MSK, code 34b17a5, 5 runs alone, 0 failed), pulled and exported to
+  `baselines/medium/logratio/seed<k>`. d-eval name `retrained:logratio:<k>`. Command per seed k:
+  `uv run python -m fbplan.train_high --env antmaze-medium-navigate-v0 --seed k --name logratio --advantage logratio --goal-alpha 2.45`
+  (launch: `bash scripts/gpu/logratio.sh`). Checks: load with `load_baseline_model(env, k, "logratio")`;
+  F, B, pi_l equal the provided ones; pi_h new; no NaN. End of training: train MSE 0.711 (2x
+  baseline 0.734), validation MSE 0.707-0.728; goal ESS/N 0.18 train, 0.11-0.48 validation (one
+  batch each); mean log-ratio advantage of goal latents 0.39.
 - **H1 cancelled (coordinator, 2026-10-30 02:12 MSK):** the 2x gate (d-eval, `results/medium/*awr2x*`): baseline 2x 80.9 %, B clean 2x 80.2 % (-0.8 pp against baseline 2x). Both rise together, so the rise is a pi_h tuning effect, and at matched sharpness the critic adds nothing (design.md §8); there is no B win to attribute. I stopped the H1 launchers and runs (seed 4 had saved, seeds 0, 2, 3 ran; nothing pulled, no d-eval name). T2 runs alone: tmux `t2`, `bash scripts/gpu/logratio.sh > runs/logratio.log` (code 34b17a5), started 02:12 MSK.
 - **Attribution control (h-learn H1, coordinator 2026-10-29; cancelled 2026-10-30, see above):** B clean with `--critic v_1` (V_1 where
   the targets and the advantage use V_H), the shared 2x temperature of `clean-awr2x`, the same
@@ -303,11 +311,11 @@ Short runs of `train_high` and both B stages stay bit-identical to the reference
 
 ## GPU time and cost
 
-vast.ai, a shared team account, label `fbplan-gpu`. Times in MSK, 2026-10-29.
+vast.ai, a shared team account, label `fbplan-gpu`. Times in MSK, 2026-10-29 to 2026-10-30.
 
 | Instance | GPU, place | $/h (with disk) | Start | End | Hours | Cost |
 |---|---|---|---|---|---|---|
-| 58234389 | RTX 3090, US | 0.209 | 13:16 | running | | |
+| 58234389 | RTX 3090, US | 0.209 | 10-29 13:16 | 10-30 03:10 (destroyed) | 13.9 | about $2.90 |
 
 What ran on 58234389:
 
@@ -333,7 +341,8 @@ What ran on 58234389:
 | 01:51 | | H1 (tmux `h1`, `bash scripts/gpu/awr2x_v1.sh > runs/awr2x_v1.log`): seeds 0-3 crashed at the first validation compile, `INTERNAL: Autotuning failed for HLO ... jit(policy_validation)/reduce_sum ... REDZONE CHECK FAILED`, the same failure as the first 2x baseline group (5 runs compiled at once, platform allocator). Seed 4 trains on. T2 not started then |
 | 01:59 | | staggered launch `runs/wave1b.sh` (tmux `wave1b`, script below): H1 seeds 0-3 again, then T2 seeds 0-4 on cores 10-19; each run starts after the previous one logs its first step. Crash logs kept as `stdout.crash1.log` |
 | 02:07 | | H1 seed 4 (first launch) saved; seed 0 retry steps; seed 1 retry failed again with the same error although it compiled alone, so concurrent compiles are not the cause. Every failure so far had `XLA_PYTHON_CLIENT_ALLOCATOR=platform`; the 3 baseline retries without it ran. Second retry `runs/wave1d.sh` (tmux `wave1d`): after wave1b has started all runs, each H1 seed whose latest log has the failure restarts without the platform allocator (memory placement only), one at a time. Logs kept as `stdout.crash2.log` |
-| 02:12 | | H1 cancelled (coordinator): wave1b, wave1d and the H1 runs stopped; T2 alone, `bash scripts/gpu/logratio.sh` in tmux `t2` (5 runs at once, no platform allocator) |
+| 02:12 | 03:08 | H1 cancelled (coordinator): wave1b, wave1d and the H1 runs stopped; T2 alone, `bash scripts/gpu/logratio.sh` in tmux `t2` (5 runs at once, no platform allocator) |
+| 03:08 | 03:10 | pull + export of T2, load checks; pull of the H1 logs (no models): `runs/train_b/medium/clean-v1-awr2x/`, `runs/wave1b.*`, `runs/wave1d.*`; instance destroyed at 03:10 |
 | 18:58 | | ablations approved (coordinator for the user): queue `runs/queue-ablations.sh` (below) holds queue-b1, then runs value expectile 0.7, resumes queue-b1 (policy clean, wide, region), then value rho cap 1.0 |
 
 The ablation queue. The instance runs code a189a49, which has no `--name`; each ablation writes
@@ -388,12 +397,13 @@ The allocator setting changes memory handling only. It did not lower the 2.5 GB,
 
 ## Next
 
-- Queue on 58234389 (approved jobs): value-region (running since 18:10), value expectile 0.7,
-  policy clean, wide, region, value rho cap 1.0; one group of 5 seeds each, about 55 min per
-  group, end about 00:30 MSK. Then pull, export, destroy the instance; record the cost.
-- After each value ablation: the geodesic check against V_1. If expectile 0.7 orders states
-  clearly better than V_1, propose a clean policy run on it and ask the user first.
-- Evaluation of the B variants by `fbplan.evaluate --checkpoint` (d-eval).
+- No instance runs (58234389 destroyed 2026-10-30 03:10 MSK) and no GPU job is planned.
+- d-eval: evaluate T2, `retrained:logratio:<k>` (seeds 0-4), against the retrained baselines.
+- Before any next GPU job: runs with `XLA_PYTHON_CLIENT_ALLOCATOR=platform` failed at start
+  (XLA autotuning, redzone mismatch) 8 times on 2026-10-29/30: 2x baseline 3 of 5, H1 4 of 5,
+  then 1 of 3 retries (it compiled alone). Earlier B groups with the setting ran; all 18 runs
+  without it ran (medium, large, 2x retry, T2). Drop the setting from `awr2x.sh` / `awr2x_v1.sh`
+  (B runs need about 2.5 GB each, so 5 fit without it), or retry failed seeds without it.
 - Switch to the shared helpers when they are public (requests 2 and 4).
 
 ## Questions for the coordinator
