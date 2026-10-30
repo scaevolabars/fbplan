@@ -1,6 +1,6 @@
 # Hypotheses: high-level learning (`π_h` and approach B)
 
-Session h-learn, 2026-10-29. Brief: `docs/briefs/hypotheses.md`. Lens: the training of `π_h`
+Written on 2026-10-29. Lens: the training of `π_h`
 (AWR temperature, advantage, subgoal and goal distribution, seeds, ensembles, distillation),
 what HIQL, SoRB, QRL and CRL do differently, and the seed stability of approach B.
 Notation: `docs/design.md` §3. Written at 23:45 MSK, before any result of the AWR-sharpness-at-2×
@@ -52,7 +52,7 @@ training of `π_h` must also be evaluated on large, where the oracle has more ro
   goal-latent ESS about 3 % for B against 35 % for the baseline at 2× (§0). The pre-registered
   reading "chaining adds value" then needs the control H1 before the report states it.
 
-## 0. The offline check (run by h-learn, not committed)
+## 0. The offline check (not committed)
 
 **What it computes.** Medium validation split, provided checkpoint, 32 batches × 1024 samples
 `(s, g, w)` drawn as upstream `HGCDataset.sample` (`fbplan.learned.sampling.sample_high_indices`),
@@ -64,8 +64,8 @@ normalized `z`); B-clean's switch advantage with `V_H` of `value-single` seed 0
 (`fbplan.learned.high_policy.switch_advantage`); log variants. For goal latents, the true progress
 `p = d(s,g) − d(w,g)` with the exact geodesic of `fbplan.maze.MazeGeometry` (privileged; used only
 to diagnose, never by a method). CPU, 1 process, 4 threads, about 1 minute per run. Scripts:
-`awr_weights.py`, `awr_analyse.py`, `awr_terms.py`, `awr_more.py`, `awr_final.py` in the h-learn
-scratchpad; I can commit them under `analysis/` through an owner if wanted.
+`awr_weights.py`, `awr_analyse.py`, `awr_terms.py`, `awr_more.py`, `awr_final.py`, outside the
+repository.
 
 **Limits.** The metrics show what the AWR regression target selects on the training
 distribution, not closed-loop success. Comparisons pool different `(s, g)` within a distance bin;
@@ -154,7 +154,7 @@ their positive tail.
    task 4, where the sharp B seeds gained about 6 pp (71.6–72.4 % against 65.9 %).
 3. **Evidence.** For: B seed split follows α (REPORT.md §8.5; success order 83.0, 81.9, 80.5,
    75.8, 75.5 equals the ESS order); B-wide repeats the pattern with the same per-seed α
-   (`docs/status/d-eval.md`, B wide 81.0, 77.0, 82.2, 72.3, 79.6 %); §0 B and C. Against: the
+   (`results/medium/b_wide/`, B wide 81.0, 77.0, 82.2, 72.3, 79.6 %); §0 B and C. Against: the
    clean one-switch has a weaker progress signal than the proxy at 8–20 xy units (+0.15 to +0.18
    against +0.34 to +0.50); the oracle gains only +0.5 pp against `baseline_raw` on medium
    (REPORT.md §8.2). A sharp weighting raises the variance of the fit (ESS 3–4 %).
@@ -162,8 +162,9 @@ their positive tail.
    `runs/train_b/medium/clean-awr2x/calibration.json`. Rerun §0 C at that α for B's advantage and
    for the one-switch advantage. Falsified if the one-switch weights select less progress than B's
    at 8–40 xy units, or if their ESS differs from B's by more than 1.5×.
-5. **Full test.** e-learner adds a "no critic" policy variant (`y = R + ρ·V_1(w)`, baseline
-   `V_1(s)`; everything else as `train_b policy --variant clean`), at the shared 2× temperature.
+5. **Full test.** A "no critic" policy variant is added to the training code (`fbplan/learned/`;
+   `y = R + ρ·V_1(w)`, baseline `V_1(s)`; everything else as `train_b policy --variant clean`), at
+   the shared 2× temperature.
    5 seeds, one GPU batch (about 55 min on the RTX 3090, 0.9 GPU h, about $0.20). Evaluation:
    5 × 1250 episodes on medium (about 10 CPU h on the Linux queue) plus held-out goals
    (5 × 600 episodes, about 5 CPU h). Decision: (a) attribution: pooled paired difference against
@@ -201,8 +202,8 @@ their positive tail.
    `d ≥ 12` falls below the upstream proxy's, or its weight share at `d ≥ 12` stays below 15 %.
    On medium it passes. Second check, before the GPU run: a floor of 0.5 and of 2 must give the
    same ranking (sensitivity).
-5. **Full test.** e-learner adds `--advantage logratio` to `train_high` (the upstream loss with this
-   advantage for goal latents). Temperatures α ∈ {1.25, 2.5, 5}, 5 seeds each: 3 GPU batches,
+5. **Full test.** An option `--advantage logratio` is added to `train_high` (the upstream loss with
+   this advantage for goal latents). Temperatures α ∈ {1.25, 2.5, 5}, 5 seeds each: 3 GPU batches,
    2.8 GPU h, about $0.60. Select α on the held-out goals (design.md §8 rule; 15 × 600 episodes,
    about 14 CPU h), then evaluate the selected α on the 5 eval tasks (5 × 1250 episodes, 10 CPU h)
    and on large (10 CPU h; large needs held-out goals of its own, which exist in
@@ -222,18 +223,18 @@ their positive tail.
 1. **Claim.** Using `z = normalize(mean_k normalize(π_h^k(s, z_r)))` over the 5 seeds of a family
    at every step beats the pooled single seeds of that family and removes the seed spread.
 2. **Mechanism.** The fit errors of the seeds are partly independent (pairwise cosine 0.955 on
-   validation states, `docs/status/e-learner.md`). An average cancels them. For B (75.5–83.0 %),
+   validation states). An average cancels them. For B (75.5–83.0 %),
    it also averages the over-sharp and under-sharp seeds. It is cheap and combines with the winner
    of H1 or H2.
 3. **Evidence.** For: the seed spreads (retrained 3.1 pp, B 7.5 pp, B-wide 9.9 pp; REPORT.md §7.1,
-   `docs/status/d-eval.md`). Against: a cosine of 0.955 leaves little to average; an average of
+   `results/medium/*/seed*.csv`). Against: a cosine of 0.955 leaves little to average; an average of
    latents in two different directions points between them (the actor-averaging risk of
    `docs/plans/approach-b.md` §9); the retrained family sits at 78.3 %, 2.5 pp below the bar.
 4. **Cheap falsification test** (CPU, 5 minutes). On 2000 validation states × the 5 eval task
    latents, the cosine of each seed's latent with the ensemble latent. If all exceed 0.99, the
    ensemble behaves as one more seed: stop. Then one eval seed (250 episodes, about 0.4 CPU h)
    as a smoke test, not as a decision.
-5. **Full test.** A controller `baseline_ensemble` (d-eval) that takes the 5 seeds of a family.
+5. **Full test.** A controller `baseline_ensemble` that takes the 5 seeds of a family.
    Families: the retrained baselines, B-clean, and the H1/H2 winner. 1250 episodes each on medium,
    about 2 CPU h each (5 π_h passes per step add little to `π_l` and the physics). No GPU.
    Gain rule: paired against `baseline_raw` and the normalized baseline (no clusters: one controller).
@@ -250,7 +251,7 @@ their positive tail.
    sharpness" for any B-against-baseline claim.
 2. **Mechanism.** The std of the upstream advantage is set by its tails: the clip-reaching at-goal
    samples and the division by `F(w,z_w)ᵀB(w)` (`adv` from −600 to +640 per batch in the training
-   logs, `runs/train_high/medium/seed*/train.csv` in the e-learner tree). So "same spread of `α·A`"
+   logs, `runs/train_high/medium/seed*/train.csv`, not committed). So "same spread of `α·A`"
    gave B 3–6× fewer effective samples than the baseline (§0 C). ESS measures the sharpness of the
    regression directly, and it is stable across batches because it pools many samples.
 3. **Evidence.** For: B's seed order equals its ESS order; per-seed α varied 2× (0.111–0.229); B-wide
@@ -282,12 +283,12 @@ their positive tail.
    problem on medium was execution time, not the route (REPORT.md §8.4). Against: FB `ρ̂` loses
    distance information at long range and has wormholes (REPORT.md §8.3); expectile 0.7 did not
    repair the value-space critic; the oracle leaves +0.5 pp on medium.
-4. **Cheap falsification test** (CPU, about 10 minutes, c-planner's code, no training). On landmark
+4. **Cheap falsification test** (CPU, about 10 minutes, approach A's code, no training). On landmark
    set 0 of medium, take A's graph distances `−log V_H(u)` (R̂ = 0, the defaults) for 50 landmark goals
    and compare their per-goal rank correlation with the maze geodesic against that of
    `−log V_1(u, B(g))`. If the graph does not order clearly better (≤ −0.70 against V_1's value,
    about −0.6), a critic that learns the same fixed point cannot either: stop.
-5. **Full test.** e-learner: a value mode `--space distance` (targets in steps, expectile 0.3 for
+5. **Full test.** A value mode `--space distance` (targets in steps, expectile 0.3 for
    a soft min, the same sampler and guards). Critic: 5 seeds, 0.9 GPU h. Gate: the critic check of
    REPORT.md §8.5 (per-goal rank correlation better than `V_1` in every seed) and §0 B (progress
    correlation ≥ +0.38 at 16–40 xy units). Only then a policy batch (0.9 GPU h) with the H2 advantage
@@ -352,7 +353,7 @@ their positive tail.
   a target past it acts as a look-ahead, which the oracle sweep does not penalize (REPORT.md §8.2);
   the sign of the effect is unclear and its size small.
 - **Early stopping or checkpoint selection.** The training curves are flat after the first logs
-  (actor loss 791 → 780, validation MSE 0.73 → 0.72, all 5 seeds alike; `docs/status/e-learner.md`).
+  (actor loss 791 → 780, validation MSE 0.73 → 0.72, all 5 seeds alike).
 - **Goal-latent-only `π_h` (no Gaussian latents).** Gaussian latents carry only 13 % of the AWR weight
   (§0), so little capacity is freed, and the FB zero-shot property is lost.
 - **Mixture or discrete (codebook) `π_h`.** The regression MSE of 0.71 per dimension means that
@@ -364,9 +365,9 @@ their positive tail.
 - **Critic-guided choice among `π_h` samples at test time (`argmax_k F(s,z_k)ᵀz_r`).** That value
   is close to 0 for far goals, and a max collects noise (A's `R̂` lesson); also h-exec's lens.
 - **More training seeds.** Narrows the CI, does not move the mean.
-- **Raw `z_r` for the retrained and B families.** The task latent is h-repr's lens. Note for the
-  coordinator: any family of H1–H3 can also be evaluated with the raw `z_r` path, if h-repr shows
-  that the +3.8 pp of `baseline_raw` transfers.
+- **Raw `z_r` for the retrained and B families.** The task latent is h-repr's lens. Any family of
+  H1–H3 can also be evaluated with the raw `z_r` path, if h-repr shows that the +3.8 pp of
+  `baseline_raw` transfers.
 - **QRL as a method, CRL critic for `π_h`.** QRL's policy extraction needs a learned latent dynamics
   model (a generative model of latent states). CRL's critic learns the behaviour policy's occupancy,
   not that of the options `π_{z_w}`, which FB's `F(s,z_w)` already gives. Their distance and log-ratio

@@ -1,6 +1,6 @@
 # Hypotheses from the papers of the assignment (h-papers)
 
-Session h-papers, 2026-10-30. Brief: `docs/briefs/hypotheses.md`. Lens: the papers and repos that
+Written on 2026-10-30. Lens: the papers and repos that
 the assignment lists, read in full, and the mechanisms in them that could give a gain over the
 stronger baseline under our constraints:
 
@@ -12,8 +12,8 @@ stronger baseline under our constraints:
 | Tirinzoni et al. 2025, Zero-Shot Whole-Body Humanoid Control via Behavioral Foundation Models, "Meta Motivo" (**2504.11054**) and `facebookresearch/metamotivo` | main text, appendix, model and agent code | tracking a sequence of target states with a window of `B` |
 | Stojanovic and Proutiere 2026, FB π-Switch (2605.13207) | main text, appendix | future work: chains of subgoals; the low level limits the gain |
 
-The start message gives 2410.20092 for Meta Motivo. That id is the OGBench paper (Park et al.).
-Meta Motivo is 2504.11054; this file uses that paper.
+Meta Motivo is arXiv 2504.11054; this file uses that paper. (2410.20092 is the OGBench paper of
+Park et al., not Meta Motivo.)
 
 New numbers come from scratch scripts outside the repository (§1, §6). They ran on this Mac,
 4 workers, about 4 minutes of wall time in total, on the 10 medium held-out goals and on the
@@ -26,7 +26,7 @@ offline data only. Nothing ran on the eval tasks.
    waypoint of the privileged oracle (600 paired held-out episodes, M1). Longer windows score
    lower. So the window applied to approach A's routes can recover at most about 1 pp over A's
    act-ahead, which ended level with `baseline` and below `baseline_raw`.
-2. **The rest of A's gap is the route (c-planner), and the offline data give near-true routes
+2. **The rest of A's gap is the route (H1, item 2), and the offline data give near-true routes
    without the map.** Keep only landmark edges that a recorded trajectory travels (within 0.5 xy of
    both ends, at most 60–150 steps apart), weight them by xy length, and the routes on medium are
    0–1 % longer than the true shortest path at the median, 3–6 % at the 90th percentile; no edge
@@ -47,7 +47,7 @@ offline data only. Nothing ran on the eval tasks.
    `baseline` there (h-repr A5: −0.7 pp). A Linux run of the oracle on eval seeds 5–9 (G0) decides
    whether any route method can pass the rule on medium. It comes before H1–H3.
 
-## 1. Measurements (this session)
+## 1. Measurements
 
 **M1. A Meta Motivo tracking window on the true route (privileged diagnostic).** Meta Motivo
 tracks a motion with `z_t = proj(mean_{k=1..L} B(s*_{t+k}))`, a forward window that skips the
@@ -122,10 +122,10 @@ seeds 5–9 on Linux (1,250 episodes, under 0.5 CPU h; command as `results/mediu
 
 The same holds for any other route or waypoint method (A, act-ahead).
 
-**Result (coordinator, 2026-10-30; d-eval commit 36a10c0, `results/medium_10seeds/oracle.csv`).**
+**Result (2026-10-30; commit 36a10c0, `results/medium_10seeds/oracle.csv`).**
 On 10 eval seeds the oracle is +3.1 pp over `baseline` and +1.0 pp [−1.2, +3.2] over
-`baseline_raw`. By the reading above (≤ +1 pp), H1–H3 are dropped on medium. The coordinator fixed
-the same gate for large in design.md §8; d-eval runs it.
+`baseline_raw`. By the reading above (≤ +1 pp), H1–H3 are dropped on medium. The same gate for
+large is fixed in design.md §8 and runs with the evaluation code (`fbplan/evaluate.py`).
 
 ## 3. Hypotheses, ranked by expected value
 
@@ -152,9 +152,9 @@ cause of A's loss.
    (M2, xy weights) and whose executor gives `π_l` the region latent of the route point about
    8 xy ahead (the oracle's rule, or the window of M1) reaches the oracle's success without the map,
    and beats both baseline rows on medium or on large.
-2. **Mechanism.** Approach A loses mostly time (REPORT §8.4), and c-planner split A's gap to the
-   oracle: on the true route its own executor scores 81–84 % against 68–77 % on A's route (dev,
-   `docs/status/c-planner.md`, "Act-ahead"), so "the remaining gap is the route". A's routes come
+2. **Mechanism.** Approach A loses mostly time (REPORT §8.4), and a check of A's code split A's gap
+   to the oracle: on the true route A's own executor scores 81–84 % against 68–77 % on A's route
+   (dev), so "the remaining gap is the route". A's routes come
    from FB `ρ̂`, which has wormholes at every `ρ_min` (5.6 % of trusted pairs on medium, 10.7 % on
    large; the xy cap leaves 1,965 and 1,420; REPORT §8.3) and a wide spread at every distance. A
    certified edge is an observed walk, so it cannot be a wormhole, and xy weights over walkable
@@ -164,8 +164,8 @@ cause of A's loss.
    on large the bar is `baseline` (37.4 %), and the oracle is +1.9 pp [−1.8, +5.6] there, with
    +6.8 to +12.0 pp on tasks 1, 2, 4 and 5 and −24 pp on task 3 (REPORT §7.2).
 3. **Evidence.** For: M2; M1 (the oracle's executor is +4.0 pp over `baseline` on held-out goals);
-   act-ahead, with A's own route, recovered 3.2 of the 7.4 points between `planner_high` and the oracle (REPORT §8.4, p 0.07; 34 % in c-planner's Mac check). Against:
-   the oracle is only +0.5 pp over `baseline_raw` on medium eval seeds 0–4; c-planner's executor on
+   act-ahead, with A's own route, recovered 3.2 of the 7.4 points between `planner_high` and the oracle (REPORT §8.4, p 0.07; 34 % in a Mac check of A's code). Against:
+   the oracle is only +0.5 pp over `baseline_raw` on medium eval seeds 0–4; A's executor on
    the true path was still 6.4 points below the oracle in one 250-episode check (point estimate);
    on large every waypoint method loses 24–38 pp on task 3; straight segments between landmarks
    can cut corners; the first hop from the agent's state is not certified by M2.
@@ -176,9 +176,10 @@ cause of A's loss.
    along the recorded segments of the route, region latent from `landmarks.RegionField`, `z_r`
    past the last landmark. Falsified if it scores more than 2 pp below the oracle row of M1
    (89.5 %) or not above `baseline` (85.5 %) on the same episodes.
-5. **Full test.** c-planner adds the controller (about 100 lines; certification is a pass over
-   the train split, seconds). Selection on the medium and large held-out goals only, rule fixed
-   before the runs: executor ∈ {`π_l` on the point 8 xy ahead, `π_l` on the window at 4/8/12 xy,
+5. **Full test.** The controller is added to approach A's code (`fbplan/controllers/planner.py`;
+   about 100 lines; certification is a pass over the train split, seconds). Selection on the
+   medium and large held-out goals only, rule fixed before the runs:
+   executor ∈ {`π_l` on the point 8 xy ahead, `π_l` on the window at 4/8/12 xy,
    `π_h` with the point as its task}, `K` ∈ {60, 150}; highest held-out success, ties to the
    simpler (point, smaller `K`). Then medium eval seeds 0–9 (2,500 episodes) and large eval seeds
    0–4 (1,250 episodes; seeds 5–9 for both rows if the CI is close), paired against `baseline`
@@ -209,7 +210,8 @@ cause of A's loss.
    (REPORT §8.3), and a shortest path picks the edges whose `ρ̂` is overestimated (tabular study,
    REPORT §3.1); xy weights already give near-true routes on medium (M2), so FB can only add noise
    there; large is where FB might add something.
-4. **Cheap falsification test** (about 5 minutes, c-planner's edge table on landmark set 0).
+4. **Cheap falsification test** (about 5 minutes, the edge table of approach A's code on landmark
+   set 0).
    Score the routes of three graphs with the M2 stretch: A's current trusted edges, certified
    edges with `ρ̂` weights, certified edges with xy weights. Falsified if certified `ρ̂` routes are
    not shorter than A's routes, or if they are more than 5 % longer than certified xy routes at the
@@ -234,12 +236,12 @@ cause of A's loss.
 3. **Evidence.** For: M1, M2; the B-region ensemble, whose targets are trajectory-window means,
    is the best `π_h` row (81.0 %, REPORT §8.6), though not significant against `baseline_raw`.
    Against: a regression averages the targets of a state over goals (validation MSE 0.72 per
-   dimension, `docs/status/e-learner.md`), so `π_h` may blur the route latent again; B-region gives
+   dimension), so `π_h` may blur the route latent again; B-region gives
    no pooled gain over B-clean (79.9 % both); H1 must pass its held-out check first.
 4. **Cheap falsification test.** Only after H1's held-out check passes. Offline: for 2,000
    validation states and the held-out goals, the cosine between the provided `π_h`'s intention and
    the route latent. If it is above 0.95, `π_h` already outputs it: stop.
-5. **Full test.** e-learner: a regression target from the route (landmark routes precomputed once;
+5. **Full test.** A regression target from the route (landmark routes precomputed once;
    the target per sample is a table lookup), plain behaviour cloning or AWR with the upstream
    advantage, 5 seeds, about 1 GPU h. Held-out selection between the two losses, then 10 eval
    seeds paired against both rows and the retrained baselines. About 10 CPU h.
@@ -263,14 +265,14 @@ cause of A's loss.
    is empty unless the value error ε is far below the value gaps; the guarantee is against the
    *committed* policies `π_l(·|·,z_k)`, not against the switching `π_h`; Barreto's own successes
    have a shared goal or dense rewards, and his fix for an overestimated max is an online update
-   that we cannot do (App. B.1.2); the seed outputs are close (cosine 0.955, e-learner), so the gaps
+   that we cannot do (App. B.1.2); the seed outputs are close (cosine 0.955, h-learn H3), so the gaps
    are small; h-learn rejected the plain argmax for the same reasons.
 4. **Cheap falsification test** (offline, about 5 minutes, held-out goals). For 2,000 validation
    states, the 16 candidate intentions, their values per head, and the decoded progress of each
    candidate (privileged geodesic, diagnosis only). Falsified if, for states more than 8 xy from
    the goal, the spread of the values over candidates is below the head disagreement, or if the
    selected candidate's decoded progress is not above the default's.
-5. **Full test.** A controller (d-eval, about 40 lines; 16 `π_h` and 16 `F` calls per step).
+5. **Full test.** A controller (about 40 lines; 16 `π_h` and 16 `F` calls per step).
    `κ` ∈ {0, 0.5σ, 1σ} of the head disagreement, selected on the held-out goals; then 10 eval seeds,
    paired against both rows and against the T1 ensembles. About 2 CPU h.
 6. **Constraint check.** Nothing trained; frozen modules; test-time only.
@@ -300,7 +302,7 @@ cause of A's loss.
 4. **Cheap falsification test** (offline, about 3 minutes). h-learn's progress correlation
    (`docs/hypotheses/h-learn.md` §0 B) of the upstream advantage with ball-mean goal latents
    against single-state ones. Falsified if no distance bin beyond 8 xy gains ≥ 0.05.
-5. **Full test.** e-learner: one option in `train_high` (ball means precomputed per train state
+5. **Full test.** One option in `train_high` (ball means precomputed per train state
    with a KD-tree), 5 seeds, about 1 GPU h; held-out selection rule of design.md §8; 10 eval seeds
    paired against both rows and the retrained baselines. About 10 CPU h.
 6. **Constraint check.** Only `π_h` is retrained; offline data; no generative model.
@@ -378,8 +380,7 @@ cause of A's loss.
 
 ## 6. Reproduction of the measurements
 
-Scratch scripts in this session's scratchpad, not in the repository; each step below is enough to
-redo them.
+Scratch scripts outside the repository; each step below is enough to redo them.
 
 - M1: `hp_window.py` subclasses `OracleWaypointController`; `act` walks `next_cell` from the
   agent's cell for `last` moves and averages the unit-norm region latents of the cells
@@ -393,11 +394,3 @@ redo them.
   the visits are runs of one label, and the pass time of a visit is its step of closest approach;
   an edge keeps the smallest pass-to-pass gap ≤ `K`; `scipy.sparse.csgraph.shortest_path`; the
   stretch uses `MazeGeometry.geodesic_distances` between consecutive landmarks of the route.
-
-## 7. Notes for the coordinator
-
-- The Meta Motivo id in the start message (2410.20092) is OGBench; Meta Motivo is 2504.11054.
-- G0 (§2) is cheap and bears on every route method and on the report's central finding: the
-  oracle has no run on eval seeds 5–9.
-- For the report: FB π-Switch's Table 2 is independent support for "the low level limits the
-  hierarchy" (REPORT §8.2), from the authors themselves.

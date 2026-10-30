@@ -1,6 +1,7 @@
 # Design: planning over sequences of intentions with frozen FB
 
-Status: living document, owned by the coordinator tab. Last update: 2026-10-29.
+Status: the design record of the project: task, facts, math, approaches, protocol, and every
+decision with the date when it was fixed. Last update: 2026-10-30.
 
 ## 1. Task
 
@@ -31,9 +32,11 @@ medium 87 ± 6, large 66 ± 9, giant 1 ± 1, teleport 40 ± 6. HIQL: medium 93 �
 - Training subgoals `w` are trajectory states at a geometric offset (mean `1/(1−γ)` = 100 steps).
 - Task embedding: `z_r = mean(r · B(s))` over 100k relabeled validation samples, then normalized.
   The upstream `infer_latent` averages twice, so the raw latent is about 1e-7 and the `1e-8` in
-  the normalization is not negligible: upstream `|z_r|` is 0.79–0.98 `sqrt(d)` (per task values in
-  `docs/status/a-frozen.md`). `infer_task_latent` returns this upstream value; our `high_latent`
-  normalizes it, as the contract says. Upstream gives it to `π_h` as it is.
+  the normalization is not negligible: upstream `|z_r|` is 0.79–0.98 `sqrt(d)`. Per task, with
+  `sqrt(128)` = 11.31: medium 11.09, 11.02, 10.83, 10.46, 10.91; large 10.70, 10.68, 10.34,
+  10.18, 10.18; teleport 10.49, 10.96, 10.96, 10.96, 10.49; giant 9.18, 8.96, 10.33, 8.90, 10.91.
+  `infer_task_latent` returns this upstream value; our `high_latent` normalizes it, as the
+  contract says. Upstream gives it to `π_h` as it is.
 - One checkpoint per env (training seed 0): Drive folder `1dKYhaDJH9lUREo-kUV3AwmTLrxvKO7Ek`,
   subfolders `medium`, `large`, `giant`, `teleport`, each with `flags.json` and `params.pkl`.
   `python -m fbplan.frozen` downloads them; file ids and sha256 are pinned in `fbplan/frozen.py`.
@@ -42,8 +45,9 @@ medium 87 ± 6, large 66 ± 9, giant 1 ± 1, teleport 40 ± 6. HIQL: medium 93 �
   It pickles plain numpy arrays only (`numpy._core`), so loading does not depend on the JAX version.
   `load_numpy_pickle` refuses every other class. All 4 have the same shapes; in `flags.json` only
   `env_name` differs, and giant has discount 0.995.
-- The provided checkpoints score below the paper on our re-evaluation: medium 78–80 % (5 eval
-  seeds), large 31–45 % (1 eval seed). The user accepted this gap (2026-10-29): our numbers are
+- The provided checkpoints score below the paper on our re-evaluation (Linux, eval seeds 0–9):
+  medium 78.4 % (`results/medium_10seeds/baseline.csv`), large 37.7 %
+  (`results/large_10seeds/baseline.csv`). The gap was accepted on 2026-10-29: our numbers are
   the baseline, and the report states the gap. Ruled out: the restore (bit-equal), our wrappers
   (equal to upstream `evaluate` within noise), the MuJoCo version.
 - MuJoCo is pinned to 3.1.6. Only 3.1.6 replays the dataset transitions exactly (qpos error 3.8e-7
@@ -94,7 +98,7 @@ point, so the formula is approximate (error bound in `docs/theory.md` §7).
 The main risk is **wormholes**: overestimated `ρ` across walls, which the max operator exploits.
 Guards: an edge threshold `ρ ≥ ρ_min`, the min over the 2 `F` heads, a cost per hop.
 On medium, 5–27 % of trusted pairs are wormholes, some across the whole maze, and a higher
-`ρ_min` does not remove them (they concentrate at high `ρ`; d-eval calibration). The approved
+`ρ_min` does not remove them (they concentrate at high `ρ`; `results/calibration/`). The approved
 guards of approach A are in §4.
 
 ## 4. Approaches
@@ -149,61 +153,56 @@ guards of approach A are in §4.
   there; FB distance calibration
   (`−log ρ / −log γ` against maze geodesic distance); wormhole count; route plots.
 
-## 6. Components
+## 6. Repository
 
-| Branch / tab | Owns | Provides |
-|---|---|---|
-| `a-frozen` | `fbplan/frozen.py`, `tests/test_frozen.py` | `load_model`, `make_env`, `load_dataset`, checkpoint download (frozen and trained), clean-clone check |
-| `b-theory` | `fbplan/tabular/`, `docs/theory.md`, `tests/test_tabular*.py`, `fbplan/controllers/oracle_teleport.py`, `results/{giant,teleport}/` | exact tabular maze with true `M`; proofs; wormhole study; giant and teleport runs |
-| `c-planner` | `fbplan/option_model.py`, `landmarks.py`, `graph.py`, `controllers/planner.py`, `analysis/planner_routes.py`, `results/*/planner_ablations/` | approach A controllers and ablations |
-| `d-eval` | `fbplan/evaluate.py`, `stats.py`, `maze.py` (maze geometry, new), `controllers/{__init__,baseline,oracle}.py`, `analysis/` (except `planner_routes.py`, `report_figures.py`), `tests/test_evaluate.py`, `test_stats.py`, `test_eval_controllers.py`, `test_analysis.py` | eval loop, CSVs, stats, diagnostics |
-| `e-learner` | `fbplan/train_high.py`, `fbplan/learned/`, `scripts/gpu/` | retrained baseline seeds; approach B |
-| `f-report` | `REPORT.md`, `docs/figures/report/`, `analysis/report_figures.py` | the report |
-| `g-release` | `README.md`, `scripts/reproduce.sh`, `devbox.json`, `.github/`, `pyproject.toml` (except dependencies added by owners), `tests/conftest.py` | reproduce entry point, CI, code review, process files |
-| `h-exec`, `h-learn`, `h-repr`, `h-papers` | `docs/hypotheses/<branch>.md` | ranked hypotheses for a gain (brief `docs/briefs/hypotheses.md`) |
-| coordinator | `fbplan/contracts.py`, `docs/design.md`, `docs/briefs/` | contracts, merges, publishing; no implementation work |
-
-Tests belong to the owner of the code they test (`tests/test_planner.py`, `test_graph.py`: c-planner;
-`tests/test_learned*.py`: e-learner). For review findings K1–K4 (2026-10-29), a-frozen may edit
-`fbplan/contracts.py` and `tests/test_contracts.py`.
-
+Layout: `README.md`, section "Layout"; commands for every result: `scripts/reproduce.sh`.
 Shared contracts: `fbplan/contracts.py` (`FBModel`, `Controller`, `TaskSpec`, `EpisodeRecord`).
+Data outside the repository: the frozen checkpoints in `~/.cache/fbplan/checkpoints/<maze>/`
+(override with `FBPLAN_CKPT_DIR`), trained `π_h` and critics in `~/.cache/fbplan/baselines/` and
+`~/.cache/fbplan/approach_b/` (`FBPLAN_BASELINE_DIR`, `FBPLAN_APPROACH_B_DIR`), OGBench data in
+`~/.ogbench/data`. Run outputs go to `runs/` (git-ignored); the CSVs and figures that the report
+uses go to `results/` and `docs/figures/` (committed).
 
-## 7. Working rules
+## 7. Code rules
 
-- Each component works on its own branch in `.worktrees/<branch>`. Edit only the files you own.
-  The coordinator merges into `main`. Merge `main` into your branch to get updates.
-- Do not edit `fbplan/contracts.py` or `third_party/`. Request contract changes in your status file.
-- Status: keep `docs/status/<branch>.md` current (done, next, blockers, requests). Commit it with your work.
-- Dependencies: you may add packages with `uv add`. The coordinator re-locks on merge.
-- Shared data outside the repo: checkpoints in `~/.cache/fbplan/checkpoints/<medium|large|giant|teleport>/`
-  (override with `FBPLAN_CKPT_DIR`); OGBench data in `~/.ogbench/data`. Run outputs in `runs/` (git-ignored).
-  Final result CSVs used by the report go to `results/` (committed).
-- Code quality is a hard requirement of the assignment: small typed functions, docstrings that say
-  what and why, comments only where the reason is not obvious, no dead code, no notebooks in `fbplan/`.
-  `uv run ruff check .` and `uv run pytest` must pass before each commit.
-- Commit messages: imperative mood, one topic per commit. No Co-Authored-By lines.
-- Do not add a git remote and do not push. The coordinator publishes the repository.
-- Evaluations share one 12-core Mac: use at most 4 workers per run unless the user approves more.
-- Decisions go to the coordinator, not to the user (the user delegated them on 2026-10-29).
-  Stop and ask the coordinator before you start a GPU job, download more than 1 GB, or change a
-  design decision in this document. Write the question in your status file, end your message
-  with a line that starts with `QUESTION FOR COORDINATOR:`, and end your turn. Do not open a
-  question dialog: a dialog blocks the tab, and the coordinator cannot answer it. The
-  coordinator answers with a message in your tab. Only public uploads (releases) and actions
-  that the permission system reserves for the user still go to the user.
+- Code quality is a requirement of the assignment: small typed functions, docstrings that say
+  what and why, comments only where the reason is not obvious, no dead code, no notebooks in
+  `fbplan/`. `uv run ruff check .` and `uv run pytest` pass before each commit; CI runs both on
+  CPU without data.
+- `third_party/` holds the upstream code unchanged.
+- A refactor must not change results: after it, a rerun of eval seed 0 of one committed config
+  gives identical records.
+- CLI convention of the scripts:
+  1. Inputs are positional paths: CSV files, or one folder.
+  2. Outputs: `--out FILE` for one file, `--out-dir DIR` for one folder. A script that writes
+     figures and tables to different folders uses `--fig-dir` and `--table-dir`. A training CLI
+     uses `--out-dir` for the checkpoint and `--run-dir` for the logs.
+  3. Every file that a script writes has a flag, so that `reproduce.sh --smoke` can send all
+     output to `runs/smoke/`.
+  4. A script that writes committed results defaults to their path in `results/` or
+     `docs/figures/`; other output goes to `runs/<script name>/`.
+  5. `--env` for one env (with choices), `--envs` for several; `--seeds` for eval seeds,
+     `--seed` for one training or sampling seed.
+  6. `--workers` defaults to 4 in every script that starts processes.
+  7. Every argument has a help text, and `--help` shows the defaults
+     (`argparse.ArgumentDefaultsHelpFormatter`).
+  8. `--method` takes an alias of `fbplan.controllers.ALIASES` or a `module:attribute` path.
 
-## 8. Open items
+## 8. Decisions and hypothesis tests
 
-- Seed selection on held-out goals (plan B decision 8; rule fixed on 2026-10-29 at 22:40 MSK,
-  before any held-out result exists). For each family with several training seeds (retrained
-  baseline, B clean, B wide, B region): evaluate every seed on the 10 held-out goals of medium
-  (`--heldout`, eval seeds 0 1 2, 20 episodes per goal and eval seed, Linux instance). Select the
-  seed with the highest held-out success; ties go to the lower seed id. Report, on the 5 eval
-  tasks, the selected seed of each family paired against the selected retrained baseline and
-  against `baseline_raw`, next to the pooled rows. The rule applies to all families in the same
-  way, and nothing else is tuned on the held-out goals. No selection on the eval tasks.
-  Result: no gain by the rule (selected B clean vs `baseline_raw`: +2.2 pp [−1.0, +5.1]).
+`h-exec`, `h-learn`, `h-repr` and `h-papers` name the hypothesis files in `docs/hypotheses/`;
+each file ranks its hypotheses and fixes their readings before any test ran.
+
+- Seed selection on held-out goals (`docs/plans/approach-b.md` §10, decision 8; rule fixed on
+  2026-10-29 at 22:40 MSK, before any held-out result exists). For each family with several
+  training seeds (retrained baseline, B clean, B wide, B region): evaluate every seed on the 10
+  held-out goals of medium (`--heldout`, eval seeds 0 1 2, 20 episodes per goal and eval seed,
+  Linux instance). Select the seed with the highest held-out success; ties go to the lower seed
+  id. Report, on the 5 eval tasks, the selected seed of each family paired against the selected
+  retrained baseline and against `baseline_raw`, next to the pooled rows. The rule applies to all
+  families in the same way, and nothing else is tuned on the held-out goals. No selection on the
+  eval tasks. Result: no gain by the rule (selected B clean vs `baseline_raw`: +2.2 pp [−1.0,
+  +5.1]).
 - AWR sharpness at 2× (fixed on 2026-10-29 at 23:00 MSK, before any result). Motivation: the B
   clean seeds split by their AWR temperature, which each seed calibrates from one noisy draw;
   sharper seeds score higher on the eval tasks and on the held-out goals. Experiment: retrain
@@ -214,6 +213,10 @@ Shared contracts: `fbplan/contracts.py` (`FBModel`, `Controller`, `TaskSpec`, `E
   `baseline_raw` → chaining adds value at matched sharpness; both rise together → the gain is a
   `π_h` tuning effect, reported as such and not as a gain of chaining; neither → B stays
   negative. No other change and no tuning on the eval tasks.
+  The shared temperature is 0.2099: 0.2 times the median upstream advantage spread (16.49) over
+  the median switch advantage spread (15.72), from 200 batches with a new draw of task latents per
+  batch and the critics of seeds 0–4 pooled. It was computed on the GPU; the CPU and TF32 give
+  different spreads (`fbplan.learned.train_b calibrate`).
   Addition (2026-10-30, 00:20 MSK, before any result): the control H1 of
   `docs/hypotheses/h-learn.md` (B clean at the same 2× temperature with `V_H = V_1`). If B 2× ≈ H1,
   the critic adds nothing and any rise is a temperature effect.
@@ -287,10 +290,26 @@ Shared contracts: `fbplan/contracts.py` (`FBModel`, `Controller`, `TaskSpec`, `E
   - Not in wave 1: an unfrozen `π_l` (h-exec H2, H5: low chance of a high-level gain, and every
     row would need it); the `z_r` norm knob (h-repr: c = 1 is best on medium); new critics
     (h-learn H5, H6) wait for the 2× result.
+- **Code versions and compute of the committed results.** Before each group of runs, a rerun of
+  eval seed 0 of a committed config on the same machine repeated its records.
+  - Evaluation code (Linux): 84a8127 for the 5-seed runs, approach A and its ablations, and eval
+    seeds 5–9 of the baseline rows; 0be1249 for T1; 6c603a3 for T4, the 2× families, T2 and T3;
+    8a202e6 for act-ahead; 5d7e642 for the recorded route on large; 2626146 for wave 3 and the
+    replications. The Mac runs of approach A in `results/macos/`: 0de6e0a. Later commits changed
+    the planner config, so the approach A CSVs keep the `config_hash` of 84a8127; a rerun at a
+    later commit repeats their records with another hash (README, "Code versions").
+  - Training code: the retrained baselines 9557a55 (medium) and a189a49 (large); the critics
+    `value-single`, `value-region`, `value-single-expectile0.7` and the B policies clean, wide,
+    region a189a49; `awr2x` and `clean-awr2x` 97d9200; `logratio` 34b17a5. Each checkpoint's
+    `flags.json` records its commit.
+  - Compute: evaluation on one rented Linux machine (AMD EPYC 7662, 128 cores, 1 TB RAM, CPU
+    only) for about 9.2 h, about $8.6 with the hosts that failed at start; training on one
+    rented RTX 3090 for 13.9 h, about $2.90 (5 seeds in parallel, about 55 min per family; a B
+    run holds about 2.5 GB of GPU memory).
 
 Closed:
 
-- Baseline definition (2026-10-29, decided by the coordinator on the user's delegation): the main
+- Baseline definition (decided on 2026-10-29): the main
   baseline gives `π_h` the normalized `z_r`, the same input path as every other method, including
   approach B and the retrained baselines. `baseline_raw` (upstream `sample_actions` with the raw
   `z_r`) is a reference row. Evidence, 5 eval seeds, paired: medium raw − normalized = +2.6 pp
@@ -303,9 +322,21 @@ Closed:
   The normalized baseline stays the controlled reference (same input path as B and the retrained
   baselines); the report shows both rows in every table, and the rule above makes the stronger one
   the bar. Against `baseline_raw` the privileged oracle gains only +0.5 pp on medium.
-- Held-out goals (d-eval proposal H, accepted): `task_id` 101..110 identify held-out goals; only
-  the `TaskSpec` docstring changes. Checkpoint fields in `EpisodeRecord` (proposal C): rejected;
-  one CSV holds one checkpoint, and `write_csv` adds its columns.
-- Environment (a-frozen, 2026-10-29): keep JAX 0.10.2, flax 0.12.8, distrax 0.1.9 and the locked
+- Held-out goals (accepted on 2026-10-29): `task_id` 101..110 identify held-out goals; only
+  the `TaskSpec` docstring changes. The goal files are `results/heldout_goals/<env>.csv`
+  (`analysis/heldout_goals.py`, seeded draws). A goal cell is at least 2 maze moves from every
+  eval goal, its goal ball holds at least 50 validation states and at most 50 % flipped states,
+  and its start cell is at the distance of an eval task. The flip limit (2026-10-30) changed 6
+  of 10 large goals and 3 of 10 giant goals, before any held-out run on them; medium did not
+  change. No teleport goal lies in the trap cell. Checkpoint fields in `EpisodeRecord`:
+  rejected; one CSV holds one checkpoint, and `write_csv` adds its columns.
+- Environment (2026-10-29): keep JAX 0.10.2, flax 0.12.8, distrax 0.1.9 and the locked
   `tfp-nightly` build. The restore is exact, PyPI keeps all tfp-nightly builds, and an older stack
   gives no benefit because the pickles hold numpy arrays only. MuJoCo is pinned to 3.1.6 (§2).
+  `uv.lock` pins the tfp-nightly build (0.26.0.dev20261028); distrax 0.1.9 needs tfp-nightly,
+  because tfp 0.25 does not support the new JAX. The MuJoCo pin moves dm-control from 1.0.50 to
+  1.0.20, which pins an exact MuJoCo version.
+- Route following (`switch_steps`, 2026-10-29): approach A can follow its route at a reach
+  instead of re-planning. It is an ablation, not a default: on held-out episodes (eval seed 200,
+  not used for any choice) it changed success by −2.0 pp [−9.6, +5.6] on medium and +5.3 pp
+  [−5.3, +16.0] on large against the defaults.
