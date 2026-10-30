@@ -1,6 +1,6 @@
 # Status: f-report
 
-Last update: 2026-10-30, 02:20. Branch merged with `main` at 0433cf3.
+Last update: 2026-10-30, 04:30. Branch merged with `main` at 2626146.
 
 ## Done
 
@@ -186,6 +186,39 @@ Last update: 2026-10-30, 02:20. Branch merged with `main` at 0433cf3.
     `baseline`); §1, §7.1, §8.2, §8.4, §8.5, §9 use it.
   - Teleport baselines on 10 eval seeds in §6 (normalized +2.5 pp, p 0.011); T3 bullet in §7.3.
   - §1, status line, §5 gate, §9, §10, §11, appendix (2× families, T4, T3 rows).
+- After the merge of 2626146 (T2; the 2× families on 10 eval seeds; gate G0 on large; the
+  recorded-route controller of h-papers H1 passes on large; wave 3 in design.md §8; coordinator:
+  add it as the method that passes, keep §1 for after wave 3):
+  - §8.7 (new), "Recorded-route tracking: the one method that passes (large)": the method with the
+    coordinator's three framings (the route comes from recorded trajectories, not from FB values;
+    FB gives only the goal landmark and the executor; `π_h` executes a sequence of nearby targets),
+    the protocol (G0, held-out check, final run), the held-out grid (selected `high` K 150, 58.8 %;
+    5 of 6 configs 3.5–5.5 pp above `baseline`), the final run (41.2 %, +3.5 pp [+0.9, +6.0],
+    p 0.009 against `baseline`, +5.6 pp against `baseline_raw`), per task (gains on 1, 2, 4;
+    −9.8 pp on task 3), both eval-seed halves (+3.2, +3.8 pp), and the multiplicity: about 20
+    candidate tests on 10 eval seeds, Holm-adjusted p ≤ 20 × 0.0087 = 0.17. Wave 3 (R) and (M)
+    with their readings and *(pending)* results.
+  - Against the oracle the recorded route is +2.2 pp [−0.4, +4.9], p 0.10 (not significant); the
+    coordinator's "+2.3 pp" is the difference of the rounded rates. The report says "ahead, not
+    significantly".
+  - §7.2: the final protocol on large (10 eval seeds: baseline 37.7, raw 35.5, oracle 38.9,
+    recorded route 41.2); the 5-seed rows stay below. §6 (large rows), §8.1, §8.2 (oracle 10 seeds
+    +1.2 pp; title now "no measurable room for the privileged oracle"; the oracle is not a bound:
+    the recorded route is ahead of it), §8.4 point 8 (act-ahead is the same executor on A's route).
+  - §8.5 finding 4 on 10 eval seeds: baseline 2× 80.6 %, B 2× 80.1 % (−0.6 pp [−3.8, +2.3]); the
+    baseline rises +2.2 pp [+0.0, +4.3], B +0.2 pp over B-clean. Selected B-2× seed 3: +0.6 pp
+    against raw, +0.5 pp against the selected baseline 2× (seed 4). New: seed 2 is level with the
+    best baseline-2× seed (+0.6 pp, p 0.57) but +2.2 pp (p 0.043) above the selected one, seed 4
+    (the second weakest on the eval tasks). Seed 1 stays low (B −6.1 to −7.8 pp, baseline −2.6 to
+    −4.1 pp). The "H1" control is now "the `V_H = V_1` control", so H1 means only h-papers H1.
+  - Multiplicity of B: 12 tests on the final protocol (with B 2× pooled and selected), Holm 0.56,
+    P(at least one p ≤ 0.05) 0.46 (§7.1, §8.5, §9).
+  - §8.6: T2 fails (76.1 %, −4.4 pp [−7.2, −1.9] against raw, −2.3 pp against retrained; selected
+    seed 0 77.5 %, −3.0 pp against raw); header without "pending".
+  - §9 (T2, recorded route, 2×, room rows), §10 (the pass is not yet replicated; next steps: wave 3,
+    then the FB arm h-papers H2), §11 (large and held-out commands; 2× on 10 seeds), appendix (T2,
+    recorded route).
+  - §1 is unchanged on purpose (coordinator); the status line says what it does not yet include.
 - Private defense sheet for the reviewer call (coordinator request): written outside the
   repository, not committed; updated for B, the seed selection, the ablations, giant, and the
   10-seed protocol and T1.
@@ -197,8 +230,8 @@ Last update: 2026-10-30, 02:20. Branch merged with `main` at 0433cf3.
 
 | # | Result | Report section | Owner | Expected place |
 |---|---|---|---|---|
-| 1 | 10-seed rows of the 2× experiment (baseline 2× and B-clean 2× on eval seeds 5–9) | §8.5 finding 4 | d-eval | `results/medium_10seeds/` |
-| 2 | T2 (log-ratio baseline `π_h`, 5 seeds, 10 eval seeds and held-out selection) | §8.6, §1, §9 | e-learner, d-eval | `results/medium_10seeds/` |
+| 1 | wave 3 (R): the recorded route and both baseline rows on large eval seeds 10–19 | §8.7, §7.2, §9, then §1 | d-eval | `results/large/` |
+| 2 | wave 3 (M): the recorded route on medium (held-out grid, then eval seeds 0–9) | §8.7, §7.1, §9, then §1 | c-planner, d-eval | `results/medium/` |
 | 3 | route plots of A on medium and large, committed | §8.4 point 8 | c-planner | `docs/figures/report/` or c-planner's results |
 | 4 | non-hier and approach A on eval seeds 5–9 (optional) | §7.1 | d-eval | `results/medium_10seeds/` |
 | 5 | giant: optional `baseline_raw` | §7.3 | d-eval | `results/giant/` |
@@ -206,13 +239,13 @@ Last update: 2026-10-30, 02:20. Branch merged with `main` at 0433cf3.
 | 7 | whether the wormholes that the xy cap leaves cross a wall (a column of the calibration CSV) | §8.3, §4 | d-eval | `results/calibration/` |
 
 Every needed result has an owner. The central finding (no measurable room for a high level with
-this `π_l`) was set by the coordinator from the Linux results; the report states it in §1 and §8.2,
-with the giant wording adjusted to the Linux giant runs (oracle +2.0 pp, significant, at 2.5 %).
+this `π_l`) now holds for the privileged oracle only: on large the recorded route passes the bar
+(§8.7). §1 still states the old wording; it is rewritten after wave 3 (coordinator).
 
 ## Next
 
-- When T2 lands: its row in §8.6 by the reading of design.md §8, then §1 and §9. When the 10-seed
-  rows of 2× land: finding 4 of §8.5.
+- When wave 3 lands: (R) and (M) rows in §8.7 by the readings of design.md §8, the large table of
+  §7.2 with eval seeds 0–9, 10–19 and 0–19, §9, §10; then §1, written last.
 - Then the other items above.
 - Merge `main` when new results are merged.
 
