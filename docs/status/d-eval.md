@@ -356,6 +356,42 @@ The wormholes left by the xy cap cross no wall: short pairs where FB is overconf
   shared `region_latents` and batched-B helper.
 - Also fixed: `failure_table` dropped tasks without failures.
 
+## Review, open items of docs/status/g-release.md (2026-10-30)
+
+- A11 fixed: `task_latent` takes a held-out goal's z from `FrozenFBModel.infer_goal_latent`
+  (a-frozen); my copy (`goal_latent`, `_val_dataset`) is gone. The latents are bit-identical on
+  the 10 medium and the 10 large held-out goals.
+- X4 fixed: the oracle builds its region latents with c-planner's `landmarks.region_latents`
+  (and so `option_model.batched_backward`); the two copies of the averaging are one now.
+  `oracle.region_latents` stays as a thin wrapper: it keeps the oracles' error text ("no dataset
+  state"), which b-theory's `tests/test_oracle_teleport.py` checks. My duplicate test of the
+  averaging is gone (c-planner's `test_landmarks.py` has it).
+- K2 leftovers fixed: the test fakes in `tests/test_eval_controllers.py` take `(obs, z)` only.
+- `evaluate.py`: the comment names `frozen.load_trained_model` (it replaces only π_h). The
+  `params.pkl` skip in `tests/test_evaluate.py` is the fixture of the provided checkpoint, which
+  has `params.pkl`; the retrained test checks `high_actor.pkl` (done before).
+- `oracle_teleport`: alias added and marked privileged (`controllers.PRIVILEGED`). Its CSVs
+  already have `method` = `oracle_teleport`, so committed rows keep their names; tables now mark
+  them.
+- X11 done for my CLIs: `build_parser()` in `fbplan/evaluate.py` and in 8 analysis scripts,
+  with `ArgumentDefaultsHelpFormatter` and help for every argument; `--workers` defaults to 4
+  (`evaluate` 1 → 4, `failures` and `parity` 10 → 4); `calibration --fig-dir` (the old name
+  `--out-dir` still works); `heldout_goals --table-dir` (default `results/heldout_goals`). One
+  test checks every parser.
+- Results unchanged: on the Mac, the old code (8b4795f) and the new code give identical
+  records, `config_hash` included, for the medium oracle on eval seed 0 (250 episodes) and the
+  medium held-out baseline on eval seed 0 (200 episodes).
+- Request 4 (table of the retrained baselines): `uv run python analysis/tables.py
+  results/medium/baseline.csv results/medium/baseline_raw.csv
+  results/medium/baseline_retrained/seed*.csv --cluster checkpoint_seed` (pooled row
+  `baseline[retrained]`, one paired row per training seed).
+- X6, known deviation: the alias `ensemble` writes `baseline_ensemble` or
+  `baseline_ensemble_raw` (one name per input path, `--opt z_input=`). A rename would change the
+  committed ensemble CSVs; the name says which path ran.
+- X18 open: needs a decision (see Requests). Since 84a8127, `PlannerConfig` gained
+  `act_ahead_xy` and `act_region_xy` (defaults keep the old behaviour), so a rerun of a committed
+  Linux planner command writes a new `config_hash`, and `failures.py` refuses to replay it.
+
 ## Commands for the CSVs in results/
 
 Run from the repository root; `--workers` does not change results. The Mac CSVs in
@@ -697,6 +733,20 @@ ensemble_raw_<family>.csv`; T1 rows for comparison):
 
 ## Requests
 
+- Coordinator, X18 (`config_hash` after a new config field), choose:
+  (a) g-release's proposal: hash only the fields that differ from their defaults, and rewrite
+  the `config_hash` column of every committed CSV once (each CSV's options from the commands
+  in this file; a seed-0 rerun per controller first). About 2 hours; it touches every results
+  CSV.
+  (b) Keep every committed hash. `failures.py --ignore-hash` replays a CSV with the given
+  `--method` and `--opt` and prints both hashes; the README says that config fields added after
+  the Linux runs default to the old behaviour, so a rerun gives the same records with a newer
+  hash. About 20 minutes.
+  Recommendation: (b). The hash only names a config; a rewrite of all committed CSVs just
+  before the release has more risk than one documented exception.
+- g-release: `scripts/reproduce.sh` may now call `calibration.py --fig-dir` (the old
+  `--out-dir` still works) and `heldout_goals.py --table-dir <smoke dir>`, so the smoke run no
+  longer writes to `results/heldout_goals/`. `failures.py` and `parity.py` default to 4 workers.
 
 - f-report, g-release: new paths. The Mac results are in `results/macos/{medium,large,figures}/`.
   `results/medium/`, `results/large/` and the figures will hold the Linux results (same file

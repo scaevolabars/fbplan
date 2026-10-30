@@ -16,7 +16,7 @@ Every method goes through this loop, so all numbers are comparable:
 CLI (writes one CSV of EpisodeRecords, prints the success table and the throughput):
 
     uv run python -m fbplan.evaluate --method baseline --env antmaze-medium-navigate-v0 \
-        --tasks 1 2 3 4 5 --seeds 0 --episodes 50 --workers 8 [--opt key=value ...] \
+        --tasks 1 2 3 4 5 --seeds 0 --episodes 50 --workers 4 [--opt key=value ...] \
         [--checkpoint provided | retrained:[<variant>:]<seed> | b:<variant>:<seed>] [--heldout]
 
 With many workers on one CPU, `XLA_FLAGS="--xla_cpu_multi_thread_eigen=false
@@ -48,11 +48,9 @@ from fbplan.contracts import Controller, EpisodeRecord, FBModel, TaskSpec
 from fbplan.controllers import ALIASES, resolve_controller
 from fbplan.frozen import (
     ENV_NAMES,
-    load_dataset,
     load_model,
     load_trained_model,
     make_env,
-    upstream_module,
 )
 from fbplan.learned import checkpoint as trained
 from fbplan.maze import Cell, MazeGeometry
@@ -156,9 +154,9 @@ def select_heldout_goals(
     `min_cells` moves from every eval goal, have a start cell, and have at least `min_states`
     states of `dataset_obs` within the goal radius, of which at most a share `max_flipped` is
     flipped (torso upside down). dataset_obs: the states that make z (the validation split, see
-    goal_latent); few states give a noisy z, and a ball of mostly flipped states gives a z of
-    flipped poses. Start cell of each goal: a seeded draw. The goal is the cell centre, as in
-    OGBench's own tasks, and success uses OGBench's goal radius.
+    FrozenFBModel.infer_goal_latent); few states give a noisy z, and a ball of mostly flipped
+    states gives a z of flipped poses. Start cell of each goal: a seeded draw. The goal is the
+    cell centre, as in OGBench's own tasks, and success uses OGBench's goal radius.
     """
     maze, infos = MazeGeometry.from_env(env), env.unwrapped.task_infos
     radius = env.unwrapped._goal_tol
@@ -231,34 +229,12 @@ def _heldout_table(env_name: str) -> dict[int, HeldoutGoal]:
     return {goal.task_id: goal for goal in load_heldout_goals(env_name)}
 
 
-@functools.cache
-def _val_dataset(env_name: str) -> Any:
-    return upstream_module("utils.datasets").Dataset.create(**load_dataset(env_name, "val"))
-
-
-def goal_latent(model: FBModel, goal_ij: Cell) -> np.ndarray:
-    """z of the goal at the centre of cell goal_ij, computed as FrozenFBModel.infer_task_latent
-    computes z_r: upstream relabels the validation split with OGBench's goal radius (reward 1
-    inside, else 0) and averages r * B(s) over its first num_zero_shot_samples rows.
-    It needs the upstream agent, so it works with fbplan.frozen.FrozenFBModel only.
-    """
-    env = make_env(model.env_name)
-    env.reset(options={"task_info": {"init_ij": goal_ij, "goal_ij": goal_ij}})
-    relabel = upstream_module("utils.env_utils").relabel_dataset
-    relabeled = relabel(f"ogbench-{model.env_name}", env, _val_dataset(model.env_name))
-    agent: Any = model.agent  # type: ignore[attr-defined]
-    n = agent.config["num_zero_shot_samples"]
-    rewards = relabeled["rewards"][:n]
-    if not rewards.any():
-        raise ValueError(f"no validation state within the goal radius of cell {goal_ij}")
-    return np.asarray(agent.infer_latent({"observations": relabeled["observations"][:n],
-                                          "rewards": rewards}))
-
-
 def task_latent(model: FBModel, task_id: int) -> np.ndarray:
-    """z of an eval task (FBModel.infer_task_latent) or of a held-out goal (goal_latent)."""
+    """z of an eval task (FBModel.infer_task_latent) or of a held-out goal
+    (FrozenFBModel.infer_goal_latent: the same upstream computation for the goal cell)."""
     if task_id > HELDOUT_OFFSET:
-        return goal_latent(model, _heldout_table(model.env_name)[task_id].goal_ij)
+        model_: Any = model  # the FBModel protocol has no infer_goal_latent
+        return model_.infer_goal_latent(_heldout_table(model.env_name)[task_id].goal_ij)
     return model.infer_task_latent(task_id)
 
 
@@ -504,18 +480,27 @@ def build_controller(
     return resolve_controller(spec)(checkpoint.load(env_name), **options)
 
 
-def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Evaluate one controller on OGBench tasks.")
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Evaluate one controller on OGBench tasks.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     parser.add_argument(
         "--method", required=True, help=f"{', '.join(sorted(ALIASES))} or package.module:attr"
     )
-    parser.add_argument("--env", default="antmaze-medium-navigate-v0", choices=ENV_NAMES)
-    parser.add_argument("--tasks", type=int, nargs="+", default=[1, 2, 3, 4, 5])
+    parser.add_argument(
+        "--env", default="antmaze-medium-navigate-v0", choices=ENV_NAMES, help="OGBench env"
+    )
+    parser.add_argument(
+        "--tasks", type=int, nargs="+", default=[1, 2, 3, 4, 5], help="eval task ids (1-5)"
+    )
     parser.add_argument(
         "--seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4], help="eval seeds (protocol: 5)"
     )
     parser.add_argument("--episodes", type=int, default=50, help="per task and eval seed")
-    parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument(
+        "--workers", type=int, default=4, help="worker processes (1: run in this process)"
+    )
     parser.add_argument("--opt", nargs="*", default=[], help="controller options key=value")
     parser.add_argument(
         "--checkpoint", default="provided",
@@ -523,7 +508,11 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     )
     parser.add_argument("--heldout", action="store_true", help="all held-out goals, not --tasks")
     parser.add_argument("--out", type=Path, help="CSV path (default: runs/<env>_<method>_...)")
-    return parser.parse_args(argv)
+    return parser
+
+
+def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
+    return build_parser().parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -532,7 +521,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     options = parse_options(args.opt)
     factory = functools.partial(build_controller, args.method, args.env, options, checkpoint)
     task_ids = [g.task_id for g in load_heldout_goals(args.env)] if args.heldout else args.tasks
-    # B is the same in every checkpoint (load_retrained_model checks it), and so is z.
+    # B is the same in every checkpoint (frozen.load_trained_model replaces only pi_h), so is z.
     model = load_model(args.env)
     tasks = make_tasks(args.env, task_ids, functools.partial(task_latent, model))
     start = time.perf_counter()

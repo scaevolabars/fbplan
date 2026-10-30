@@ -1,7 +1,7 @@
 """Parity check: our evaluation loop against upstream `utils/evaluation.evaluate`.
 
     uv run python analysis/parity.py --ours results/medium/baseline.csv [--reps 5] \
-        [--episodes 50] [--workers 10] [--out results/medium/upstream.csv]
+        [--episodes 50] [--workers 4] [--out results/medium/upstream.csv]
 
 Runs the restored upstream agent through upstream `evaluate` (temperature 0, no videos, as
 upstream main.py) for every task of the env in --ours, `--reps` times `--episodes` episodes,
@@ -55,14 +55,24 @@ def upstream_episodes(
     ]
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     parser.add_argument("--ours", type=Path, required=True, help="CSV of our baseline run")
     parser.add_argument("--reps", type=int, default=1, help="repetitions per task")
     parser.add_argument("--episodes", type=int, default=50, help="episodes per task and rep")
-    parser.add_argument("--workers", type=int, default=10)
-    parser.add_argument("--out", type=Path, default=Path("runs/parity_upstream.csv"))
-    args = parser.parse_args()
+    parser.add_argument("--workers", type=int, default=4, help="worker processes")
+    parser.add_argument(
+        "--out", type=Path, default=Path("runs/parity_upstream.csv"),
+        help="CSV of upstream's own evaluation episodes",
+    )
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
 
     ours = load_results([args.ours])
     (env_name,) = ours["env_name"].unique()
