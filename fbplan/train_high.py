@@ -34,7 +34,6 @@ from fbplan.learned.checkpoint import (
     SAMPLER_STREAM,
     Agent,
     run_flags,
-    trained_key,
     with_fresh_high_actor,
 )
 from fbplan.learned.logratio import GOAL_ALPHA, logratio_loss, logratio_update
@@ -147,7 +146,7 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     maze = frozen.maze_name(args.env)
-    key = trained_key("baselines", args.env, args.seed, args.name)
+    key = frozen.trained_key("baselines", args.env, args.seed, args.name)
     out_dir = args.out_dir or frozen.trained_dir(key)
     run_dir = args.run_dir or Path("runs/train_high") / key.split("/", 1)[1]
     run_dir.mkdir(parents=True, exist_ok=True)

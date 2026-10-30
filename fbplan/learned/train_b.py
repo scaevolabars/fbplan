@@ -32,7 +32,6 @@ from fbplan.learned.checkpoint import (
     Agent,
     git_commit,
     run_flags,
-    trained_key,
     with_fresh_high_actor,
 )
 from fbplan.learned.high_policy import (
@@ -179,7 +178,7 @@ def train_value(args: argparse.Namespace, model: frozen.FrozenFBModel, run_dir: 
         "value_spec": dataclasses.asdict(stage.spec),
     }
     out_dir = args.out_dir or frozen.trained_dir(
-        trained_key("approach_b", args.env, args.seed, args.name)
+        frozen.trained_key("approach_b", args.env, args.seed, args.name)
     )
     save_value(value, config, flags, out_dir)
     print(f"saved {out_dir}")
@@ -377,7 +376,7 @@ def train_policy(args: argparse.Namespace, model: frozen.FrozenFBModel, run_dir:
         "agent": dict(agent.config),
         "approach_b": {
             "variant": args.variant,
-            "value": trained_key("approach_b", args.env, args.seed, args.value_name),
+            "value": frozen.trained_key("approach_b", args.env, args.seed, args.value_name),
             "value_config": dataclasses.asdict(config),
             "policy_spec": dataclasses.asdict(stage.spec),
             "calibration": calibration,
@@ -385,7 +384,7 @@ def train_policy(args: argparse.Namespace, model: frozen.FrozenFBModel, run_dir:
         },
     }
     out_dir = args.out_dir or frozen.trained_dir(
-        trained_key("approach_b", args.env, args.seed, args.name)
+        frozen.trained_key("approach_b", args.env, args.seed, args.name)
     )
     frozen.save_trained_checkpoint(agent, flags, out_dir)
     print(f"saved {out_dir}")

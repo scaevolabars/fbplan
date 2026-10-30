@@ -25,13 +25,16 @@ import jax
 import jax.numpy as jnp
 import optax
 
-from fbplan.frozen import forward, save_numpy_pickle, trained_dir, upstream_module
-from fbplan.learned.checkpoint import (
-    Agent,
+from fbplan.frozen import (
+    forward,
     load_trained_file,
     save_flags,
+    save_numpy_pickle,
+    trained_dir,
     trained_key,
+    upstream_module,
 )
+from fbplan.learned.checkpoint import Agent
 from fbplan.learned.option_targets import OptionConfig, OptionTerms, direct_value, option_terms
 from fbplan.learned.sampling import SwitchBatch
 

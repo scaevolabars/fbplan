@@ -12,14 +12,13 @@ import numpy as np
 import pytest
 
 from fbplan import frozen
+from fbplan.frozen import load_trained_file, trained_key
 from fbplan.learned.checkpoint import (
     FROZEN_MODULES,
     cache_relative,
     export_folder,
     load_baseline_model,
-    load_trained_file,
     portable_flags,
-    trained_key,
     with_fresh_high_actor,
 )
 from fbplan.learned.sampling import HighBatchSpec, make_trajectory_data

@@ -27,7 +27,7 @@ import numpy as np  # noqa: E402
 from fbplan import frozen  # noqa: E402
 from fbplan.contracts import normalize_z  # noqa: E402
 from fbplan.controllers.oracle import MazeGeometry  # noqa: E402
-from fbplan.learned.checkpoint import Agent, trained_key  # noqa: E402
+from fbplan.learned.checkpoint import Agent  # noqa: E402
 from fbplan.learned.train_b import Split  # noqa: E402
 from fbplan.learned.value import ValueState, load_value, multi_switch_value  # noqa: E402
 
@@ -134,7 +134,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         for seed in args.seeds
     }
     flags_path = (
-        frozen.trained_dir(trained_key("approach_b", args.env, args.seeds[0], args.value))
+        frozen.trained_dir(frozen.trained_key("approach_b", args.env, args.seeds[0], args.value))
         / "flags.json"
     )
     split = Split.load(model, "val", json.loads(flags_path.read_text())["latents"])

@@ -309,6 +309,31 @@ the first-pass table above claimed both too early.
 
 Short runs of `train_high` and both B stages stay bit-identical to the reference after each step.
 
+## Review findings, final pass (E18)
+
+g-release's final pass (main 953030d) found that the A10 row above was wrong: copies of
+`trained_key`, `save_flags`, `load_trained_file` and `Kind` were still in
+`fbplan/learned/checkpoint.py`. Done on 2026-10-30 (branch fast-forwarded to main 953030d first):
+
+- The copies are deleted. `train_high`, `train_b`, `value`, `diagnostics` and my tests import
+  `trained_key`, `save_flags`, `load_trained_file` from `fbplan.frozen`; `Kind` is
+  `frozen.TrainedKind`. The frozen versions give the same results; `frozen.trained_key` also
+  refuses an unknown kind.
+- `checkpoint.py` still imports `trained_key` from `fbplan.frozen` (it uses it), so
+  `fbplan/evaluate.py:114` (d-eval, `trained.trained_key`) works unchanged. The 4-argument
+  delegate `checkpoint.trained_dir` stays for `tests/test_evaluate.py` (request 1).
+- Refactor check: the five short runs below give parameters, logs and `flags.json` (except
+  `commit`) identical to the previous run `new5` (max |diff| 0). Against the older `ref` tree,
+  only the logged `adv`, `adv_std` and `saturated` of the policy stage differ, as recorded for E6.
+  `uv run pytest -q`: 513 passed. Commands (`S` = a scratch folder, `N=$S/new7`):
+
+      E=antmaze-medium-navigate-v0; export FBPLAN_APPROACH_B_DIR=$N/b
+      uv run python -m fbplan.train_high --env $E --seed 0 --steps 20 --log-every 10 --out-dir $N/high --run-dir $N/run-high
+      uv run python -m fbplan.learned.train_b value --env $E --seed 0 --steps 20 --log-every 10 --latents single --run-dir $N/run-value-single
+      uv run python -m fbplan.learned.train_b value --env $E --seed 0 --steps 20 --log-every 10 --latents region --run-dir $N/run-value-region
+      uv run python -m fbplan.learned.train_b policy --env $E --seed 0 --steps 20 --log-every 10 --variant clean --run-dir $N/run-clean
+      uv run python -m fbplan.learned.train_b policy --env $E --seed 0 --steps 20 --log-every 10 --variant region --run-dir $N/run-region
+
 ## GPU time and cost
 
 vast.ai, a shared team account, label `fbplan-gpu`. Times in MSK, 2026-10-29 to 2026-10-30.
@@ -419,10 +444,10 @@ The allocator setting changes memory handling only. It did not lower the 2.5 GB,
 
 For d-eval:
 
-1. Done for `fbplan/evaluate.py`. Left: `tests/test_evaluate.py:376` calls
-   `checkpoint.trained_dir("baselines", MEDIUM, 0)`; please use
-   `frozen.trained_dir(checkpoint.trained_key("baselines", MEDIUM, 0))`, then I delete the
-   delegate (review A10).
+1. Optional (review A10, E18): `tests/test_evaluate.py:391,422` call
+   `checkpoint.trained_dir("baselines", MEDIUM, k)`, and `fbplan/evaluate.py:114` calls
+   `checkpoint.trained_key`. Please use `frozen.trained_dir(frozen.trained_key("baselines",
+   MEDIUM, k))` and `frozen.trained_key`; then I delete the delegate and the import note.
 
 For a-frozen:
 
