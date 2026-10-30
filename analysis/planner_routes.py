@@ -25,24 +25,24 @@ import gymnasium as gym
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-from matplotlib.collections import LineCollection  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.collections import LineCollection
 
-from fbplan.contracts import TaskSpec  # noqa: E402
-from fbplan.controllers.planner import (  # noqa: E402
+from fbplan.contracts import TaskSpec
+from fbplan.controllers.planner import (
     GraphPlannerController,
     make_planner,
     make_planner_high,
 )
-from fbplan.evaluate import (  # noqa: E402
+from fbplan.evaluate import (
     config_hash,
     make_tasks,
     parse_options,
     run_episode,
     task_latent,
 )
-from fbplan.frozen import load_model, make_env  # noqa: E402
+from fbplan.frozen import load_model, make_env
 
 N_TASKS = 5
 FACTORIES = {"planner": make_planner, "planner_high": make_planner_high}

@@ -70,7 +70,7 @@ class StandStill:
     def __getattr__(self, name: str):
         return getattr(self.fb, name)
 
-    def low_action(self, obs, z, temperature=0.0, seed=None):
+    def low_action(self, obs, z):
         return np.zeros((len(obs), 2), dtype=np.float32)
 
 
@@ -450,11 +450,11 @@ class LatentSpy:
     def __getattr__(self, name: str):
         return getattr(self.fb, name)
 
-    def low_action(self, obs, z, temperature=0.0, seed=None):
+    def low_action(self, obs, z):
         self.low_z = np.asarray(z)[0]
         return self.fb.low_action(obs, z)
 
-    def high_latent(self, obs, z_task, temperature=0.0, seed=None):
+    def high_latent(self, obs, z_task):
         self.high_z = np.asarray(z_task)[0]
         return self.fb.high_latent(obs, z_task)
 
