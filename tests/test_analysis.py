@@ -172,7 +172,7 @@ CLI_SCRIPTS = (*SCRIPTS, "parity", "heldout_goals")
 
 @pytest.mark.parametrize("name", CLI_SCRIPTS)
 def test_cli_follows_the_convention_help_for_every_argument_defaults_shown_4_workers(name):
-    # CLI convention: help for every argument, defaults in --help, 4 workers by default
+    # docs/design.md §7, CLI convention, items 6 and 7
     parser = _load(name).build_parser()
     assert parser.formatter_class is argparse.ArgumentDefaultsHelpFormatter
     for action in parser._actions:
