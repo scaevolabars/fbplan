@@ -10,6 +10,12 @@ that it comes from. Design and notation: `docs/design.md`; theory and the exact 
 
 ## Setup
 
+Prerequisites: git and [uv](https://docs.astral.sh/uv/) (official installer:
+`curl -LsSf https://astral.sh/uv/install.sh | sh`, or `pipx install uv`). uv installs Python 3.11
+itself. The locked environment (`uv.lock`) needs uv: `pyproject.toml` pins only OGBench,
+Gymnasium and MuJoCo 3.1.6, so a plain `pip install` resolves the other packages to other
+versions, for example a newer `tfp-nightly` build than the locked `0.26.0.dev20261028`.
+
 ```bash
 git clone --recurse-submodules https://github.com/scaevolabars/fbplan.git && cd fbplan
 uv sync
