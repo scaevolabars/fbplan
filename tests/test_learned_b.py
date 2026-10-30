@@ -174,7 +174,7 @@ def test_switch_targets_assemble_the_option_terms_of_s_and_w(agent, value, split
 
 
 def test_the_v1_control_replaces_v_h_by_v1_in_target_and_advantage(agent, value, split):
-    """critic="v_1" (h-learn H1): the learned gain enters neither y nor the advantage."""
+    """critic="v_1" (H1 of docs/hypotheses/h-learn.md): the gain is in neither y nor A."""
     control = dataclasses.replace(TINY_VALUE, critic="v_1")
     batch = split.batch(jax.random.PRNGKey(7), STAGE)
     y, v1_s, terms = switch_targets(agent, value, value.params, batch, control)

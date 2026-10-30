@@ -25,7 +25,7 @@ No graph and no landmarks at test time, and it works for any task latent `z`.
 ## 2. What the critic computes
 
 Option "follow `π_{z_w}` until `w` is hit", with `z_w = B(w)`, per `F` head `h`
-(the same formulas and conventions as c-planner's `fbplan/option_model.py`):
+(the same formulas and conventions as approach A's `fbplan/option_model.py`):
 
 ```
 ρ(s,w)   = agg_h F_h(s,z_w)ᵀB(w) / F_h(w,z_w)ᵀB(w)     clipped to [0, ρ_cap]
@@ -55,7 +55,7 @@ y(s,w,z) = R(s,w;z) + ρ(s,w)·[V_1(w,z) + softplus(min_j Δ̄_j(w,z))] − c
 L_V      = Σ_j E[ |τ − 1(u_j < 0)| · u_j² ],   u_j = y − V_1(s,z) − softplus(Δ_θ,j(s,z))
 ```
 
-**Which R.** c-planner offers three: exact, the paper's proxy, and zero.
+**Which R.** `fbplan/option_model.py` offers three: exact, the paper's proxy, and zero.
 
 - The proxy is wrong for a chain. It drops `−ρ·F(w,z_w)ᵀz`, the reward that `π_{z_w}` would
   collect after `w`. The agent does not collect it, because it switches at `w`, and `ρ·V_H(w)`
@@ -73,7 +73,7 @@ Default: `R = 0` for goal latents, exact `R` for Gaussian latents (code: `edge_r
 plans for one goal at a time, so `zero` applies to every edge; B trains on goal and Gaussian
 latents in one batch, and `goal_zero` sets `R = 0` only for the goal latents. The eval tasks have goal
 latents, so for them B uses the same estimator as A. Ablations: exact `R` for all latents; the
-proxy. b-theory's exact maze measures all three.
+proxy. The exact tabular maze (`fbplan/tabular/`) measures all three.
 
 ## 3. Sampling
 
@@ -99,16 +99,17 @@ look latents up; no `B` call per step.
 | **B-region** | region latents | as B-clean | the latent type |
 
 In the code the latent kinds are `--latents single` (one state's `B`) and `--latents region`
-(the window below). c-planner calls the first kind `state`; the B names stay, because they are part
-of the trained folder names (`value-single`, `value-region`), which are the release keys.
+(the window below). Approach A's `fbplan/landmarks.py` calls the first kind `state`; the B names
+stay, because they are part of the trained folder names (`value-single`, `value-region`), which
+are the release keys.
 
 The region latent of a state is the mean of `B` over the states within ±5 steps of it on its
-trajectory (cumulative sums over the `B` table make this cheap). Reasons to try it: d-eval's
-oracle scored about 4 points above the baseline with region-mean waypoint latents and below it
-with single-state ones, with this `π_l` (design §5, one eval seed); and the test-time
-`z_r = mean(r·B(s))` is itself a mean over the goal ball. In B-region, `z̃_w` replaces `z_w`
-everywhere in §2, so `ρ` becomes the discount to reach the region around `w`, and B-region needs
-its own `V_H`. B-clean and B-wide share one `V_H`.
+trajectory (cumulative sums over the `B` table make this cheap). Reasons to try it: the
+oracle controller (`fbplan/controllers/oracle.py`) scored about 4 points above the baseline
+with region-mean waypoint latents and below it with single-state ones, with this `π_l` (design
+§5, one eval seed); and the test-time `z_r = mean(r·B(s))` is itself a mean over the goal ball.
+In B-region, `z̃_w` replaces `z_w` everywhere in §2, so `ρ` becomes the discount to reach the
+region around `w`, and B-region needs its own `V_H`. B-clean and B-wide share one `V_H`.
 
 All `z` are normalized to norm `√d` before the dot products, because `high_latent` normalizes the
 test-time `z_r` (design §2). Upstream uses raw `B(g)` in the dot products, so its advantage scale
@@ -132,8 +133,8 @@ so we compare the spread of `α·A` with the upstream run before training (logge
 The variants are in §3: B-clean (only the critic changes), B-wide, B-region.
 
 The checkpoint has the layout of a provided one (`params.pkl` with a new `modules_high_actor`),
-so d-eval evaluates it with the baseline controller, loaded as `fbplan.learned.checkpoint.load_baseline_model`
-loads a retrained baseline.
+so the evaluation (`fbplan/evaluate.py`) runs it with the baseline controller, loaded as
+`fbplan.learned.checkpoint.load_baseline_model` loads a retrained baseline.
 
 ## 5. Guards against error growth over hops
 
@@ -144,6 +145,12 @@ loads a retrained baseline.
    cap changes few targets; it makes the bound explicit. Samples with raw `ρ̂ ≥ 1` are dropped
    from the loss, as A treats such edges as untrusted. The cap lowers the value of very short
    hops only; the "never switch" option and the per-step re-selection make them unnecessary.
+   Measured on medium after approval (validation split, 4096 in-trajectory pairs): `ρ` median
+   0.78, raw `ρ ≥ 1` on 9.7 %, `ρ > 0.9` on 33 %. So the cap binds on a third of the pairs,
+   mostly short hops, not on few targets as said above. It stayed as approved; the ablation
+   `ρ_cap ∈ {0.9, 1.0}` (§7) was to test it (§11). Exact `R` is noisy (10–90 %: −8.8 to +29),
+   which supports `R = 0` for goals (§2). The one-hop gain with `R = 0` is positive on 26 % of
+   pairs.
 2. **Data-supported edges.** `w` is always on the trajectory of `s`, so `ρ(s,w)` is never
    queried across a wall that the data does not cross.
 3. **Pessimistic option model.** min over the 2 `F` heads for `ρ` and `R`; clip rates logged.
@@ -174,24 +181,26 @@ Two additions to B, each with its own weight:
 
 The risk is that B inherits A's wormholes. Guard: use only pairs whose route `ρ` values pass A's
 `ρ_min` and where B1's `V_H` and `V_A` do not disagree by more than a set margin.
-Needs from c-planner: landmark observations, `V_A` for landmark goals, `w*` table.
+Needs from approach A (`fbplan/landmarks.py`, `fbplan/graph.py`): landmark observations, `V_A`
+for landmark goals, `w*` table.
 
 ## 7. Checks before and after training
 
 Unit tests (`tests/test_learned_*.py`):
-- the JAX option targets equal c-planner's numpy `OptionModel` on b-theory's fake FB;
+- the JAX option targets equal the numpy `OptionModel` (`fbplan/option_model.py`) on the fake FB
+  of `fbplan/tabular/fake_fb.py`;
 - `ρ(w,w) = 1` before the cap, invariance to the scale of `B(w)`, `V_H ≥ V_1`;
-- on the exact tabular maze (b-theory), fitting a tabular `V_H` with these targets converges to
-  the exact SMDP value over the same options;
+- on the exact tabular maze (`fbplan/tabular/`), fitting a tabular `V_H` with these targets
+  converges to the exact SMDP value over the same options;
 - frozen modules stay bit-identical; AWR weights finite; checkpoint loads in the baseline layout.
 
-Offline diagnostics, no rollouts (with d-eval's calibration tools):
+Offline diagnostics, no rollouts (with the calibration tools of `analysis/calibration.py`):
 - `V_H(s, B(g))` and `V_1(s, B(g))` against maze geodesic distance. Expected: `V_1` collapses
   at long range, `V_H` decays smoothly;
 - the gain `V_H − V_1` against distance; `ρ` clip rates; agreement with A's `V_A` on landmarks.
 
-Evaluation (d-eval, design.md §5): B-clean, B-wide and B-region against the 5 retrained baseline
-seeds (paired), A, and the oracle ceiling, on medium and large.
+Evaluation (`fbplan/evaluate.py`, design.md §5): B-clean, B-wide and B-region against the 5
+retrained baseline seeds (paired), A, and the oracle ceiling, on medium and large.
 Diagnostic controller **B-argmax**: A's controller with `V_H` in place of graph value iteration
 (`w* = argmax_{w∈L} R + ρ·V_H(w)`). It separates "critic quality" from "actor distillation".
 Ablations: exact vs. proxy `R`; `ρ_cap ∈ {0.9, 1.0}`; `τ ∈ {0.7, 0.9}`; residual vs. plain `V_H`;
@@ -200,7 +209,7 @@ with and without distillation (B2 only).
 **Hyperparameter selection** uses held-out goals (dataset states far from the 5 eval goals,
 success by OGBench's goal radius), never the 5 eval tasks. Their `z` is the mean of `B` over dataset
 states within the goal radius, as `infer_task_latent` does. This needs a custom-goal option in
-d-eval's loop (request after approval).
+the evaluation loop (`fbplan/evaluate.py`).
 
 ## 8. Cost, code, dependencies
 
@@ -212,8 +221,8 @@ d-eval's loop (request after approval).
   `fbplan/learned/value.py` (V_H, expectile loss), `fbplan/learned/high_policy.py` (AWR),
   `fbplan/learned/train_b.py` (CLI, both stages), `fbplan/learned/controller.py` (B-argmax),
   tests in `tests/test_learned_*.py`.
-- Needs: a-frozen `load_model(env).agent` and `load_dataset` (on main); b-theory fake FB and
-  exact maze (on main); c-planner landmarks and `V_A` / `w*` tables (B2 only).
+- Needs: `load_model(env).agent` and `load_dataset` of `fbplan/frozen.py`; the fake FB and the
+  exact maze of `fbplan/tabular/`; approach A's landmarks and `V_A` / `w*` tables (B2 only).
 
 ## 9. Risks
 
@@ -241,3 +250,19 @@ d-eval's loop (request after approval).
 7. Cap `ρ ≤ 0.9`, tighter than A's `γ`, and drop samples with raw `ρ̂ ≥ 1` (§5.1). Approved.
 8. Hyperparameters chosen on held-out goals, not on the eval tasks (§7). Approved.
 9. B2 (distillation of A) only after B1 shows a gain (§6).
+
+## 11. Runs that did not take place
+
+B stopped at the gate of decision 9 on 2026-10-29: B-clean gave no significant gain over the
+retrained baselines (`REPORT.md` §5, §7.1). B-argmax and B2 (§6) did not run. Three planned runs
+did not either:
+
+- **`ρ_cap = 1.0`** (the §5.1 ablation; value stage, medium, 5 seeds, `--rho-cap 1.0 --name
+  value-single-rhocap1.0`): queued, and cancelled at the gate before it trained.
+- **A policy on the expectile 0.7 critic:** the critic trained (5 seeds,
+  `value-single-expectile0.7`), but it orders states no better than `V_1` (`REPORT.md` §8.5), so
+  the policy did not run.
+- **The attribution control of H1 in `docs/hypotheses/h-learn.md`** (B-clean with `--critic v_1`
+  at the shared 2× temperature, `scripts/gpu/awr2x_v1.sh`): started on 2026-10-30 and cancelled at
+  02:12 MSK, after the 2× result (baseline 2× 80.9 %, B-clean 2× 80.2 %): there was no B gain to
+  attribute. No model of it was pulled or evaluated.

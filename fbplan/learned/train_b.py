@@ -78,7 +78,7 @@ def latent_table(
 ) -> jax.Array:
     """B of every dataset state, or its trajectory-window mean. B is frozen: one pass serves all.
 
-    TODO(e-learner): use c-planner's public batched-B helper when it exists (review X4).
+    TODO: use fbplan.option_model.batched_backward, so that one batched-B helper serves all.
     """
     starts = range(0, len(observations), 65536)
     table = np.concatenate(
