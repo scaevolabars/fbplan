@@ -5,10 +5,16 @@ from fbplan.graph import (
     DIRECT,
     GraphSolution,
     best_options,
+    certify_edges,
     extract_route,
+    landmark_visits,
     q_values,
+    reachable_visits,
+    shortest_paths,
+    trajectory_ends,
     trusted_edges,
     value_iteration,
+    walked_xy,
 )
 
 NEG = -np.inf
@@ -149,3 +155,91 @@ def test_value_iteration_rejects_mismatched_shapes():
     rho, mask, direct = chain()
     with pytest.raises(ValueError):
         value_iteration(rho, None, direct[:2], mask)
+
+
+# ----- data-certified edges (h-papers H1) -----
+
+# Two landmarks on a line, 4 xy apart. Each row is one recorded state; xy along x.
+MARKS = np.array([[0.0, 0.0], [4.0, 0.0]])
+
+
+def walk(*x: float) -> np.ndarray:
+    return np.stack([np.asarray(x, dtype=float), np.zeros(len(x))], axis=1)
+
+
+def test_trajectory_ends_give_the_last_row_of_each_rows_trajectory():
+    terminals = np.array([0, 0, 1, 0, 1, 0])  # the last trajectory has no terminal flag
+    np.testing.assert_array_equal(trajectory_ends(terminals), [2, 2, 2, 4, 4, 5])
+
+
+def test_a_visit_is_a_run_near_one_landmark_and_keeps_its_closest_row():
+    xy = walk(-0.4, -0.1, 0.3, 2.0, 3.8, 4.2, 9.0)
+    visits = landmark_visits(xy, MARKS, radius=0.5, ends=np.full(7, 6))
+    np.testing.assert_array_equal(visits.row, [1, 4])
+    np.testing.assert_array_equal(visits.label, [0, 1])
+
+
+def test_visits_split_where_a_trajectory_ends_or_the_walk_leaves_the_radius():
+    xy = walk(0.1, 0.2, 0.1, 1.0, 0.0)
+    ends = trajectory_ends(np.array([0, 1, 0, 0, 1]))  # trajectories: rows 0-1 and 2-4
+    visits = landmark_visits(xy, MARKS, radius=0.5, ends=ends)
+    np.testing.assert_array_equal(visits.row, [0, 2, 4])
+    np.testing.assert_array_equal(visits.label, [0, 0, 0])
+
+
+def test_an_edge_is_certified_in_the_recorded_direction_within_max_steps():
+    xy = walk(0.0, 1.0, 2.0, 3.0, 4.0)
+    visits = landmark_visits(xy, MARKS, 0.5, np.full(5, 4))
+    edges = certify_edges(visits, np.full(5, 4), max_steps=4)
+    assert (edges.source.tolist(), edges.target.tolist()) == ([0], [1])
+    assert (edges.start.tolist(), edges.end.tolist()) == ([0], [4])
+    assert len(certify_edges(visits, np.full(5, 4), max_steps=3).source) == 0
+
+
+def test_an_edge_is_not_certified_across_two_trajectories():
+    xy = walk(0.0, 1.0, 3.0, 4.0)
+    ends = trajectory_ends(np.array([0, 1, 0, 1]))
+    edges = certify_edges(landmark_visits(xy, MARKS, 0.5, ends), ends, max_steps=10)
+    assert len(edges.source) == 0
+
+
+def certified_walks(xy: np.ndarray, terminals: list[int], arc: bool) -> list[tuple[int, int]]:
+    """(start, end) rows of each certified edge between MARKS, with max_steps 10."""
+    ends = trajectory_ends(np.array(terminals))
+    lengths = walked_xy(xy, ends) if arc else None
+    edges = certify_edges(landmark_visits(xy, MARKS, 0.5, ends), ends, 10, lengths)
+    return list(zip(edges.start.tolist(), edges.end.tolist(), strict=True))
+
+
+def test_an_edge_keeps_its_shortest_recorded_walk_then_its_fastest():
+    # 0 -> 1 three times: rows 0-3 walk 8 xy in 3 steps, rows 4-8 4 xy in 4, rows 9-11 4 xy in 2.
+    xy = walk(0.0, 3.0, 1.0, 4.0, 0.0, 1.0, 2.0, 3.0, 4.0, 0.0, 2.0, 4.0)
+    terminals = [0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1]
+    assert certified_walks(xy, terminals, arc=True) == [(9, 11)]
+    assert certified_walks(xy[:9], terminals[:9], arc=True) == [(4, 8)]
+    assert certified_walks(xy[:9], terminals[:9], arc=False) == [(0, 3)]  # the fastest
+
+
+def test_walked_xy_sums_the_steps_within_each_trajectory():
+    xy = walk(0.0, 1.0, 3.0, 10.0, 9.0)
+    ends = trajectory_ends(np.array([0, 0, 1, 0, 1]))
+    np.testing.assert_allclose(walked_xy(xy, ends), [0.0, 1.0, 3.0, 3.0, 4.0])
+
+
+def test_reachable_visits_lie_in_the_rows_own_trajectory_within_max_steps():
+    xy = walk(0.0, 2.0, 4.0, 2.0, 0.0, 4.0)
+    ends = trajectory_ends(np.array([0, 0, 0, 0, 1, 1]))  # rows 0-4 and row 5
+    visits = landmark_visits(xy, MARKS, 0.5, ends)  # rows 0, 2, 4, 5
+    visit, owner = reachable_visits(visits, np.array([1, 3, 4]), ends, max_steps=2)
+    found = sorted(zip(owner.tolist(), visits.row[visit].tolist(), strict=True))
+    assert found == [(0, 2), (1, 4), (2, 4)]
+
+
+def test_shortest_paths_follow_the_cheapest_edges_and_give_the_next_hop():
+    inf = np.inf
+    weights = np.array([[inf, 1.0, 5.0, inf], [inf, inf, 1.0, inf], [inf, inf, inf, inf],
+                        [inf, inf, inf, inf]])
+    dist, next_hop = shortest_paths(weights)
+    assert dist[0, 2] == 2.0 and next_hop[0, 2] == 1 and next_hop[1, 2] == 2
+    assert dist[2, 0] == inf and next_hop[2, 0] == -1
+    assert dist[3, 3] == 0.0 and next_hop[3, 3] == 3

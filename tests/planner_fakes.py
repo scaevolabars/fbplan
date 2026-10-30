@@ -138,3 +138,22 @@ class GridFB:
                     cur = self._next_cell(cur, t)
                 m[t, s, t] += g ** self.dist[s, t] / (1 - g)
         return m
+
+
+def navigate_dataset(maze, trajectories: int, length: int, seed: int = 0):
+    """Recorded data like OGBench's navigate datasets on a fbplan.tabular GridMaze: each
+    trajectory walks shortest paths to a sequence of random goal states (random among equally
+    short moves). Returns observations [P, 2] and the terminals flags [P] (1 on each last row)."""
+    rng = np.random.default_rng(seed)
+    dist, adjacency = maze.geodesic_distances(), maze.neighbours()
+    rows, terminals = [], []
+    for _ in range(trajectories):
+        state = goal = int(rng.integers(maze.n_states))
+        for t in range(length):
+            rows.append(state)
+            terminals.append(t == length - 1)
+            while goal == state:
+                goal = int(rng.integers(maze.n_states))
+            closer = [v for v in adjacency[state] if dist[v, goal] == dist[state, goal] - 1]
+            state = int(rng.choice(closer))
+    return maze.xy[rows], np.asarray(terminals, dtype=np.float32)

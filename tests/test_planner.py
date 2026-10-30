@@ -2,7 +2,7 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from planner_fakes import GOAL, START, GridFB
+from planner_fakes import GOAL, START, GridFB, navigate_dataset
 
 from fbplan.contracts import TaskSpec
 from fbplan.controllers.baseline import NonHierController
@@ -10,6 +10,8 @@ from fbplan.controllers.planner import (
     GraphPlannerController,
     GraphPlusHighController,
     PlannerConfig,
+    RecordedRouteConfig,
+    RecordedRouteController,
     config_from_options,
     trusted_edges,
 )
@@ -570,3 +572,136 @@ def test_planner_with_region_latents_solves_every_task_of_the_exact_tabular_maze
     expected = region_latents(fb, fb.maze.xy, ctrl.landmarks[:, :2], radius=2.1)
     np.testing.assert_allclose(ctrl.targets.z, expected, atol=1e-9)
     assert successes(ctrl, fb) == 15
+
+
+# ----- recorded routes (h-papers H1) -----
+
+# The U corridor walked from START up, across and down to GOAL: 10 steps of 1 xy. START and
+# GOAL are 4 xy apart in a straight line, through the wall.
+U_WALK = [(1, 4), (1, 3), (1, 2), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (5, 2), (5, 3), (5, 4)]
+
+
+def one_hot(fb: GridFB, cell: tuple[int, int]) -> np.ndarray:
+    return np.eye(fb.latent_dim)[fb.index[cell]]
+
+
+def recorded_route(fb, walks, at=START, max_steps=20, **overrides) -> RecordedRouteController:
+    """Landmarks at START and GOAL, the recorded walks as data, regions of radius 0.5 (one cell).
+    The controller has acted once, from the cell `at`."""
+    xy = np.concatenate([np.asarray(w, dtype=float) for w in walks])
+    terminals = np.concatenate([np.r_[np.zeros(len(w) - 1), 1.0] for w in walks])
+    field = RegionField(fb.all_obs()[:, :2], fb.backward(fb.all_obs()), radius=0.5)
+    landmarks = np.stack([fb.obs(START), fb.obs(GOAL)])
+    cfg = RecordedRouteConfig(max_steps=max_steps, **overrides)
+    ctrl = RecordedRouteController(fb, landmarks, xy, terminals, field, cfg)
+    ctrl.reset(task(fb), seed=0)
+    ctrl.act(fb.obs(at))
+    return ctrl
+
+
+@pytest.mark.parametrize(("ahead", "point"), [(2.0, (1, 2)), (5.0, (3, 1))])
+def test_recorded_route_acts_on_the_point_ahead_along_the_recorded_walk(ahead, point):
+    # A straight line from START to GOAL would put the point in the wall at (3, 4).
+    spy = LatentSpy(GridFB())
+    ctrl = recorded_route(spy, [U_WALK], ahead_xy=ahead)
+    np.testing.assert_array_equal(spy.low_z, one_hot(spy.fb, point))
+    assert ctrl.step_info()["goal_landmark"] == 1  # GOAL has the largest F(w, z_r)^T z_r
+
+
+def test_recorded_route_acts_with_the_task_latent_past_the_goal_landmark():
+    spy = LatentSpy(GridFB())
+    recorded_route(spy, [U_WALK], ahead_xy=11.0)
+    np.testing.assert_array_equal(spy.low_z, spy.fb.infer_task_latent(1))
+
+
+@pytest.mark.parametrize(
+    ("window", "cells"), [((1.0, 2.0), [(1, 3), (1, 2)]), ((2.0, 20.0), [(1, 2), GOAL])]
+)
+def test_recorded_route_window_averages_the_unit_latents_of_the_points_ahead(window, cells):
+    # Past the goal landmark a window point takes z_r / |z_r| (here the one-hot of GOAL).
+    spy = LatentSpy(GridFB())
+    recorded_route(spy, [U_WALK], executor="window", window_xy=window)
+    expected = np.mean([one_hot(spy.fb, c) for c in cells], axis=0)
+    np.testing.assert_allclose(spy.low_z, expected)
+
+
+def test_recorded_route_gives_pi_h_the_region_latent_of_the_point_as_its_task():
+    spy = LatentSpy(GridFB())
+    recorded_route(spy, [U_WALK], executor="high", ahead_xy=2.0)
+    np.testing.assert_array_equal(spy.high_z, one_hot(spy.fb, (1, 2)))
+
+
+def test_recorded_route_uses_edges_only_in_their_recorded_direction():
+    # Only the walk from GOAL to START is recorded, so no certified route leads to GOAL.
+    spy = LatentSpy(GridFB())
+    ctrl = recorded_route(spy, [U_WALK[::-1]], ahead_xy=2.0)
+    np.testing.assert_array_equal(spy.low_z, spy.fb.infer_task_latent(1))
+    assert ctrl.step_info()["hops"] == 0
+
+
+@pytest.mark.parametrize(("max_steps", "routed"), [(5, True), (4, False)])
+def test_recorded_route_first_hop_is_a_recorded_walk_of_at_most_max_steps(max_steps, routed):
+    # From (3, 1) the walk reaches GOAL 5 steps later.
+    spy = LatentSpy(GridFB())
+    ctrl = recorded_route(spy, [U_WALK], at=(3, 1), max_steps=max_steps, ahead_xy=2.0)
+    expected = one_hot(spy.fb, (5, 1)) if routed else spy.fb.infer_task_latent(1)
+    np.testing.assert_array_equal(spy.low_z, expected)
+    assert ctrl.step_info()["hops"] == int(routed)
+
+
+def test_recorded_route_first_hop_follows_the_shortest_recorded_walk():
+    # From (3, 1) two walks reach GOAL: one in 6 steps that first turns back (7 xy), one in
+    # 7 steps that stands still twice (5 xy). The point 2 xy ahead along the first is (3, 1).
+    back = [(3, 1), (2, 1), (4, 1), (5, 1), (5, 2), (5, 3), (5, 4)]
+    still = [(3, 1), (4, 1), (4, 1), (4, 1), (5, 1), (5, 2), (5, 3), (5, 4)]
+    spy = LatentSpy(GridFB())
+    recorded_route(spy, [back, still], at=(3, 1), ahead_xy=2.0)
+    np.testing.assert_array_equal(spy.low_z, one_hot(spy.fb, (5, 1)))
+
+
+def test_recorded_route_config_rejects_unknown_executors_and_bad_bounds():
+    with pytest.raises(ValueError):
+        RecordedRouteConfig(executor="cells")
+    with pytest.raises(ValueError):
+        RecordedRouteConfig(max_steps=0)
+    with pytest.raises(ValueError):
+        RecordedRouteConfig(window_xy=())
+
+
+def test_config_from_options_builds_a_recorded_route_config():
+    cfg = config_from_options(
+        {"executor": "window", "max_steps": 150, "landmarks.count": 5}, RecordedRouteConfig()
+    )
+    assert (cfg.executor, cfg.max_steps, cfg.landmarks.count) == ("window", 150, 5)
+
+
+EXECUTORS = ["point", "window", "high"]
+
+
+def recorded_route_on(fb: TabularFB, executor: str, count: int, max_steps: int):
+    observations, terminals = navigate_dataset(fb.maze, trajectories=100, length=100)
+    cfg = RecordedRouteConfig(
+        landmarks=LandmarkConfig(count=count), executor=executor, max_steps=max_steps
+    )
+    return RecordedRouteController.from_dataset(fb, observations, terminals, cfg)
+
+
+@pytest.mark.parametrize("executor", EXECUTORS)
+def test_recorded_route_solves_every_task_of_the_exact_tabular_maze(executor):
+    # One state per maze cell. With 2 x 2 states per cell, two equally short recorded walks
+    # down one corridor can take turns as the route, and the exact greedy pi_l has tied moves
+    # towards both, so the agent steps from side to side.
+    fb = TabularFB(FakeFBConfig(resolution=1))
+    assert successes(recorded_route_on(fb, executor, count=12, max_steps=5), fb) == 15
+
+
+@pytest.mark.parametrize("executor", EXECUTORS)
+def test_recorded_route_beats_the_task_policy_under_fb_noise_on_the_tabular_maze(executor):
+    # Under F noise pi_l(z_r) fails at long range (b-theory, docs/theory.md §9.1); the route
+    # gives pi_l targets a few cells ahead. 10 steps of 2 xy: about K = 150 on AntMaze.
+    route_wins, direct_wins = 0, 0
+    for seed in range(3):
+        fb = TabularFB(FakeFBConfig(rho_noise=0.02, seed=seed))
+        route_wins += successes(recorded_route_on(fb, executor, count=48, max_steps=10), fb)
+        direct_wins += successes(NonHierController(fb), fb)
+    assert route_wins >= direct_wins + 20
