@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from fbplan.frozen import load_dataset
 from fbplan.graph import (
     DIRECT,
     GraphSolution,
@@ -16,6 +17,7 @@ from fbplan.graph import (
     value_iteration,
     walked_xy,
 )
+from fbplan.landmarks import LandmarkConfig, select_landmarks
 
 NEG = -np.inf
 
@@ -243,3 +245,15 @@ def test_shortest_paths_follow_the_cheapest_edges_and_give_the_next_hop():
     assert dist[0, 2] == 2.0 and next_hop[0, 2] == 1 and next_hop[1, 2] == 2
     assert dist[2, 0] == inf and next_hop[2, 0] == -1
     assert dist[3, 3] == 0.0 and next_hop[3, 3] == 3
+
+
+def test_certified_edges_on_the_medium_train_data_match_h_papers_m2(require_files):
+    """h-papers M2: 300 landmarks, radius 0.5 and K = 60 give 19,011 certified edges on medium."""
+    require_files.dataset("antmaze-medium-navigate-v0", "train")
+    data = load_dataset("antmaze-medium-navigate-v0", "train")
+    marks = select_landmarks(data["observations"], LandmarkConfig())
+    xy = np.asarray(data["observations"][:, :2], dtype=np.float64)
+    ends = trajectory_ends(data["terminals"])
+    visits = landmark_visits(xy, marks.observations[:, :2], 0.5, ends)
+    edges = certify_edges(visits, ends, 60, walked_xy(xy, ends))
+    assert len(edges.source) == 19_011
