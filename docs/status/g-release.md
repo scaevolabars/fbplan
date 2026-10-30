@@ -1,151 +1,117 @@
 # Status: g-release
 
-Last update: 2026-10-29.
+Last update: 2026-10-30. Branch merged with `main` at 8b4795f.
+
+## Finishing phase (coordinator, 2026-10-30)
+
+Items: (1) final review pass over the whole repository, (2) README and `reproduce.sh` with the
+recorded route (H1), the 10-seed protocol, wave 3 and the results pointer, (3) a clean-clone
+check after the final merges, (4) the removal of the process files, prepared, not committed.
+
+- (1) Done: section "Review findings, final pass" below (5 read-only reviewers, one per owner;
+  I checked the items marked "checked" and the ones in my own files).
+- (2) Done, see "Done" below. `reproduce.sh --smoke` passed in 8 min (train 111 s, eval
+  336 s, tables 7 s, figures 63 s; datasets cached); `results/` unchanged. Medium reference runs, approach A
+  (landmark set 0) and the oracle sweep: 10 of 10 episodes equal `results/macos/`; the approach
+  A hashes differ (X18, decided). Trained-model runs differ as expected (smoke models).
+  `heldout_selection.csv` and `platform_check.csv` rebuild byte for byte;
+  `heldout_selection_awr2x.csv` differs (stale, D19).
+- (3) Waits for the final merges.
+- (4) Prepared: section "Process files: removal" below, with the facts that must move first
+  and their target files.
 
 ## Done
 
-- `scripts/reproduce.sh`: one entry point with the stages checkpoints, train, eval, tables,
-  figures; `--smoke` and `--workers N` (default 4, design.md §7). It prints every command that it
-  runs and the time of each stage. Bash 3.2 compatible (macOS default shell); shellcheck clean.
-  - `RUNS` holds one line per committed CSV in `results/medium/` (25 runs) plus the parity run.
-    A line ends with raw `fbplan.evaluate` arguments (`--opt ...`, later `--checkpoint ...`).
-    Checked against the config hashes in the files: the 13 oracle CSVs, and the 9 planner CSVs
-    (`--opt landmarks.seed=k`, region runs also `landmarks.latent=region`) once the field
-    `switch_steps`, added after these runs, is left out of the hash (X18).
-  - Tables (`results/<maze>/tables.md`): the main table as in d-eval's command
-    (`{baseline,baseline_raw,nonhier,oracle}.csv` and `planner*/*.csv`, `--label-root`,
-    `--cluster config_hash`), the oracle sweep, failure classes of the 4 reference methods, and
-    `analysis/report_figures.py` (f-report's request: time-to-goal figure and the numbers of
-    report §8.4). `upstream.csv` stays out of `tables.py` (D2).
-  - Figures: success figure (same CSVs as the main table), calibration figures and
-    `results/calibration/` tables, `analysis/heldout_goals.py`, route plots, the tabular study
-    and `fbplan.tabular.time_limit`.
-  - Checkpoints stage: `python -m fbplan.frozen --trained` (frozen and published trained ones).
-  - In `--smoke`, each evaluation prints how many episodes equal the committed episode with the
-    same (task, eval seed, episode). With 1 episode per task, all 35 smoke episodes of the 7
-    result groups equalled the committed ones (success and steps): the current code reproduces
-    the committed CSVs, the planner included. It only prints, because another CPU can change
-    the chaotic dynamics.
-  - `--smoke` writes only to `runs/smoke/` (trained models via `FBPLAN_BASELINE_DIR`,
-    `FBPLAN_APPROACH_B_DIR`). It skips the parity run (50 episodes per task are fixed, request 5)
-    and `heldout_goals.py` (it always writes to `results/heldout_goals/`, see the CLI convention).
-- Clean clone (commit f058ae6, cloned without `--recurse-submodules`, empty `FBPLAN_CKPT_DIR`):
-  `--smoke` passed in 5.5 min with the datasets already in `~/.ogbench/data` (checkpoints 38 s,
-  train 81 s, eval 53 s, tables 41 s, figures 98 s). The script initialized the submodule, and
-  the clone stayed clean.
-- `devbox.json`: uv pinned to 0.11.8 (the version that wrote `uv.lock`), `--locked` in every
-  script, scripts `reproduce` and `smoke`. No `devbox.lock`: `devbox install` printed
-  "Ensuring packages are installed" and then nothing for 15 min (the Nix download stalls on this
-  Mac, as in a-frozen's check). So the README names uv as the primary setup path and devbox as
-  a way to get the pinned uv.
-- `.github/workflows/ci.yml`: `uv sync --locked`, `ruff check`, `pytest -ra` on ubuntu-24.04 with
-  `MUJOCO_GL=osmesa`; packages only, no data. With an empty `HOME`, `pytest` downloads nothing.
-  Linux check (user approved): the same steps in a `python:3.11-slim-bookworm` container
-  (arm64, uv 0.11.8, `libosmesa6`, the 16 CUDA packages left out) on commit 8ce6821: ruff
-  clean, pytest 247 passed, 30 skipped.
-  GitHub Actions on the public repo (x86_64, CUDA wheels installed, about 2 min): the workflow
-  works (sync, OSMesa, ruff), and pytest gives 335 passed, 40 skipped, 1 failed on every push
-  since the merge. The failure is c-planner's
-  `test_planner_with_region_latents_solves_every_task_of_the_exact_tabular_maze` (13 of 15
-  tasks, float rounding on another CPU; e-learner saw the same on a GPU). c-planner's "CI fix"
-  run was in progress at 15:50 UTC.
-- `pyproject.toml` (X15): removed `h5py` (no import in our code, upstream or the packages we use;
-  only dm_control's mocap loader imports it, which antmaze never loads; 343 tests pass without
-  it); `addopts = "-ra"`; `pythonpath = [".", "tests"]` (`planner_fakes`, and tests of
-  `analysis/`); ruff `per-file-ignores` for `E402` in the plot scripts. The 44
-  `# noqa: E402` comments in 8 files of other owners are now redundant
-  (`ruff check --extend-select RUF100` lists them); the owners can delete them.
-- `tests/conftest.py` (X14): fixtures `require_files` (`.checkpoint(env)`, `.dataset(env,
-  split)`: skip when the file is absent; works in parametrized tests), `medium_model` and
-  `medium_val` (session scope: the real model loads once per session, not once per module).
-  Checked with and without data. Owners replace their copies (`test_frozen.py:26-34`,
-  `test_evaluate.py:298-301, 343-349`, `test_learned_train_high.py:135-142`,
-  `test_learned_b.py:201-208`). Not in conftest, by choice: `MEDIUM` (a literal env id reads
-  better than an import), and `same()` / the tiny upstream config (both only in e-learner's two
-  test files; a `tests/learned_fakes.py` like `planner_fakes.py` fits them).
-- README, gaps from a-frozen's clean-clone check: evaluation with `--workers 4` and its time
-  (about 11 min per 5-seed run on medium, about 4 h for the eval stage, estimate); the eval stage
-  writes the committed CSVs (`git diff` shows changes; `--out runs/...` for single runs); tests
-  never download data and list their skips; `fbplan.frozen --trained` in the setup; methods
-  table with `--checkpoint retrained:<seed>` and `b:<variant>:<seed>`.
-- Merged `main` (f1ae57d, then dded908).
-- `tests/conftest.py`, e-learner's request: session fixture `tiny_agent` (`TinyAgent`: the
-  upstream agent with 16x16 networks and latent_dim 4, seed 123, obs dim 5, action dim 2; a
-  read-only `config`; `latent_dim`). Its parameters equal those of the agent that
-  `test_learned_train_high.py:33` builds now, and it works with `fbplan.learned.checkpoint`
-  (`example_batch(tiny.agent, tiny.obs_dim)`, `with_fresh_high_actor(tiny.agent, seed,
-  tiny.obs_dim)`). Variants come from `tiny.agent.replace(...)`, for example the copied F head of
-  `test_learned_b.py:56`. `test_learned_checkpoint.py:34` uses seed 7 and no `batch_size`;
-  e-learner checks that its tests still pass on seed 123.
-- `RUNS`: the 5 retrained baselines (`--method baseline --checkpoint retrained:k`, 5 eval seeds).
-  Checked: a rerun of seed 3 (eval seed 0, 2 episodes) gives 10 of 10 committed episodes. They
-  are not in the main table: all 5 share the config hash `c232a50c`, so `--cluster config_hash`
-  would make them one cluster (request 5). In `--smoke` this group evaluates the model that the
-  smoke run trained, so its episodes differ from the committed ones.
-- CI on the public repo is green from 7ae64a5 (= local dded908): ruff clean, pytest 345 passed,
-  40 skipped, 74 s.
-- Merged `main` 3e36461 (c-planner and d-eval fixes). `failures.py` now handles a CSV without
-  failures (D9), so `reproduce.sh` no longer guards it; `--smoke` runs the parity check again.
-- Merged `main` 3f169ae (review fixes of a-frozen, b-theory, e-learner). `reproduce.sh`: the
-  checkpoints stage also gets the medium datasets (`fbplan.frozen --datasets`, a-frozen's new
-  flag); `run_study --out-dir` (b-theory renamed the flag). README: the setup line gets the
-  medium data, so the medium tests run instead of skipping; "none is published yet" for
-  `--trained` (finding A12).
-- Second review pass of a-frozen, b-theory and e-learner: section below.
+- Merged `main` 8b4795f. ruff passes; pytest 501 passed.
+- `scripts/reproduce.sh` covers every result of REPORT.md now:
+  - `RUNS`: one line per committed evaluation CSV, with `{a..b}` for seed and landmark-set
+    lists. It expands to 228 lines, exactly the 228 episode CSVs in `results/` (without
+    `macos/`, `failures/`, `upstream.csv`), checked with the script's own expansion. For every
+    line, the eval seeds, episodes per task, held-out task ids, checkpoint and env equal the
+    CSV columns (228 of 228, checked). The config hash equals the CSV for all 46 lines whose
+    config builds without data (oracle sweep, recorded route, trap-aware, teleport oracle;
+    checked); the ensembles' hashes reproduce (d-eval reviewer); the approach A lines keep the
+    hash of 84a8127 (X18, decided).
+  - Commands come from the status files of c-planner, d-eval, b-theory and e-learner. Columns:
+    CSV below `results/`, maze, eval seeds, episodes, method, more `fbplan.evaluate` arguments.
+    `ROUTE`, `TRAP`, `TELEPORT_ORACLE` hold the `module:attribute` paths that have no alias.
+  - Row order: the canonical Linux runs on the eval tasks ran one process per eval seed and
+    were joined in seed order; a single `--seeds 0..9` run writes rows in task order (same
+    records). The script does the same as the canonical runs: one process per eval seed, then
+    a join, and a seed that an earlier line with the same command ran is reused. So
+    `results/medium_10seeds/` costs only its seeds 5-9, and every CSV gets the committed row
+    order. Held-out runs are one process (as committed).
+  - `eval` also replays the 16 failure-class CSVs (output paths equal the committed ones,
+    checked) and the parity run.
+  - `train`: every family that the results use, 5 seeds each, with e-learner's commands:
+    retrained `π_h`, `awr2x`, `logratio`; critics `value-single`, `value-region`,
+    `value-single-expectile0.7`; policies `clean`, `wide`, `region`; `calibrate`, then
+    `clean-awr2x`. `--smoke` trains seed 0 of each for 10 steps.
+  - `tables`: every table of REPORT §11 and the main tables per maze into
+    `runs/reproduce/tables.md`; it rewrites `heldout_selection.csv`,
+    `heldout_selection_awr2x.csv` and `platform_check.csv` (in `--smoke` from the committed
+    CSVs to `runs/smoke/`, with a byte comparison). Checked: the 25 table commands ran on
+    the committed CSVs in 4 min without an error; the recorded-route rows equal d-eval's
+    (medium 83.8 %, +5.3 / +3.3 / +2.2 pp; large 41.2 %, +3.5 pp).
+  - `figures`: the 4 success figures to `docs/figures/report/` (explicit file lists; the
+    REPORT §11 glob fails on medium, F12), time to goal, calibration (medium, large; giant and
+    teleport to `docs/figures/theory/`), held-out goals, tabular study, time limit, and the
+    critic check of B when the critics exist. Fixed: `study_plots` takes a positional folder,
+    `time_limit --out-dir`, `report_figures.py` a positional folder (B24, F13).
+  - `--smoke`: medium only, the first run of each folder below `results/medium/` (18 runs,
+    the recorded route and the held-out path included), ensembles of one member, eval seed 0,
+    2 episodes. It prints, per run, the episodes equal to the committed run and whether the
+    config hashes are equal.
+  - Bash 3.2 compatible (an empty array under `set -u` is guarded); shellcheck clean.
+- README: results pointer to REPORT.md at the top; methods table with the recorded route, the
+  ensembles, trap-aware control, the teleport oracle and all checkpoint families; the map from
+  alias to the CSV `method` name (X6); protocol (eval seeds 0-4, 0-9, 10-19; held-out goals
+  for every choice; the two-row rule); a table of the `results/` folders; platform with the
+  hardware and the evidence of `results/platform_check.csv`; "Code versions" (X18 decision);
+  time of the eval stage (about 244k episodes, 9 h on the 128-core machine); the smoke check;
+  the H1 command as the single-run example; training; `vast.sh` does not destroy by itself
+  (E19); the published checkpoints are `baselines-v1` only (A13, E17).
+- `tests/conftest.py`: the `TinyAgent` docstring named a removed helper; now
+  `fbplan.frozen.example_batch(tiny.agent.network.params)` (E27, checked).
+
+Earlier work (first and second review passes, CI, devbox, X15, X14, the platform move, the
+release check of `baselines-v1`) is in git history and in the sections below.
 
 ## Next
 
-- Second review pass of c-planner and d-eval when their runs end.
-- Platform (coordinator's decision): canonical CSVs in `results/<env>/` from Linux x86_64 on CPU;
-  the Mac CSVs moved to `results/macos/` (d-eval, 0b8e05e). Done: `JAX_PLATFORMS=cpu` for every
-  stage but GPU training; the README platform paragraph (chaotic MuJoCo, other platforms give
-  other episodes and the same success rates within noise); the smoke comparison uses
-  `results/macos/` on a Mac and the canonical file elsewhere, and says so when no committed CSV
-  exists yet. `RUNS` keeps its paths (d-eval keeps the file names). To do: add the large runs
-  when their CSVs land; d-eval's Mac-vs-Linux comparison must confirm "within noise" before
-  submission.
-- Release `baselines-v1` (retrained pi_h, medium and large, 5 seeds each) exists. Checked with
-  a clone of a-frozen's branch bfe4953 (not on main yet) and empty cache folders: `python -m
-  fbplan.frozen --trained` downloads 20 files (32 MB) in 38 s, hash-checked, and an evaluation
-  of the downloaded `retrained:3` (eval seed 0, 2 episodes) gives 10 of 10 episodes of
-  `results/macos/medium/baseline_retrained/seed3.csv`: the release holds the models behind the
-  results. When a-frozen's pins reach main: README "none is published yet" becomes "the
-  retrained baselines are published; approach B follows".
+- (3) Clean-clone check of the README after the final merges: clone, `uv sync`,
+  `fbplan.frozen --trained --datasets`, `pytest`, `reproduce.sh --smoke`.
+- When aliases for the recorded route, trap-aware and teleport oracle land (C20, request 2):
+  replace `ROUTE`, `TRAP`, `TELEPORT_ORACLE` in `RUNS` and the README methods table.
+- When more trained checkpoints are published (request 1): update the README setup text.
+- (4) The removal commit, when the coordinator says so.
 
 ## Blockers
 
-- None. The retrained baselines and approach B wait for their CSVs and the release of the
-  trained checkpoints.
+- None.
 
 ## Requests to the coordinator
 
-1. X18 (new, must-fix, c-planner and d-eval): a config field added after a run changes the
-   `config_hash` of every committed CSV of that controller. c-planner added
-   `PlannerConfig.switch_steps` (default `None`, the old behaviour) after the 9 planner runs.
-   Consequences: a rerun of the same command writes a different `config_hash`, so "records
-   identical" fails on that column; `analysis/failures.py:94` refuses to replay any committed
-   planner CSV ("config hash differs"); and `tables.py` without `--label-root` would split old
-   and new runs of one config. Proposed fix (d-eval owns `config_hash`): hash only the fields
-   that differ from the dataclass defaults, so a new field with an old-behaviour default keeps
-   every hash. This changes the hash of every committed CSV once, so rewrite the column after a
-   check that a rerun of eval seed 0 gives identical records. Alternative: c-planner reruns.
-2. Done (d-eval): `analysis/parity.py --episodes`. `--smoke` runs the parity check again
-   (1 repetition, 2 episodes per task, 15 s).
-3. F1 (new, should-fix, f-report): `analysis/report_figures.py` raises
-   `KeyError: ['planner_region'] not in index` when one planner variant has no CSV in
-   `--results`, so it cannot run on a subset. `reproduce.sh --smoke` now runs one CSV of each
-   result group, so the smoke run passes. Fix: drop absent variants with a printed note, or
-   raise a clear error that names the missing folder.
-   F2 (new, should-fix, f-report): `analysis/report_figures.py:72` raises `ValueError: cannot
-   convert float NaN to integer` for a method with no success (`int(median)` of an empty set).
-   The smoke run hit it with 1 episode per task: planner landmark set 0 fails the 5 episode-0
-   start states (as in the committed CSV). `--smoke` now runs 2 episodes per task, where every
-   group has successes. Fix: report the median as missing when there is no success.
-4. d-eval: the command for the table of the retrained baselines (the training seeds as a
-   cluster level; `--cluster checkpoint_seed`?). I add it to the tables stage.
-5. Decided (A10, coordinator, 2026-10-29): option (a). a-frozen owns the trained-checkpoint
-   helpers; e-learner imports `fbplan.frozen.*` and deletes its copies. I check it in the next
-   review pass of e-learner (and that a rerun of one retrained eval seed gives identical records).
+1. Release (E17, A3; public upload, so the user decides): 30 trained checkpoints that 90
+   committed CSVs use are not published: `baselines/medium/{awr2x,logratio}` and
+   `approach_b/medium/{clean,wide,region,clean-awr2x}`, seeds 0-4 (`high_actor.pkl`,
+   `flags.json`). The critic check of REPORT §8.5 also needs
+   `approach_b/medium/{value-single,value-single-expectile0.7}`, seeds 0-4. All 40 folders are
+   in the local cache; their `flags.json` hold no personal path. Do not upload the old
+   `params.pkl` of clean, wide, region. Without a release, a reviewer without a GPU cannot
+   rerun these rows. Recommendation: a release `trained-v2` with these 40 folders, pinned by
+   a-frozen.
+2. Aliases (d-eval's file `fbplan/controllers/__init__.py`, C20, X11 rule 8):
+   `recorded_route`, `trap_aware`, `oracle_teleport`; and `oracle_teleport` in `PRIVILEGED`
+   (D23). The hash uses `controller.name` and the config only, so no committed hash changes.
+3. X18 closed by the coordinator's decision (a): README "Code versions".
+4. Git history: removing the process files from the tree does not remove them from history.
+   History holds the instance label with the user's surname and the vast.ai team account name
+   (in `docs/status/`, and in `scripts/gpu/vast.sh` before E1). If the published history is
+   rewritten, the commit ids that the README and REPORT cite (84a8127, 0de6e0a, the training
+   commits in each `flags.json`) dangle.
+5. design.md §8 fixes a medium replication on eval seeds 10-19; no CSV exists (F4). Run it, or
+   the report states it as not run.
 
 ## CLI convention (X11, proposal; the owners adopt it)
 
@@ -189,31 +155,261 @@ Changes that this needs, by owner:
 When an owner renames a flag, it tells me, and I change `scripts/reproduce.sh` in the same
 merge.
 
-## Process files before submission (brief step 4)
+## Process files: removal (prepared, not committed)
 
-Decision of the user (2026-10-29): remove `docs/briefs/` and `docs/status/` from the submitted
-tree, in the final submission step only (until then they are the coordination channel). Before
-that, each owner moves a fact that is still needed into REPORT.md or design.md. The coordinator
-does the removal. Reasons:
+The commit removes `docs/briefs/` (8 files), `docs/status/` (11) and, if the coordinator
+decides so, `docs/hypotheses/` (4). My files (README, `reproduce.sh`, CI, `pyproject.toml`,
+`devbox.json`, `tests/conftest.py`) refer to none of them. The commands, when the coordinator
+says so:
 
-1. They describe the multi-session workflow (tabs, coordinator, approvals). REPORT.md must not
-   (f-report rule 6), and a reviewer reads them as noise next to the code.
-2. They hold account details: the vast.ai team account name, an instance label with the
-   user's surname, GPU costs (`docs/status/e-learner.md`).
-3. They hold numbers that no committed CSV backs (probes, dev-set runs, early loaders). A
-   reviewer can find a number that contradicts REPORT.md.
-4. The facts that matter already live in `docs/design.md`, `docs/theory.md`,
-   `docs/plans/approach-b.md` and REPORT.md. Before the removal, each owner moves a fact that is
-   still needed (for example a-frozen's stack decision and sanity check) into REPORT.md or
-   design.md.
+```
+git rm -r -q docs/briefs docs/status            # + docs/hypotheses if decided
+git grep -n -E 'docs/(status|briefs|hypotheses)' -- . ':!third_party'   # must print nothing
+uv run --locked ruff check . && uv run --locked pytest
+git commit -m "Remove the process files before submission"
+```
 
-Notes:
-- Removal from the tree does not remove the files from git history. If the published history
-  keeps the old commits, the files stay visible there.
-- `docs/design.md` §6-§8 also describe the workflow (branches, tabs, merges). A short
-  "repository layout and code rules" section could replace them (coordinator's file).
-- Alternative: move the two folders to `docs/dev/`. This keeps the trail, but needs a scrub of
-  account details and of numbers without a CSV.
+**Dead references today** (the owners fix them before the commit):
+- REPORT.md:1135, 1156, 1206, 1223, 1282, 1286, 1325, 1326, 1352, 1409, 1496, 1560 (f-report).
+  1560 points to `docs/status/c-planner.md` for the H1 commands: point to `scripts/reproduce.sh`.
+- docs/design.md:35, 163, 164, 177, 218, 221, 250, 258, and §6-§7 (tabs, coordinator,
+  status files) (coordinator).
+- docs/theory.md:320, 613 (status), 527, 576, 592, 604 (h-exec) (b-theory).
+- fbplan/contracts.py:4 ("write the request in your docs/status ... tell the user")
+  (coordinator).
+- fbplan/controllers/baseline.py:11 (h-learn H3) (d-eval); scripts/gpu/awr2x_v1.sh:2 (h-learn)
+  (e-learner).
+- Names of process files or tabs in code: "h-papers H1" (graph.py:13, 133; planner.py:16, 439,
+  671; test_planner.py:577; test_graph.py:160), "d-eval", "b-theory" (landmarks.py:10,
+  planner.py:92, planner_fakes.py:9, test_option_model.py:132, test_planner.py:530, 700)
+  (c-planner, C19); "h-learn H1/H2" (logratio.py:1, 25; logratio.sh:2; value.py:47;
+  test_learned_b.py:178), "review X4" (train_b.py:82), tab names in approach-b.md (e-learner);
+  "h-exec H1, M11" (trap_aware.py:1, 10) (b-theory); "plan B decision 8"
+  (heldout_goals.py:1, heldout_selection.py:1) (d-eval).
+
+**Facts that must move first**, by owner (source → target):
+- a-frozen: `|z_r|` per task (a-frozen.md:278-282) → design.md §2 in place of the pointer at
+  :35. `baselines-v1`: contents, training commits (medium 9557a55, large a189a49), the
+  modules-only decision and the upload checks (a-frozen.md:170-220) → a comment at
+  `frozen.py` `_TRAINED_FILES` or the README. Stack details (tfp-nightly pinned in uv.lock and
+  kept on PyPI, distrax needs it, dm-control 1.0.20 with the MuJoCo pin) → design.md
+  "Environment". design.md §2:45-46 ("large 31-45 %, 1 seed") → cite the 5-seed Linux rows.
+- b-theory: the giant, teleport and T3 commands → done in `reproduce.sh`. The T3 tie rule, the
+  control definition, the `F_goal` deviation from h-exec (top 64 pool states, 2.4-3.3 xy), the
+  data checks (jumps ≥ 2.27, walks ≤ 0.37, 10-14 false alarms, AUC 0.991) and h-exec's M11
+  number → theory.md §11.4. The gate-check and raster scripts (now in /private/tmp) →
+  `analysis/` with commands (B23).
+- c-planner: the H1 tie order (point < window < high, then smaller K), the falsification rule,
+  the medium tie (window K150 = high K60 = 533/600), the open choices of the controller (goal =
+  argmax of min_h F(w,z_r)ᵀz_r; walk choice; 100k pool for the first hop), its limits (C13) and
+  the "H1 against the oracle on large" analysis → REPORT §8.7. `switch_steps` tested, not a
+  default (held-out −2.0 / +5.3 pp) → design.md §4.A. Code commit per CSV group and the
+  record-identity checks after c187bb7 and 06ea0a8 → REPORT appendix. Ablation option strings
+  → done in `reproduce.sh`.
+- d-eval: all evaluation commands and the join rule → done in `reproduce.sh`. Code commit of
+  each result group (84a8127: Linux 5-seed runs, A, ablations, baseline seeds 5-9; 0be1249: T1;
+  6c603a3: T4, 2×, T2, T3; 8a202e6: act-ahead; 5d7e642: H1 large; 2626146: wave 3; e6b99d1: B
+  clean export) and the seed-0 identity check before each group → REPORT §11. Hardware → done
+  in README. The held-out goal rule (≤ 50 % flipped states per goal ball; 6 of 10 large and 3
+  of 10 giant goals changed) → design.md §5. The act-ahead pairing check (1,250 of 1,250
+  records equal) → REPORT §8.4. Evaluation compute (about 9 h, about $8.3) → REPORT
+  (optional; no account name, label or instance id).
+- e-learner: training commands per family → done in `reproduce.sh train`; commit per family
+  (baselines 9557a55 medium, a189a49 large; critics and clean, wide, region a189a49; awr2x and
+  clean-awr2x 97d9200; logratio 34b17a5) → README or REPORT §11. GPU compute (one RTX 3090,
+  13.9 h, about $2.90; 55 min per 5 seeds; 2.5 GB per B run) → REPORT (no account name or
+  label). 2× α = 0.2099 (median spreads 16.49 / 15.72 over 200 batches, on the GPU; CPU gives
+  another value) → REPORT §8.5 in place of the link at :1156. ρ measurements (median 0.78,
+  raw ρ ≥ 1 on 9.7 %, ρ > 0.9 on 33 %, exact R 10-90 % from −8.8 to +29) → approach-b.md §5.1.
+  Retrained `π_h` cosine 0.955 with the provided one → REPORT baseline section. T2 cross-check
+  (max diff 2.2e-5) → REPORT T2 paragraph or a test (E20). Cancelled runs (ρ_cap 1.0, the
+  policy on expectile 0.7, h-learn H1) → REPORT and approach-b.md.
+- f-report: the figure commands with explicit file lists and how the tables are made → REPORT
+  §11 (or a pointer to `reproduce.sh`). Items that will not land (route plots, large retrained
+  row, wall-crossing count) → REPORT §10 as not done.
+- coordinator: design.md §6-§7 describe the workflow; replace them with a short "repository
+  layout and code rules" section, and the §8 citations of `docs/hypotheses/` with the facts.
+
+**`docs/hypotheses/`.** REPORT §8.6-§8.7 and design.md §8 cite these files as the record of
+hypotheses and readings fixed before any result, and some REPORT numbers have no other source
+(F10). 7 lines address the coordinator (h-exec.md:77, 230, §5; h-learn.md:368;
+h-papers.md:125-127, §7). Recommendation: keep the folder and delete those lines and sections;
+removing it needs the facts above moved and weakens the "fixed in advance" trail.
+
+## Review findings, final pass (2026-10-30, main 8b4795f)
+
+Five read-only reviewers, one per owner, checked the open findings of the earlier passes and all
+code changed since (a-frozen, b-theory, e-learner since e77587e; c-planner, d-eval since
+386b4e5). Each ran ruff and its owner's tests: all pass (a-frozen 58, b-theory 147, c-planner
+130, d-eval 106, e-learner 60). "checked" = reproduced by running code. M = must fix,
+S = should fix, N = optional.
+
+### Cross-component
+- X18 closed (coordinator, option (a)): the approach A CSVs keep the hashes of 84a8127; README
+  "Code versions" says that a rerun at a later commit repeats the records with another hash.
+  53 of 54 approach A CSVs differ at HEAD (checked); all H1, oracle, ensemble, trap-aware and
+  teleport-oracle hashes reproduce (checked).
+- X4 open, now actionable (d-eval): `controllers/oracle.py:37-55` copies
+  `landmarks.region_latents` and `option_model.batched_backward`; `oracle_teleport.py:32`
+  imports the copy.
+- X6 accepted: CSV names differ from aliases; a rename changes 54 CSVs. README and the REPORT
+  appendix map them.
+- Platform (d-eval reviewer): pooled over the 36 runs, Linux − Mac = −0.76 pp [−1.4, −0.1]
+  (−0.66 without planner and upstream). Per run "within noise" holds; a shift below 1 pp is
+  not excluded. It is small against the H1 gains but the size of the +1.0 pp oracle margin;
+  f-report may add it to REPORT §6.
+
+### a-frozen
+- Fixed: X14 and most N items. A12 rejected, reason OK. A3 partly: only `baselines-v1` is
+  pinned (20 of 20 hashes equal GitHub's digests, checked); see request 1. A10 partly (the
+  e-learner side, E18). A11 open (d-eval side).
+- A13 S (`frozen.py:668`): the `--trained` help says it gets "retrained baselines, approach B".
+  Fix: name `baselines-v1` and the families that are not published. (README fixed.)
+- A14 N (`frozen.py:655-657`): the CLI description shows `cache_dir('checkpoints')`; no
+  `ArgumentDefaultsHelpFormatter`. A15 N (`test_frozen.py:29-32`): the `model` fixture only
+  returns `medium_model`. A16 N (`frozen.py:636-641`): OGBench files are not hash-checked.
+
+### b-theory
+- Fixed: B15-B19, B21, X11, the N items. B20 partly: the walk and cell-MDP code stays
+  duplicated (`oracle_teleport.py:65-122`, `time_limit.py:43-75`); the recorded reason (the
+  Linux queue) expired. trap_aware.py matches design.md §8 T3 and theory.md §11.4: data only,
+  no map, teleporters or `goal_xy`; the final config was selected on held-out goals only
+  (same hash 25077c9a, checked). theory.md §9.4, §11.1-§11.4 numbers equal the CSVs (checked).
+- B22 M (`theory.md:593-594`, checked): "other failures rise most on tasks 3 and 4" is wrong:
+  tasks 1 and 2 rise most (29.8 → 46.4, 22.2 → 40.8 %) and lose most success (−10.8, −13.4 pp),
+  while :586-587 says the gate is closed at their start. Fix: give all 5 tasks; reword the
+  mechanism (the gate opens later in those episodes).
+- B23 S: numbers from scripts outside the repo (/private/tmp): §11.4 gate check (58-77 steps,
+  trap occupancy 0.15 → 0.11), §11.1-§11.2 raster bins, §11.2 giant replay (`cells_left`).
+  Fix: commit the scripts to `analysis/` with commands, or mark the numbers.
+- B24 (g-release): fixed in `reproduce.sh`.
+- B25 N `trap_aware.py:20` "Lemma B1" vs theory.md:24 "Lemma 1". B26 N `trap_latent`
+  (`trap_aware.py:93-95`) only for tests. B27 N `TrapAwareConfig` defaults (1.0, 2.5) are not
+  the selected config (0.5, 1.5); `time_limit` exists only for tests. B28 N theory.md:202
+  "14 min with 4 workers ... 10 CPU minutes"; `study_plots --help` prints "(default: csv_dir)
+  (default: None)"; the giant bound is 58 steps per cell, not 59 (theory.md:402, 520).
+
+### c-planner
+- Fixed: C1, C3-C11, X10. C2 partly: X4 (d-eval side); X5: `planner_routes.py:67-87`
+  `PathRecorder` repeats the public `evaluate.RecordingController`. C12 partly. X7 open for
+  `planner_routes.py:122-133` (`maze.draw_walls` exists).
+- H1 claims hold (checked): the controller reads the train split (observations, terminals, xy
+  = obs[:2]), FB and `z_r`; no `goal_xy`, map or val split. Selection used task ids 101-110
+  only, fixed before any result. Deterministic. `fbplan/` unchanged from 5d7e642 to HEAD.
+- C13 S (`planner.py:509, 575`, checked): edge and first-hop weights are straight xy lengths,
+  not walked lengths. On large 1.8 % of edges cross a wall, 21 % of shortest paths use one, and
+  the route is 1.26× the geodesic at p90 (max 3.4×); medium 1.3 %, 6.7 %, 1.05×. REPORT:1350
+  gives only the median. No test pins the weight (a mutant passes). Fix: state the limit in
+  REPORT §8.7; add a test.
+- C14 S (`planner.py:602-608`): the off-data fallback is untested (removing it passes).
+- C15 S (`planner.py:267-280` vs `611-621`): `_route_point` repeats `point_along`.
+- C16 S: the region mean is written twice (`landmarks.py:115-120`, `123-137`); "within radius,
+  else nearest" twice (`landmarks.py:117-120`, `planner.py:604-608`); `from_dataset` draws the
+  same pool 3 times; `RegionField.from_data(...)` repeated (`planner.py:203-205, 532-534`).
+- C17 S stale docstring numbers: `landmarks.py:9-12` "58 % to 87 %" (committed: 57.2 → 80.4);
+  `planner.py:66-78` probe numbers whose only source is docs/status: cite the committed
+  ablations.
+- C18 S: test fakes keep `temperature`, `seed` (`planner_fakes.py:80, 87`,
+  `test_planner.py:73, 453, 457`).
+- C19 S: process names in code (list in "Dead references").
+- C20 S: alias `recorded_route` (d-eval's file, request 2).
+- N: `planner.py:16` "plans without FB values" (the goal landmark is an FB value); fields that
+  do not affect H1 enter its hash; the `__init__` docstring says xy [P, 2] for observations;
+  `planner_routes.py` repeats `maze_name`, `--env` without choices, no H1 route plot.
+
+### d-eval
+- Fixed: D2-D5, D8, D10-D16, X1, X5 (own part), X7, X16, X17. D7 partly (X4). D9 partly:
+  `--workers` defaults to 10 (`failures.py:126`, `parity.py:63`). X11 partly: `evaluate.py:518`
+  `--workers` default 1 and no help for `--env`, `--tasks`, `--workers`; `calibration.py:159`
+  `--out-dir`; `heldout_goals.py:72` always writes to `results/heldout_goals/`;
+  `heldout_selection.py`, `platform_check.py` without help. A11 open: `evaluate.py:234-255`
+  duplicates `frozen.infer_goal_latent`. The 43 ten-seed CSVs repeat their 5-seed CSVs
+  record for record (checked).
+- D17 M (`controllers/oracle.py:11-14`, checked): the docstring gives the Mac sweep
+  (44.8/56.4/65.2, 80.8/86.4/78.0) and cites `results/medium/oracle_sweep/`, which holds the
+  Linux runs (50.0/57.2/63.2, 78.4/80.4/82.4; lookahead 3 is best there). Fix: quote the
+  Linux numbers; say that the defaults came from the Mac sweep.
+- D18 S (`heldout_selection.py:44-46, 66`, checked): selection on float means: equal counts
+  can give different floats (526/600 as ...667 and ...666), so a tie would go to rounding, not
+  to the lower seed. No current selection is affected. Fix: select on counts; test with tied
+  counts.
+- D19 S (checked): `results/medium/heldout_selection_awr2x.csv` is stale; a rerun adds a
+  `retrained_logratio` row (−3.4 pp, p 0.038). Fix: regenerate (the `tables` stage does).
+- D20 S (`baseline.py:173-186`): `make_ensemble`, `RawEnsembleBaselineController`,
+  `_raw_intention` have no test that runs without data; CI never runs T1/T4 code.
+- D21 S (`evaluate.py:113-122`): the variant branch repeats `load_baseline_model`; `:535`
+  names the removed `load_retrained_model`.
+- D22 S (`platform_check.py:47-53`): includes `upstream` (unseeded resets) and planner rows
+  whose code differs between platforms. Fix: skip unpaired runs; add a "code differs" column.
+- D23 S (`controllers/__init__.py:19`): `PRIVILEGED` lacks `oracle_teleport`.
+- N: D24 row order (documented in `reproduce.sh`); D25 `baseline.py:11` and "plan B decision 8"
+  links; D26 test leftovers (`test_eval_controllers.py:40, 43, 109` fakes with `temperature`;
+  `test_evaluate.py:352-358` shadows the conftest `medium_model`; `:391, 423` use the
+  `trained_dir` shim); D27 missing docstrings and return types; D28 `.agent` with
+  `type: ignore` (`baseline.py:157`, `evaluate.py:249`); D29 `evaluate.py` has 560 lines.
+
+### e-learner
+- Fixed: E10, E11, E14, E15, E16, X3, X11, X14. logratio.py matches design.md §8 T2 (2.45 for
+  goal latents only, ρ per head clipped to [0, 0.99], head mean before the log), and the 2× α
+  equals 0.2 × 16.49 / 15.72 (checked).
+- E17 M: release coverage, request 1.
+- E18 M (`learned/checkpoint.py:30-64`, A10): copies of `trained_key`, `save_flags`,
+  `load_trained_file` and `Kind` remain, used by `train_high`, `train_b`, `value`,
+  `diagnostics`, `evaluate`; the status says "my copies are gone". Fix: import from
+  `fbplan.frozen` and delete them.
+- E19 M (`vast.sh:162-165`): no step destroys the instance when the jobs end; the README said
+  it does (README fixed). Fix: `vast.sh finish <id>`: wait for the jobs, pull, check the
+  expected files, destroy.
+- E20 S (`logratio.py:62-73`, checked): no test pins the wiring of `advantages()`; a mutant
+  with F(s,z) for F(w,z) passes all 8 tests. Fix: compute A for goal samples from
+  `frozen.forward` in a test.
+- E21 S (`test_learned_b.py:290-300`, checked): the shared-α test does not pin the median or
+  the new latent draw per batch; two asserts cannot fail.
+- E22 S: approach-b.md is stale at :130-131 (α), :134-136 (`params.pkl`,
+  `load_baseline_model`), :144 (the cap binds on 33 %), :213 (a missing `controller.py`; runs
+  that never happened), :210 (process text).
+- E23 S (`awr2x.sh:10-11`, `awr2x_v1.sh:10`): `XLA_PYTHON_CLIENT_ALLOCATOR=platform` with a
+  reason that the status contradicts; `awr2x.sh:15, 20` hard-code `~/.cache/fbplan`.
+- E24 S: the cancelled h-learn H1 control (`awr2x_v1.sh`, `--critic`, `ValueConfig.critic`,
+  `test_learned_b.py:177-209`) has no model or CSV: delete it or say why it stays.
+- E25 S (`train_b.py:77-90`): stale TODO; `option_model.batched_backward` exists.
+- N: E26 CLI help and docstrings (`train_high.py:121, 139`; `train_b.py:313`; `main()`
+  without docstrings); E27 repeated test helpers (`same()` 3 times, `MEDIUM`, `OBS_DIM`);
+  E28 `MAX_LOG_WEIGHT` twice, `advantage_stds`, migration code.
+
+### f-report
+- Fixed: F1, F2 (checked; the time-to-goal PNG is byte-identical). 18 groups of REPORT numbers
+  recomputed from the CSVs: all equal (headline, platform check, 10-seed medium, H1 large,
+  2×, T1-T4, T3, large held-out grid, failure classes, act-ahead).
+- F3 M (REPORT.md:3-7, 1422-1431, 1461, 1472-1474, 1495): wave 3 is merged, the report says
+  "pending". Values (checked): large seeds 10-19 +1.8 [−0.7, +4.4] p 0.16 vs `baseline`, +3.7
+  vs raw; seeds 0-19 +2.7 [+0.9, +4.5]; medium held-out window K150 88.8 % (tie with high K60
+  broken by the order); medium seeds 0-9 83.8 %, +5.3 vs `baseline`, +3.3 [+1.2, +5.4] p 0.003
+  vs raw, +2.2 p 0.037 vs oracle.
+- F4 M (REPORT.md:1422-1431): the medium replication fixed in design.md §8 has no CSV; state
+  it as not run (request 5).
+- F5 M (REPORT.md:15-57): §1 contradicts the body: "no high-level choice has room on medium
+  and large" (H1 passes on both); 5-seed values where §8 uses 10 seeds; "10 B tests" vs 12;
+  T2 "pending"; no bullet for the recorded route.
+- F6 S: the gap to the paper also for teleport (40 ± 6 vs 27.6 / 25.1 %) and giant.
+- F7 S (:12): the platform line lacks "CPU"; :369-370 puts the recorded route in the wrong
+  folder.
+- F8 S (:1331-1354): one plain sentence on privileged information; "`π_h` executes" holds on
+  large only (medium selected `window`).
+- F9 S (:1135): names a workflow tab.
+- F10 S (:1221-1237, 1338-1339, 1350-1352): numbers whose only source will be deleted or is
+  not committed.
+- F11 S (:637, :953, :1049): pending markers.
+- F12 S (:1522-1524, checked): the §11 success-figure command fails on medium (the glob
+  matches `heldout_selection*.csv`). The explicit list rebuilds the figure byte for byte;
+  `reproduce.sh` uses it.
+- F13 (g-release): fixed. F14 S (d-eval): no test of `report_figures.py`.
+- N: F15 `report_figures.py` computes the gap twice, `int(median)` truncates, two envs give an
+  unclear error; F16 large seeds 0-19 raw − baseline −2.0 [−3.7, −0.3] for REPORT §6;
+  F17 design.md §6-§8 (coordinator).
+
+### coordinator
+- `contracts.py:4`, design.md:35 and §6-§8: see "Dead references". Requests 1, 2, 4, 5.
 
 ## Review findings, second pass: a-frozen, b-theory, e-learner (2026-10-29, merged main 3f169ae)
 
