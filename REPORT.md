@@ -1091,8 +1091,9 @@ execution of the waypoints is a main cost.
 act-ahead executor keeps the single-state plan of `planner_high` but gives `π_h` the region latent
 (radius 0.5) of the point 8 xy units ahead along the planned route, close to what the oracle gives
 `π_l` (`act_ahead_xy = 8`, landmark set 0; `results/medium/planner_ablations/high_act_ahead8/l0.csv`,
-paired with `results/medium/planner_high/l0.csv`, whose records it repeats exactly with the
-option off):
+paired with `results/medium/planner_high/l0.csv`: a check run of `planner_high` at the act-ahead
+code, 8a202e6, with the option off repeats 1,250 of 1,250 records of that CSV, so the two runs
+pair):
 
 | Act-ahead (77.0 %) against | difference (pp) |
 |---|---|
