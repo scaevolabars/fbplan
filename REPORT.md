@@ -1878,6 +1878,7 @@ Methods: name in the report, `--method` of `fbplan.evaluate`, and the `method` c
 | T3 trap-aware intention (teleport) | `fbplan.controllers.trap_aware:make_trap_aware --opt weight=0.5 trap_radius=1.5` | `trap_aware` | `results/teleport_10seeds/trap_aware.csv`; held-out grid `results/teleport/heldout/trap_aware/` |
 | T2 log-ratio baseline | `baseline --checkpoint retrained:logratio:<seed>` | `baseline`, `checkpoint_variant` = `logratio` | `results/medium/baseline_retrained_logratio/`; 10 eval seeds `results/medium_10seeds/baseline_retrained_logratio/`; held-out goals `results/medium/heldout/retrained_logratio/` |
 | recorded route | `fbplan.controllers.planner:make_recorded_route --opt executor=<point, window or high> max_steps=<K>` (`max_steps` is `K`); selected: `window`, 150 on medium; `high`, 150 on large | `recorded_route` | `results/medium/planner_ablations/h1_eval/window_k150.csv`, `results/large/planner_ablations/h1_eval/high_k150.csv`, `results/large_seeds10-19/h1_high_k150.csv`; held-out grids `results/<env>/planner_ablations/h1_heldout/` |
+| FB arm of the recorded route (H2) | the selected recorded-route command of the maze with `edge_weight=fb` | `recorded_route_fb` | held-out check `results/medium/planner_ablations/h2_heldout/window_k150.csv`, `results/large/planner_ablations/h2_heldout/high_k150.csv` |
 
 **Code identity checks for approach A.** Approach A's code changed after some of its runs. Each
 change was checked on one machine on eval seed 0, comparing every record except `config_hash`:

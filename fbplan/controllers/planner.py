@@ -643,9 +643,10 @@ class RecordedRouteController:
 class FBRouteController(RecordedRouteController):
     """H2 (docs/hypotheses/h-papers.md H2, docs/design.md §8): the recorded route with FB costs.
     Each certified edge u -> w, the first hop from s included, weighs -log rho(u, w) instead of
-    its xy length. rho is approach A's (fbplan.option_model): the option latent B(w) of the
-    landmark state, the heads aggregated by config.options.head_agg (min by default), clipped to
-    [0, gamma] for distinct states. An edge with rho = 0 has no weight, so the route drops it.
+    its xy length (an xy first hop would add xy units to FB units in one route cost). rho is
+    approach A's (fbplan.option_model): the option latent B(w) of the landmark state, the heads
+    aggregated by config.options.head_agg (min by default), clipped to [0, gamma] for distinct
+    states. An edge with rho = 0 has no weight, so the route drops it.
     Everything else is RecordedRouteController's: certification, goal landmark, walks, executor.
     """
 

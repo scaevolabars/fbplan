@@ -47,6 +47,7 @@ set up; `devbox.json` only provides the pinned uv (`devbox run setup`, `devbox r
 | `oracle` | privileged: waypoints on the true maze shortest path (diagnostic) | `fbplan/controllers/oracle.py` |
 | `planner`, `planner_high` | approach A: landmark graph, SMDP value iteration over FB options | `fbplan/controllers/planner.py` |
 | `fbplan.controllers.planner:make_recorded_route` | recorded-route tracking (hypothesis H1): a route over landmark edges that recorded train trajectories certify, to the goal landmark that FB picks; `π_h` or `π_l` acts on the route ahead. The one method that passes the gain rule (REPORT §8.7) | `fbplan/controllers/planner.py`, `fbplan/graph.py` |
+| `fbplan.controllers.planner:make_recorded_route --opt edge_weight=fb` | the FB arm of the recorded route (hypothesis H2): each certified edge, the first hop included, weighs the FB cost `−log ρ̂` instead of its xy length (default `edge_weight=xy`: H1). Falsified at the held-out check (REPORT §8.7) | `fbplan/controllers/planner.py` |
 | `baseline --checkpoint retrained:<seed>` | the baseline with a `π_h` that we retrained (training variance); `retrained:awr2x:<seed>`: AWR weights twice as sharp; `retrained:logratio:<seed>`: the log-ratio advantage (T2) | `fbplan/train_high.py`, `fbplan/learned/logratio.py` |
 | `baseline --checkpoint b:<variant>:<seed>` | approach B: learned multi-switch value `V_H` and a new `π_h`; variants `clean`, `wide`, `region`, `clean-awr2x` | `fbplan/learned/` |
 | `ensemble --opt family=<family> seeds=5` | test-time ensemble of the `π_h` of 5 training seeds (T1); `z_input=raw`: through the raw `z_r` path (T4) | `fbplan/controllers/baseline.py` |
@@ -56,7 +57,7 @@ set up; `devbox.json` only provides the pinned uv (`devbox run setup`, `devbox r
 A controller is an alias of `fbplan/controllers/__init__.py` or a `module:attribute` path. The
 `method` column of a CSV holds the controller's name: `graph_planner` (`planner`),
 `graph_plus_high` (`planner_high`), `baseline_ensemble` and `baseline_ensemble_raw`
-(`ensemble`), `recorded_route`, `trap_aware`; the other names equal the alias. Controller options are `--opt key=value`; a dotted key sets a nested field.
+(`ensemble`), `recorded_route`, `recorded_route_fb` (`edge_weight=fb`), `trap_aware`; the other names equal the alias. Controller options are `--opt key=value`; a dotted key sets a nested field.
 
 ## Reproduce
 
@@ -89,7 +90,7 @@ counts only if it holds, paired, against both baseline rows (`baseline` and `bas
 | Below `results/` | Contents |
 |---|---|
 | `<maze>/` | eval seeds 0–4: the reference rows, approach A, one CSV per training seed of each `π_h` family, failure classes in `failures/` |
-| `<maze>/planner_ablations/` | approach A ablations (landmark set 0); the recorded route: `h1_heldout/` (selection), `h1_eval/` (eval seeds 0–9) |
+| `<maze>/planner_ablations/` | approach A ablations (landmark set 0); the recorded route: `h1_heldout/` (selection), `h1_eval/` (eval seeds 0–9); its FB arm (H2): `h2_heldout/` (the held-out check) |
 | `medium/heldout/`, `medium/heldout_ensemble/`, `teleport/heldout/` | runs on the held-out goals: seed selection, ensembles, the T3 grid |
 | `<maze>_10seeds/` | eval seeds 0–9; its eval seeds 0–4 are the records of `<maze>/` |
 | `medium_seeds10-19/`, `large_seeds10-19/` | the replication of the recorded route on new eval seeds |
