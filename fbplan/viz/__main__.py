@@ -68,6 +68,7 @@ def plain(obj: Any, digits: int = 5) -> Any:
 
 def record(cache: Path) -> Path:
     """Roll out the episodes and collect everything that the outputs show into one bundle."""
+    code = commit()  # before JAX starts its threads: git runs in a forked process
     os.environ.setdefault("JAX_PLATFORMS", "cpu")  # as scripts/reproduce.sh: CPU, like the CSVs
     from fbplan.frozen import make_env
     from fbplan.maze import MazeGeometry
@@ -82,7 +83,7 @@ def record(cache: Path) -> Path:
     bundle = {
         "env": episodes.ENV,
         "platform": platform_name(),
-        "commit": commit(),
+        "commit": code,
         "hero": hero,
         "hero_rule": HERO_RULE,
         "sample_every": explain.SAMPLE_EVERY,

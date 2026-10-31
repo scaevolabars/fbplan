@@ -354,7 +354,7 @@ class Reel:
                    f"p = {format_p(s['p'])} (paired)", fontsize=32 * PT, color=th.ink2)
         split = phase(u, 0.5, 0.85)
         if split > 0:
-            parts = ((o["both"], "both", th.axis), (o["only_method"], "only H1", th.route),
+            parts = ((o["both"], "both", th.landmark), (o["only_method"], "only H1", th.route),
                      (o["only_reference"], "only baseline_raw", th.baseline),
                      (o["neither"], "neither", th.grid))
             total = sum(n for n, _, _ in parts)
