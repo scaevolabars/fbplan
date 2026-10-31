@@ -75,7 +75,7 @@ scripts/reproduce.sh train         # train every π_h family (Linux with a GPU)
 |---|---|---|
 | `checkpoints` | downloads the frozen and the published trained checkpoints (sha256-checked) and the medium datasets | `~/.cache/fbplan/`, `~/.ogbench/data/` |
 | `train` | trains the retrained baseline `π_h`, its 2× and log-ratio variants, and approach B (3 critics, 4 policies), 5 seeds each; not in the default | `~/.cache/fbplan/`, `runs/train_*/` |
-| `eval` | every run in the table at the top of the script (231 CSVs), the failure classes and the parity check against upstream's evaluation loop | `results/` |
+| `eval` | every run in the table at the top of the script (233 CSVs), the failure classes and the parity check against upstream's evaluation loop | `results/` |
 | `tables` | every table of the report: success with 95 % CIs, paired tests against both baseline rows; the held-out seed selection and the Mac-against-Linux check | `runs/reproduce/tables.md`, `results/` |
 | `figures` | success per task and time to goal; FB calibration, wormholes and held-out goals; the tabular study and the time limit; the critic check of approach B | `docs/figures/`, `results/figures/` |
 
@@ -117,7 +117,7 @@ with a different `config_hash`. So a replay of a committed approach A run
 **Time.** The eval stage writes the committed CSVs in `results/`, so `git diff` shows any
 change (the `wall_time_s` column always changes). An evaluation on the 5 eval tasks runs one
 process per eval seed and joins them in seed order, as the canonical runs did, and an eval seed
-that an earlier run of the same command made is reused. The stage holds about 251k episodes.
+that an earlier run of the same command made is reused. The stage holds about 252k episodes.
 The canonical runs took about 9 h on the 128-core machine. On a 12-core laptop with 4 workers,
 one 5-seed run on medium (1,250 episodes) takes about 11 min, so the whole stage takes days:
 run single lines of the table instead (below). `--workers N` sets the number of evaluation

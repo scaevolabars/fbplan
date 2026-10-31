@@ -68,7 +68,7 @@ medium/oracle_sweep/region_r0.5_l{1..3}.csv       medium 0   50 oracle --opt way
 medium/oracle_sweep/region_r1.0_l{1..3}.csv       medium 0   50 oracle --opt waypoint=region radius=1.0 lookahead={1..3}
 medium/oracle_sweep/region_r1.5_l{1..3}.csv       medium 0   50 oracle --opt waypoint=region radius=1.5 lookahead={1..3}
 # Medium, recorded route (H1): the grid on the held-out goals, then the selected config, and
-# its replication on the new eval seeds 10-19
+# its replication on the new eval seeds 10-19; its FB arm (H2): the held-out check
 medium/planner_ablations/h1_eval/window_k150.csv  medium 0-9 50 $ROUTE --opt executor=window max_steps=150
 medium/planner_ablations/h1_heldout/point_k60.csv   medium 0-2 20 $ROUTE --heldout --opt executor=point max_steps=60
 medium/planner_ablations/h1_heldout/point_k150.csv  medium 0-2 20 $ROUTE --heldout --opt executor=point max_steps=150
@@ -78,6 +78,7 @@ medium/planner_ablations/h1_heldout/high_k60.csv    medium 0-2 20 $ROUTE --heldo
 medium/planner_ablations/h1_heldout/high_k150.csv   medium 0-2 20 $ROUTE --heldout --opt executor=high max_steps=150
 medium/planner_ablations/h1_heldout/oracle.csv      medium 0-2 20 oracle --heldout
 medium/planner_ablations/h1_heldout/baseline.csv    medium 0-2 20 baseline --heldout
+medium/planner_ablations/h2_heldout/window_k150.csv medium 0-2 20 $ROUTE --heldout --opt executor=window max_steps=150 edge_weight=fb
 medium_seeds10-19/h1_window_k150.csv              medium 10-19 50 $ROUTE --opt executor=window max_steps=150
 medium_seeds10-19/baseline.csv                    medium 10-19 50 baseline
 medium_seeds10-19/baseline_raw.csv                medium 10-19 50 baseline_raw
@@ -134,7 +135,7 @@ large/planner_ablations/no_xy_cap/l0.csv          large 0-4 50 planner --opt lan
 large/planner_ablations/reached_1.5_no_lookahead/l0.csv large 0-4 50 planner --opt landmarks.seed=0 reached_xy=1.5 lookahead=False
 large/planner_ablations/no_lookahead/l0.csv       large 0-4 50 planner --opt landmarks.seed=0 lookahead=False
 # Large, 10 eval seeds and the recorded route (H1): held-out grid, selected config, and its
-# replication on the new eval seeds 10-19
+# replication on the new eval seeds 10-19; its FB arm (H2): the held-out check
 large_10seeds/baseline.csv                        large 0-9 50 baseline
 large_10seeds/baseline_raw.csv                    large 0-9 50 baseline_raw
 large_10seeds/oracle.csv                          large 0-9 50 oracle
@@ -146,6 +147,7 @@ large/planner_ablations/h1_heldout/high_k60.csv     large 0-2 20 $ROUTE --heldou
 large/planner_ablations/h1_heldout/high_k150.csv    large 0-2 20 $ROUTE --heldout --opt executor=high max_steps=150
 large/planner_ablations/h1_heldout/oracle.csv       large 0-2 20 oracle --heldout
 large/planner_ablations/h1_heldout/baseline.csv     large 0-2 20 baseline --heldout
+large/planner_ablations/h2_heldout/high_k150.csv    large 0-2 20 $ROUTE --heldout --opt executor=high max_steps=150 edge_weight=fb
 large/planner_ablations/h1_eval/high_k150.csv     large 0-9 50 $ROUTE --opt executor=high max_steps=150
 large_seeds10-19/h1_high_k150.csv                 large 10-19 50 $ROUTE --opt executor=high max_steps=150
 large_seeds10-19/baseline.csv                     large 10-19 50 baseline
@@ -526,6 +528,11 @@ report_tables() {
   py analysis/tables.py results/large_10seeds/baseline.csv results/large_10seeds/baseline_raw.csv \
     $l/planner_ablations/h1_eval/high_k150.csv results/large_seeds10-19/*.csv \
     --reference baseline baseline_raw
+  heading "FB arm of the recorded route (H2): held-out check on medium and large (8.7)"
+  py analysis/tables.py $m/planner_ablations/h2_heldout/*.csv $m/planner_ablations/h1_heldout/*.csv \
+    --label-root $m/planner_ablations --reference h1_heldout/baseline h1_heldout/window_k150
+  py analysis/tables.py $l/planner_ablations/h2_heldout/*.csv $l/planner_ablations/h1_heldout/*.csv \
+    --label-root $l/planner_ablations --reference h1_heldout/baseline h1_heldout/high_k150
   heading "Teleport, 5 eval seeds (7.3)"
   # shellcheck disable=SC2046 # main_runs prints one path per word
   py analysis/tables.py $(main_runs teleport) --label-root results/teleport --cluster config_hash
