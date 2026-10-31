@@ -8,6 +8,47 @@ code in `third_party/ssm`).
 that it comes from. Design and notation: `docs/design.md`; theory and the exact tabular study:
 `docs/theory.md`; the plan of approach B: `docs/plans/approach-b.md`.
 
+## The recorded route in pictures
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/viz/hero_dark.gif">
+  <img alt="Two controllers from the same start on antmaze-medium: baseline_raw and the recorded route" src="docs/figures/viz/hero_light.gif" width="880">
+</picture>
+
+The same start state (antmaze-medium, task 2, eval seed 0, episode 0), two controllers:
+`baseline_raw` (left) and the recorded route (right, REPORT §8.7). Dashed: the route over recorded
+walks; rings: the points 4, 8 and 12 xy ahead that `π_l` acts on. The pair follows a rule fixed
+before the recording: the first of 10 recorded pairs (tasks 1–5, episodes 0–1) where only the
+recorded route reaches the goal; in 1 of the 10 only `baseline_raw` does. In the 5,000 committed
+paired episodes on medium, only the recorded route reaches the goal in 823 and only
+`baseline_raw` in 622 (84.1 % against 80.1 %). The episodes are real rollouts of the committed
+code on macOS arm64. The dynamics are chaotic, so the Linux CSV rows of these seeds are other
+episodes.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/viz/explainer_dark.png">
+  <img alt="How the route is built: recorded walks, landmarks and certified edges, the shortest route, the act points" src="docs/figures/viz/explainer_light.png" width="880">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/viz/scoreboard_dark.png">
+  <img alt="Paired differences in success of the recorded route and of the orders from FB values" src="docs/figures/viz/scoreboard_light.png" width="880">
+</picture>
+
+- `docs/figures/viz/recorded_route.html`: an interactive page that needs no network. It replays
+  all 10 pairs, shows the route step by step and lists the files of every comparison. GitHub
+  shows its source: download the file and open it in a browser.
+- `docs/figures/viz/reel.mp4`: the same story as a vertical video (1080 × 1920, H.264, 53 s, no
+  sound), with its cover `reel_cover.png`.
+
+Regenerate all of them (about 3 min on a laptop CPU; needs the medium checkpoint and train
+split). `render` alone redraws them from the cache `runs/viz/bundle.json`, without new rollouts:
+
+```bash
+uv run --group viz python -m fbplan.viz            # record, then render
+uv run --group viz python -m fbplan.viz render
+```
+
 ## Setup
 
 Prerequisites: git and [uv](https://docs.astral.sh/uv/) (official installer:
@@ -169,6 +210,7 @@ the jobs end, or the instance bills while idle.
 | `fbplan/option_model.py`, `graph.py`, `landmarks.py` | FB option model, landmark graphs (approach A, the recorded route) |
 | `fbplan/learned/` | approach B, the log-ratio advantage, the device-side batch sampler |
 | `fbplan/train_high.py` | retraining of the baseline `π_h` |
+| `fbplan/viz/` | the figures, the interactive page and the video of the recorded route (`python -m fbplan.viz`), in `docs/figures/viz/` |
 | `fbplan/evaluate.py`, `stats.py`, `maze.py` | evaluation loop, bootstrap CIs and paired tests, maze geometry |
 | `fbplan/tabular/` | exact tabular mazes, fake FB model, theory checks |
 | `analysis/` | tables, figures, diagnostics |
