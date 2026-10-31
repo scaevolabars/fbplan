@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recorded-route tracking on AntMaze</title>
+<style>
+:root { color-scheme: light; /*LIGHT*/ }
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) { color-scheme: dark; /*DARK*/ }
+}
+:root[data-theme="dark"] { color-scheme: dark; /*DARK*/ }
+
+* { box-sizing: border-box; }
+html { background: var(--page); }
+body {
+  margin: 0; color: var(--ink); background: var(--page);
+  font-family: /*FONTS*/; font-size: 17px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+main { max-width: 1120px; margin: 0 auto; padding: 28px 24px 64px; }
+h1 { font-size: 40px; line-height: 1.1; margin: 0; font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 26px; line-height: 1.2; margin: 0 0 6px; font-weight: 700; }
+h3 { font-size: 18px; margin: 0; font-weight: 700; }
+p { margin: 0 0 12px; max-width: 72ch; }
+.muted { color: var(--ink2); }
+.small { font-size: 14.5px; }
+.num { font-variant-numeric: tabular-nums; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.86em; }
+section { margin-top: 56px; }
+button, select {
+  font: inherit; font-size: 15px; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--axis); border-radius: 6px; padding: 5px 11px; cursor: pointer;
+}
+button:hover { border-color: var(--ink2); }
+button:focus-visible, select:focus-visible, input:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--route); outline-offset: 2px;
+}
+
+/* header */
+.top { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; }
+.dek { font-size: 19px; color: var(--ink2); margin-top: 12px; max-width: 64ch; }
+#theme { flex: none; }
+
+/* replay */
+.pairs { display: flex; flex-wrap: wrap; gap: 6px; margin: 22px 0 14px; align-items: center; }
+.pairs .label { font-size: 15px; color: var(--ink2); margin-right: 6px; }
+.pair { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; }
+.pair[aria-pressed="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; border: 2px solid; }
+.dot.base { border-color: var(--baseline); }
+.dot.route { border-color: var(--route); }
+.dot.ok.base { background: var(--baseline); }
+.dot.ok.route { background: var(--route); }
+.stage { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.panel { background: var(--surface); border-radius: 8px; padding: 14px 14px 12px; }
+.panel h3 { display: flex; align-items: center; gap: 8px; }
+.swatch { width: 14px; height: 4px; border-radius: 2px; display: inline-block; }
+.panel .sub { font-size: 15px; color: var(--ink2); margin: 2px 0 10px; }
+.panel svg { width: min(100%, 60vh); min-width: 260px; height: auto; display: block; margin: 0 auto; border-radius: 4px; }
+.status { margin-top: 10px; font-size: 15.5px; min-height: 1.5em; }
+.csvrow { font-size: 14px; color: var(--ink2); }
+.controls {
+  display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 0 0 14px;
+}
+.controls input[type="range"] { flex: 1 1 260px; accent-color: var(--route); }
+#clock { font-size: 22px; font-weight: 700; min-width: 7.5ch; text-align: right; }
+.toggles { display: flex; gap: 14px; font-size: 15px; color: var(--ink2); }
+.toggles label { display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+.toggles input { accent-color: var(--route); }
+.rule { margin-top: 12px; }
+
+/* svg marks */
+.wall { fill: var(--wall); }
+.floor { fill: var(--surface); }
+.landmark { fill: var(--landmark); }
+.trail { fill: none; stroke-width: 2.4px; stroke-linecap: round; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke; }
+.trail.base { stroke: var(--baseline); }
+.trail.route { stroke: var(--route); }
+.routeline { fill: none; stroke: var(--ink); stroke-width: 1.4px; stroke-dasharray: 5 3.5;
+  vector-effect: non-scaling-stroke; }
+.hop { fill: var(--surface); stroke: var(--ink); stroke-width: 1.2px; vector-effect: non-scaling-stroke; }
+.goalmark { fill: var(--ink); }
+.act { fill: var(--surface); stroke: var(--route); stroke-width: 2.4px; vector-effect: non-scaling-stroke; }
+.ant { stroke: var(--surface); stroke-width: 2px; vector-effect: non-scaling-stroke; }
+.ant.base { fill: var(--baseline); }
+.ant.route { fill: var(--route); }
+.ant.down.base { fill: var(--surface); stroke: var(--baseline); }
+.ant.down.route { fill: var(--surface); stroke: var(--route); }
+.heading { stroke: var(--ink); stroke-width: 2px; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.goal { fill: var(--surface); stroke: var(--ink); stroke-width: 2px; vector-effect: non-scaling-stroke; }
+.start { fill: none; stroke: var(--ink2); stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
+.svgtext { fill: var(--ink2); font-size: 1.05px; }
+.svgtext.ink { fill: var(--ink); }
+.walk { fill: none; stroke: var(--walk); stroke-width: 0.9px; vector-effect: non-scaling-stroke; opacity: 0.9; }
+.edge { stroke: var(--route); stroke-width: 0.8px; vector-effect: non-scaling-stroke; opacity: 0.55; }
+.hub { fill: var(--route); stroke: var(--surface); stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
+.firsthop { fill: var(--route); }
+.hit { fill: transparent; cursor: pointer; }
+.spoke { stroke: var(--ink2); stroke-width: 0.9px; vector-effect: non-scaling-stroke; }
+.hidden { display: none; }
+
+/* result */
+.stats { display: flex; flex-wrap: wrap; gap: 18px 48px; margin: 18px 0 22px; }
+.stat .v { font-size: 46px; font-weight: 700; line-height: 1.05; }
+.stat .k { font-size: 15px; color: var(--ink2); margin-top: 4px; display: flex; gap: 7px; align-items: center; }
+.bar { display: flex; gap: 2px; height: 34px; margin: 6px 0 8px; }
+.bar > div { border-radius: 4px; min-width: 2px; position: relative; }
+.seg-both { background: var(--axis); }
+.seg-only-route { background: var(--route); }
+.seg-only-base { background: var(--baseline); }
+.seg-neither { background: var(--grid); box-shadow: inset 0 0 0 1px var(--axis); }
+.barkey { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 15px; color: var(--ink2); }
+.barkey span b { color: var(--ink); font-weight: 700; }
+.barkey i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; vertical-align: -1px; margin-right: 6px; }
+
+/* explainer */
+.explain { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 32px; margin-top: 18px; }
+.steps { list-style: none; padding: 0; margin: 0; counter-reset: step; }
+.steps li { border-top: 1px solid var(--grid); }
+.steps li:last-child { border-bottom: 1px solid var(--grid); }
+.steps button {
+  all: unset; display: grid; grid-template-columns: 30px 1fr; width: 100%; padding: 12px 0;
+  cursor: pointer; box-sizing: border-box;
+}
+.steps button:focus-visible { outline: 2px solid var(--route); outline-offset: 2px; }
+.steps .n { font-weight: 700; color: var(--route); }
+.steps .t { font-weight: 700; }
+.steps .d { grid-column: 2; color: var(--ink2); font-size: 15.5px; margin-top: 4px; display: none; }
+.steps button[aria-expanded="true"] .d { display: block; }
+.steps button[aria-expanded="false"] .t { color: var(--ink2); }
+.explain figure { margin: 0; background: var(--surface); border-radius: 8px; padding: 14px; }
+.explain figcaption { font-size: 14.5px; color: var(--ink2); margin-top: 8px; min-height: 2.6em; }
+
+/* scoreboard */
+.legend { display: flex; flex-wrap: wrap; gap: 6px 26px; font-size: 15px; color: var(--ink2); margin: 10px 0 6px; }
+.legend i { width: 22px; height: 3px; display: inline-block; vertical-align: 4px; margin-right: 8px; border-radius: 2px; }
+#board { width: 100%; height: auto; display: block; }
+#board text { font-family: inherit; }
+.row:hover .rowbg, .row:focus .rowbg { fill: var(--grid); }
+.row { outline: none; }
+#tip {
+  position: fixed; z-index: 10; pointer-events: none; max-width: 360px; font-size: 14px;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--axis); border-radius: 6px;
+  padding: 9px 11px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12); display: none; line-height: 1.4;
+}
+#tip b { font-weight: 700; }
+table { border-collapse: collapse; font-size: 14.5px; margin-top: 12px; width: 100%; }
+th, td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { color: var(--ink2); font-weight: 700; }
+td.num, th.num { text-align: right; }
+footer { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--grid); font-size: 15px; color: var(--ink2); }
+footer p { max-width: 90ch; }
+
+@media (max-width: 820px) {
+  .stage, .explain { grid-template-columns: 1fr; }
+  h1 { font-size: 32px; }
+  .stat .v { font-size: 36px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <div>
+      <h1>Recorded-route tracking on AntMaze</h1>
+      <p class="dek">A frozen FB agent walks a route that the training data already walked. The route
+        runs over landmark edges that recorded trajectories travel, weighted by xy length, and is
+        planned again at every step. The low-level policy π<sub>l</sub> acts on the B latent of the
+        route just ahead.</p>
+    </div>
+    <button id="theme" type="button" aria-label="Switch between light and dark">Dark</button>
+  </header>
+
+  <section aria-labelledby="replay-h" style="margin-top: 26px">
+    <h2 id="replay-h" class="hidden">Replay</h2>
+    <div class="pairs" id="pairs" role="group" aria-label="Recorded episode pairs">
+      <span class="label">Episode pair, eval seed 0:</span>
+    </div>
+    <div class="controls">
+      <button id="play" type="button">Play</button>
+      <input id="scrub" type="range" min="0" max="1000" value="0" step="1" aria-label="Step">
+      <span id="clock" class="num">step 0</span>
+      <label class="small muted">Speed
+        <select id="speed">
+          <option value="25">25 steps/s</option>
+          <option value="50" selected>50 steps/s</option>
+          <option value="150">150 steps/s</option>
+        </select>
+      </label>
+      <div class="toggles">
+        <label><input type="checkbox" id="show-landmarks" checked> landmarks</label>
+        <label><input type="checkbox" id="show-route" checked> route</label>
+        <label><input type="checkbox" id="show-act" checked> act points</label>
+      </div>
+    </div>
+    <div class="stage">
+      <div class="panel">
+        <h3><span class="swatch" style="background: var(--baseline)"></span>baseline_raw, FB π-Switch</h3>
+        <div class="sub">π<sub>h</sub> picks a new intention at every step; π<sub>l</sub> acts on it.</div>
+        <div id="svg-base"></div>
+        <div class="status" id="status-base"></div>
+        <div class="csvrow" id="csv-base"></div>
+      </div>
+      <div class="panel">
+        <h3><span class="swatch" style="background: var(--route)"></span>recorded route (H1)</h3>
+        <div class="sub">π<sub>l</sub> acts on the route 4, 8 and 12 xy ahead (rings).</div>
+        <div id="svg-route"></div>
+        <div class="status" id="status-route"></div>
+        <div class="csvrow" id="csv-route"></div>
+      </div>
+    </div>
+    <p class="small muted rule" id="rule"></p>
+  </section>
+
+  <section aria-labelledby="result-h">
+    <h2 id="result-h">What 5,000 paired episodes show</h2>
+    <p class="muted">antmaze-medium, eval seeds 0–19, 5 tasks × 50 episodes per seed. Both
+      controllers start each episode from the same state, so every episode is a pair.</p>
+    <div class="stats" id="stats"></div>
+    <div class="bar" id="bar" role="img"></div>
+    <div class="barkey" id="barkey"></div>
+    <p class="small muted" style="margin-top: 14px" id="large-note"></p>
+  </section>
+
+  <section aria-labelledby="how-h">
+    <h2 id="how-h">How the route is built</h2>
+    <p class="muted">Five steps, on medium with K = 150. Steps 4 and 5 use the episode pair that is
+      selected above.</p>
+    <div class="explain">
+      <ol class="steps" id="steps"></ol>
+      <figure>
+        <div id="svg-explain"></div>
+        <figcaption id="explain-cap"></figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section aria-labelledby="board-h">
+    <h2 id="board-h">Every comparison</h2>
+    <p class="muted">Success of a controller minus that of a reference on the same start states,
+      with a 95 % bootstrap CI and the exact McNemar p. The approach A and B rows pool 3 landmark
+      sets or 5 training seeds, so they have no p. Point at a row for its numbers and files.</p>
+    <div class="legend">
+      <span><i style="background: var(--route)"></i>order from recorded walks and xy length</span>
+      <span><i style="background: var(--fb)"></i>order from FB values</span>
+    </div>
+    <svg id="board" role="img" aria-label="Paired differences in success"></svg>
+    <button id="table-toggle" type="button" aria-expanded="false" style="margin-top: 10px">Show as a table</button>
+    <div id="table" class="hidden"></div>
+  </section>
+
+  <footer>
+    <p id="source-episodes"></p>
+    <p>Numbers: the committed CSVs in <code>results/</code>, through <code>fbplan.stats</code>
+      (stratified bootstrap, exact McNemar test), as in <code>REPORT.md</code> §7–§8.7.
+      <code>fbplan/viz/scores.py</code> lists the files of every row. Regenerate this page, the
+      GIFs and the PNGs with <code>uv run --group viz python -m fbplan.viz</code>.</p>
+  </footer>
+</main>
+<div id="tip" role="tooltip"></div>
+
+<script id="viz-data" type="application/json">/*DATA*/</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("viz-data").textContent);
+const NS = "http://www.w3.org/2000/svg";
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => n.toLocaleString("en-US");
+const sign = (v) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}`;
+
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs || {}) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function html(tag, attrs, text, parent) {
+  const e = document.createElement(tag);
+  for (const k in attrs || {}) e.setAttribute(k, attrs[k]);
+  if (text != null) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+// base64 little-endian int16 / scale; -32768 is "none" (NaN).
+function i16(b64, scale) {
+  const s = atob(b64), n = s.length >> 1, out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    let v = s.charCodeAt(2 * i) | (s.charCodeAt(2 * i + 1) << 8);
+    if (v >= 32768) v -= 65536;
+    out[i] = v === -32768 ? NaN : v / (scale || 1);
+  }
+  return out;
+}
+function polylines(enc) {
+  const pts = i16(enc.points, 100), o = enc.offsets, res = [];
+  for (let k = 0; k + 1 < o.length; k++) res.push(pts.subarray(2 * o[k], 2 * o[k + 1]));
+  return res;
+}
+const P = (x, y) => `${x.toFixed(2)},${(-y).toFixed(2)}`;
+function pathOf(flat, n) {
+  let d = "";
+  for (let i = 0; i < n; i++) d += (i ? "L" : "M") + P(flat[2 * i], flat[2 * i + 1]);
+  return d;
+}
+
+// ----- data -----
+const LM = D.landmarks;
+const WALKS = polylines(D.walk_table);
+const SAMPLE = polylines(D.sample);
+const EDGES = (() => {
+  const e = i16(D.edges, 1), out = Array.from({ length: LM.length }, () => []);
+  for (let k = 0; k < e.length; k += 2) out[e[k]].push(e[k + 1]);
+  return out;
+})();
+for (const pair of D.pairs) {
+  for (const run of Object.values(pair.runs)) {
+    run.xyA = i16(run.xy, 100); run.yawA = i16(run.yaw, 1000); run.upA = i16(run.up, 1000);
+    if (run.window) run.winA = i16(run.window, 100);
+  }
+}
+const M = D.maze, U = M.unit, ROWS = M.map.length, COLS = M.map[0].length;
+const cx = (j) => j * U - M.offset[0], cy = (i) => i * U - M.offset[1];
+const X0 = cx(0) - U / 2, X1 = cx(COLS - 1) + U / 2, Y0 = cy(0) - U / 2, Y1 = cy(ROWS - 1) + U / 2;
+
+function maze(container, label) {
+  const svg = el("svg", { viewBox: `${X0} ${-Y1} ${X1 - X0} ${Y1 - Y0}`, role: "img", "aria-label": label });
+  el("rect", { x: X0, y: -Y1, width: X1 - X0, height: Y1 - Y0, class: "floor" }, svg);
+  M.map.forEach((row, i) => row.forEach((v, j) => {
+    if (v === 1) el("rect", { x: cx(j) - U / 2 - 0.01, y: -(cy(i) + U / 2) - 0.01, width: U + 0.02, height: U + 0.02, class: "wall" }, svg);
+  }));
+  container.appendChild(svg);
+  const layers = {};
+  for (const name of ["under", "landmarks", "route", "marks", "trail", "top"]) layers[name] = el("g", {}, svg);
+  return { svg, layers };
+}
+function landmarks(g, r) { for (const [x, y] of LM) el("circle", { cx: x, cy: -y, r: r || 0.13, class: "landmark" }, g); }
+function goalMarks(g, task) {
+  const [gx, gy] = D.tasks[task].goal_xy;
+  el("circle", { cx: gx, cy: -gy, r: M.goal_radius, class: "goal" }, g);
+  const t = el("text", { x: gx - 0.9, y: -gy + 0.35, class: "svgtext ink", "text-anchor": "end" }, g);
+  t.textContent = "goal";
+}
+function startMark(g, x, y) {
+  el("rect", { x: x - 0.45, y: -y - 0.45, width: 0.9, height: 0.9, class: "start" }, g);
+  const t = el("text", { x: x + 0.8, y: -y - 0.7, class: "svgtext" }, g);
+  t.textContent = "start";
+}
+function routeLine(run, t) {
+  const xy = run.xyA, ids = run.walks[t];
+  if (!ids || !ids.length) return "";
+  let d = "M" + P(xy[2 * t], xy[2 * t + 1]);
+  for (const k of ids) { const w = WALKS[k]; for (let i = 0; i < w.length; i += 2) d += "L" + P(w[i], w[i + 1]); }
+  return d;
+}
+
+// ----- replay -----
+const state = { pair: D.hero, t: 0, playing: false, last: 0 };
+const panels = {};
+function statusOf(run, t) {
+  if (t < run.steps) return run.upA[t] < 0 ? "upside down" : "running";
+  if (run.success) return `reached the goal at step ${run.steps}`;
+  if (run.flipped_since != null) return `upside down since step ${run.flipped_since}; time limit, not at the goal`;
+  return `time limit: not at the goal after ${run.steps} steps`;
+}
+function csvText(row) {
+  return `Linux CSV row of this seed (another episode, see below): ${row.success ? `reached the goal at step ${row.steps}` : `not at the goal after ${row.steps} steps`}.`;
+}
+function buildPanel(key, method) {
+  const pair = D.pairs[state.pair], run = pair.runs[method];
+  const box = $("svg-" + key); box.innerHTML = "";
+  const m = maze(box, key === "base" ? "baseline_raw episode" : "recorded route episode");
+  const L = m.layers;
+  if (key === "route") { landmarks(L.landmarks); }
+  goalMarks(L.marks, pair.task_id);
+  startMark(L.marks, run.xyA[0], run.xyA[1]);
+  const p = {
+    run, L, key,
+    trail: el("path", { class: `trail ${key}` }, L.trail),
+    heading: el("line", { class: "heading" }, L.top),
+    ant: el("circle", { r: 0.42, class: `ant ${key}` }, L.top),
+  };
+  if (key === "route") {
+    p.route = el("path", { class: "routeline" }, L.route);
+    p.hops = el("g", {}, L.route);
+    p.goalmark = el("path", { class: "goalmark" }, L.route);
+    p.acts = [0, 1, 2].map(() => el("circle", { r: 0.36, class: "act" }, L.top));
+  }
+  panels[key] = p;
+  $("csv-" + key).textContent = csvText(pair.csv[method]);
+}
+function drawPanel(p, t) {
+  const run = p.run, n = Math.min(t, run.steps);
+  const pos = t < run.steps ? t : run.steps;  // xyA holds steps + 1 points (the last: final)
+  p.trail.setAttribute("d", pathOf(run.xyA, pos + 1));
+  const x = run.xyA[2 * pos], y = run.xyA[2 * pos + 1];
+  const yaw = run.yawA[Math.min(n, run.steps - 1)];
+  p.ant.setAttribute("cx", x); p.ant.setAttribute("cy", -y);
+  p.heading.setAttribute("x1", x); p.heading.setAttribute("y1", -y);
+  p.heading.setAttribute("x2", x + 0.95 * Math.cos(yaw)); p.heading.setAttribute("y2", -(y + 0.95 * Math.sin(yaw)));
+  const text = statusOf(run, t);
+  p.ant.classList.toggle("down", text.startsWith("upside down"));
+  $("status-" + p.key).textContent = text;
+  if (p.key !== "route") return;
+  const live = t < run.steps, s = Math.min(t, run.steps - 1);
+  p.route.setAttribute("d", live ? routeLine(run, s) : "");
+  p.hops.innerHTML = "";
+  const route = live ? run.route[s] : [];
+  for (const k of route.slice(0, -1)) el("circle", { cx: LM[k][0], cy: -LM[k][1], r: 0.3, class: "hop" }, p.hops);
+  const [gx, gy] = LM[run.goal_landmark];
+  p.goalmark.setAttribute("d", `M${gx},${-gy - 0.42}l0.42,0.42l-0.42,0.42l-0.42,-0.42z`);
+  p.acts.forEach((c, k) => {
+    const ax = run.winA[6 * s + 2 * k], ay = run.winA[6 * s + 2 * k + 1];
+    const on = live && !Number.isNaN(ax);
+    c.classList.toggle("hidden", !on);
+    if (on) { c.setAttribute("cx", ax); c.setAttribute("cy", -ay); }
+  });
+}
+function maxT() { const r = D.pairs[state.pair].runs; return Math.max(r.baseline_raw.steps, r.recorded_route.steps); }
+function draw() {
+  drawPanel(panels.base, state.t); drawPanel(panels.route, state.t);
+  $("clock").textContent = `step ${state.t}`;
+  $("scrub").value = state.t;
+}
+function applyToggles() {
+  const L = panels.route.L;
+  L.landmarks.classList.toggle("hidden", !$("show-landmarks").checked);
+  L.route.classList.toggle("hidden", !$("show-route").checked);
+  for (const c of panels.route.acts) c.style.display = $("show-act").checked ? "" : "none";
+}
+function selectPair(i) {
+  state.pair = i; state.t = 0; setPlaying(false);
+  buildPanel("base", "baseline_raw"); buildPanel("route", "recorded_route");
+  $("scrub").max = maxT();
+  document.querySelectorAll(".pair").forEach((b, k) => b.setAttribute("aria-pressed", String(k === i)));
+  applyToggles(); draw(); drawExplain();
+}
+function setPlaying(on) {
+  state.playing = on; $("play").textContent = on ? "Pause" : "Play";
+  if (on) { if (state.t >= maxT()) state.t = 0; state.last = performance.now(); state.acc = 0; requestAnimationFrame(tick); }
+}
+function tick(now) {
+  if (!state.playing) return;
+  state.acc += (now - state.last) / 1000 * Number($("speed").value); state.last = now;
+  const steps = Math.floor(state.acc);
+  if (steps > 0) { state.acc -= steps; state.t = Math.min(maxT(), state.t + steps); draw(); }
+  if (state.t >= maxT()) { setPlaying(false); return; }
+  requestAnimationFrame(tick);
+}
+D.pairs.forEach((pair, i) => {
+  const r = pair.runs, b = r.baseline_raw.success, h = r.recorded_route.success;
+  const word = (ok) => (ok ? "reached the goal" : "did not reach the goal");
+  const btn = html("button", { type: "button", class: "pair", "aria-pressed": "false",
+    "aria-label": `Task ${pair.task_id}, episode ${pair.episode}: baseline_raw ${word(b)}, recorded route ${word(h)}`,
+    title: `baseline_raw ${word(b)}; recorded route ${word(h)}` }, null, $("pairs"));
+  html("span", { class: `dot base${b ? " ok" : ""}` }, null, btn);
+  html("span", { class: `dot route${h ? " ok" : ""}` }, null, btn);
+  html("span", {}, `task ${pair.task_id}, ep. ${pair.episode}`, btn);
+  btn.addEventListener("click", () => selectPair(i));
+});
+$("play").addEventListener("click", () => setPlaying(!state.playing));
+$("scrub").addEventListener("input", (e) => { setPlaying(false); state.t = Number(e.target.value); draw(); });
+for (const id of ["show-landmarks", "show-route", "show-act"]) $(id).addEventListener("change", applyToggles);
+document.addEventListener("keydown", (e) => {
+  if (e.target.closest && e.target.closest("button, input, select")) return;
+  if (e.key === " ") { e.preventDefault(); setPlaying(!state.playing); }
+  if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+    setPlaying(false); state.t = Math.max(0, Math.min(maxT(), state.t + (e.key === "ArrowRight" ? 10 : -10))); draw();
+  }
+});
+(() => {
+  const counts = { only: 0, rev: 0, both: 0, neither: 0 };
+  for (const p of D.pairs) {
+    const h = p.runs.recorded_route.success, b = p.runs.baseline_raw.success;
+    if (h && !b) counts.only++; else if (b && !h) counts.rev++; else if (h) counts.both++; else counts.neither++;
+  }
+  $("rule").textContent = `Recorded on ${D.platform}, 10 pairs: both reach the goal in ${counts.both}, only the recorded route in ${counts.only}, only baseline_raw in ${counts.rev}, neither in ${counts.neither}. ` +
+    `The pair selected at first (and in the GIF) follows a rule fixed before the recording: the first pair, in task then episode order, where only the recorded route reaches the goal. Left dot: baseline_raw, right dot: recorded route; filled: reached the goal.`;
+})();
+
+// ----- result -----
+(() => {
+  const s = D.scores.find((r) => r.key === "route_medium_0_19");
+  const stats = [
+    [`${s.method_success.toFixed(1)} %`, "recorded route", "var(--route)"],
+    [`${s.reference_success.toFixed(1)} %`, "baseline_raw, the stronger baseline row", "var(--baseline)"],
+    [`${sign(s.diff)} pp`, `paired difference, 95 % CI [${sign(s.low)}, ${sign(s.high)}], p = ${s.p_text}`, null],
+  ];
+  for (const [v, k, c] of stats) {
+    const d = html("div", { class: "stat" }, null, $("stats"));
+    html("div", { class: "v num" }, v, d);
+    const key = html("div", { class: "k" }, null, d);
+    if (c) html("span", { class: "swatch", style: `background:${c}` }, null, key);
+    html("span", {}, k, key);
+  }
+  const o = D.outcomes.medium, total = o.both + o.only_method + o.only_reference + o.neither;
+  const parts = [
+    ["both", o.both, "both reach the goal"],
+    ["only-route", o.only_method, "only the recorded route"],
+    ["only-base", o.only_reference, "only baseline_raw"],
+    ["neither", o.neither, "neither"],
+  ];
+  $("bar").setAttribute("aria-label", parts.map(([, n, t]) => `${t}: ${fmt(n)}`).join("; ") + ` of ${fmt(total)} pairs`);
+  for (const [cls, n, text] of parts) {
+    const tip = `<b>${text}</b>: ${fmt(n)} of ${fmt(total)} paired episodes (${(100 * n / total).toFixed(1)} %)`;
+    const seg = html("div", { class: `seg-${cls}`, tabindex: "0", "aria-label": `${text}: ${fmt(n)}` }, null, $("bar"));
+    seg.style.flex = String(n);
+    seg.addEventListener("mousemove", (e) => showTip(e, tip));
+    seg.addEventListener("mouseleave", hideTip);
+    seg.addEventListener("focus", () => { const r = seg.getBoundingClientRect(); showTip({ clientX: r.left, clientY: r.bottom }, tip); });
+    seg.addEventListener("blur", hideTip);
+    const key = html("span", {}, null, $("barkey"));
+    html("i", { class: `seg-${cls}` }, null, key);
+    key.insertAdjacentHTML("beforeend", `${text} <b class="num">${fmt(n)}</b>`);
+  }
+  const large = D.scores.find((r) => r.key === "route_large_10_19");
+  $("large-note").textContent = `Of the ${fmt(o.only_method + o.only_reference)} pairs where only one controller reaches the goal, the recorded route is the one in ${fmt(o.only_method)} (${(100 * o.only_method / (o.only_method + o.only_reference)).toFixed(0)} %). On large the gain did not replicate on new eval seeds (${sign(large.diff)} pp, p = ${large.p_text}); see every comparison below.`;
+})();
+
+// ----- explainer -----
+const STEPS = [
+  { t: "Recorded walks", d: `The train split: ${fmt(D.counts.n_trajectories)} trajectories, ${fmt(D.counts.n_rows)} states, recorded offline. Shown: every ${D.sample_every}th trajectory.`,
+    cap: "Grey lines: recorded train trajectories." },
+  { t: "Landmarks", d: `${LM.length} train states, spread over the maze by farthest-point sampling in xy.`,
+    cap: "Dots: the landmarks." },
+  { t: "Certified edges", d: `An edge u → w exists when one recorded trajectory passes u and then w at most K = ${D.counts.max_steps} steps later, in that direction. Its weight is the straight xy distance; each edge keeps its shortest recorded walk.`,
+    cap: "Point at a landmark to see its out-edges, drawn as straight lines." },
+  { t: "Shortest route", d: `From the agent, the first hop goes to a landmark that a trajectory near the agent (within ${D.counts.certify_xy} xy) reaches within K steps. Then the route takes the shortest certified path, by xy length, to the goal landmark: the landmark with the largest F value for the task. The route runs along the recorded walks. No FB value weighs an edge.`,
+    cap: "Filled dots: the possible first hops. Dashed: the route at step 0 of the selected pair. Diamond: the goal landmark." },
+  { t: "Act and plan again", d: "π<sub>l</sub> acts on the mean of the unit region latents (means of B near each point) at the points 4, 8 and 12 xy ahead on the route. At the next step the controller plans the whole route again from the new state.",
+    cap: "Orange: the executed episode of the selected pair. Rings: the act points at every 40th step." },
+];
+const ex = { step: 0, hub: null };
+STEPS.forEach((s, k) => {
+  const li = html("li", {}, null, $("steps"));
+  const b = html("button", { type: "button", "aria-expanded": String(k === 0) }, null, li);
+  html("span", { class: "n" }, String(k + 1), b);
+  html("span", { class: "t" }, s.t, b);
+  html("span", { class: "d" }, null, b).innerHTML = s.d;
+  b.addEventListener("click", () => { ex.step = k; document.querySelectorAll("#steps button").forEach((x, j) => x.setAttribute("aria-expanded", String(j === k))); drawExplain(); });
+});
+function drawExplain() {
+  const pair = D.pairs[state.pair], run = pair.runs.recorded_route;
+  const box = $("svg-explain"); box.innerHTML = "";
+  const m = maze(box, "How the route is built"), L = m.layers, k = ex.step;
+  goalMarks(L.marks, pair.task_id);
+  $("explain-cap").textContent = STEPS[k].cap;
+  if (k === 0) {
+    for (const w of SAMPLE) el("path", { d: pathOf(w, w.length / 2), class: "walk" }, L.under);
+    return;
+  }
+  landmarks(L.landmarks, k === 1 ? 0.18 : 0.13);
+  if (k === 2) {
+    const hub = ex.hub == null ? run.route[0][0] : ex.hub;
+    const g = el("g", {}, L.route);
+    const show = (h) => {
+      g.innerHTML = "";
+      for (const w of EDGES[h]) el("line", { x1: LM[h][0], y1: -LM[h][1], x2: LM[w][0], y2: -LM[w][1], class: "edge" }, g);
+      el("circle", { cx: LM[h][0], cy: -LM[h][1], r: 0.38, class: "hub" }, g);
+      $("explain-cap").textContent = `Landmark ${h}: ${fmt(EDGES[h].length)} certified out-edges, straight lines. All landmarks: ${fmt(EDGES.reduce((a, e) => a + e.length, 0))} edges. Point at another landmark.`;
+    };
+    show(hub);
+    LM.forEach(([x, y], h) => {
+      const c = el("circle", { cx: x, cy: -y, r: 0.6, class: "hit", tabindex: "-1" }, L.top);
+      c.addEventListener("mouseenter", () => { ex.hub = h; show(h); });
+      c.addEventListener("click", () => { ex.hub = h; show(h); });
+    });
+    return;
+  }
+  const xy = run.xyA;
+  if (k === 3) {
+    for (const h of D.first_hops[state.pair]) el("circle", { cx: LM[h][0], cy: -LM[h][1], r: 0.2, class: "firsthop" }, L.marks);
+    el("path", { d: routeLine(run, 0), class: "routeline" }, L.route);
+    for (const h of run.route[0].slice(0, -1)) el("circle", { cx: LM[h][0], cy: -LM[h][1], r: 0.3, class: "hop" }, L.route);
+    const [gx, gy] = LM[run.goal_landmark];
+    el("path", { d: `M${gx},${-gy - 0.42}l0.42,0.42l-0.42,0.42l-0.42,-0.42z`, class: "goalmark" }, L.route);
+    el("circle", { cx: xy[0], cy: -xy[1], r: 0.45, class: "ant route" }, L.top);
+    return;
+  }
+  el("path", { d: pathOf(xy, run.steps + 1), class: "trail route" }, L.trail);
+  for (let t = 0; t < run.steps; t += 40) {
+    const x = xy[2 * t], y = xy[2 * t + 1];
+    for (let j = 0; j < 3; j++) {
+      const ax = run.winA[6 * t + 2 * j], ay = run.winA[6 * t + 2 * j + 1];
+      if (Number.isNaN(ax)) continue;
+      el("line", { x1: x, y1: -y, x2: ax, y2: -ay, class: "spoke" }, L.marks);
+      el("circle", { cx: ax, cy: -ay, r: 0.3, class: "act" }, L.top);
+    }
+    el("circle", { cx: x, cy: -y, r: 0.22, class: "goalmark" }, L.top);
+  }
+}
+
+// ----- scoreboard -----
+const GROUPS = [
+  ["route", "The recorded route against the stronger baseline row (medium: baseline_raw; large: baseline)"],
+  ["fb", "Orders from FB values, against baseline_raw on medium"],
+  ["weight", "The same certified edges, weighted by xy length or by FB cost; held-out goals, against baseline"],
+];
+const ci = (s) => `${sign(s.diff)} [${sign(s.low)}, ${sign(s.high)}]`;
+function drawBoard() {
+  const svg = $("board"); svg.innerHTML = "";
+  const rows = [];
+  for (const [g, title] of GROUPS) { rows.push({ head: title }); for (const s of D.scores) if (s.group === g) rows.push(s); }
+  const W = 1000, rh = 26, top = 8, bottom = 40, H = top + bottom + rh * rows.length;
+  const left = 330, right = 230, lo = -25.5, hi = 11.5;
+  const X = (v) => left + (v - lo) / (hi - lo) * (W - left - right);
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const css = getComputedStyle(document.documentElement);
+  const color = (name) => css.getPropertyValue(name).trim();
+  for (let v = -25; v <= 10; v += 5) {
+    el("line", { x1: X(v), x2: X(v), y1: top, y2: H - bottom, stroke: color(v === 0 ? "--ink" : "--grid"), "stroke-width": v === 0 ? 1.4 : 1 }, svg);
+    const t = el("text", { x: X(v), y: H - bottom + 18, "text-anchor": "middle", fill: color("--muted"), "font-size": 13 }, svg);
+    t.textContent = v > 0 ? `+${v}` : v < 0 ? `−${-v}` : "0";
+  }
+  const ax = el("text", { x: X(0), y: H - 6, "text-anchor": "middle", fill: color("--ink2"), "font-size": 13.5 }, svg);
+  ax.textContent = "success minus the reference, percentage points";
+  rows.forEach((s, k) => {
+    const y = top + rh * k + rh / 2;
+    if (s.head) {
+      el("rect", { x: 0, y: y - rh / 2 + 2, width: W, height: rh - 4, fill: color("--surface") }, svg);
+      const t = el("text", { x: 4, y: y + 5, fill: color("--ink"), "font-size": 15, "font-weight": 700 }, svg);
+      t.textContent = s.head; return;
+    }
+    const main = s.key === "route_medium_0_19";
+    const g = el("g", { class: "row", tabindex: "0", role: "listitem" }, svg);
+    el("rect", { class: "rowbg", x: 0, y: y - rh / 2, width: W, height: rh, fill: "transparent", rx: 4 }, g);
+    const label = el("text", { x: 18, y: y + 5, fill: color(main ? "--ink" : "--ink2"), "font-size": 15, "font-weight": main ? 700 : 400 }, g);
+    label.textContent = `${s.maze}, ${s.label}`;
+    const c = color(s.fb ? "--fb" : "--route");
+    el("line", { x1: X(s.low), x2: X(s.high), y1: y, y2: y, stroke: c, "stroke-width": 2.4, "stroke-linecap": "round" }, g);
+    el("circle", { cx: X(s.diff), cy: y, r: 6, fill: c, stroke: color("--surface"), "stroke-width": 2 }, g);
+    const v = el("text", { x: W - right + 16, y: y + 5, fill: color(main ? "--ink" : "--ink2"), "font-size": 14.5, "font-weight": main ? 700 : 400, class: "num" }, g);
+    v.textContent = ci(s) + (s.p_text ? `   p = ${s.p_text}` : "");
+    const tip = () => `<b>${s.maze}, ${s.method_name} − ${s.reference_name}</b> (${s.episodes})<br>` +
+      `${s.method_name}: ${s.method_success.toFixed(1)} %; ${s.reference_name}: ${s.reference_success.toFixed(1)} %<br>` +
+      `difference ${ci(s)} pp` + (s.p_text ? `, p = ${s.p_text}` : ", pooled") + `<br>` +
+      (s.only_method != null ? `only ${s.method_name}: ${fmt(s.only_method)}, only ${s.reference_name}: ${fmt(s.only_reference)} of ${fmt(s.n_pairs)} pairs<br>` : `${fmt(s.n_pairs)} paired episodes<br>`) +
+      `<span class="muted">${s.sources.join("<br>")}</span>`;
+    g.addEventListener("mousemove", (e) => showTip(e, tip()));
+    g.addEventListener("mouseleave", hideTip);
+    g.addEventListener("focus", () => { const r = g.getBoundingClientRect(); showTip({ clientX: r.left + r.width * 0.4, clientY: r.bottom }, tip()); });
+    g.addEventListener("blur", hideTip);
+  });
+  svg.setAttribute("role", "list");
+}
+function drawTable() {
+  const t = html("table", {}, null, null);
+  const head = html("tr", {}, null, html("thead", {}, null, t));
+  for (const h of ["comparison", "episodes", "controller", "reference", "difference (pp) [95 % CI]", "p", "files"]) html("th", {}, h, head);
+  const body = html("tbody", {}, null, t);
+  for (const s of D.scores) {
+    const r = html("tr", {}, null, body);
+    html("td", {}, `${s.maze}: ${s.method_name} − ${s.reference_name}`, r);
+    html("td", {}, s.episodes, r);
+    html("td", { class: "num" }, `${s.method_success.toFixed(1)} %`, r);
+    html("td", { class: "num" }, `${s.reference_success.toFixed(1)} %`, r);
+    html("td", { class: "num" }, ci(s), r);
+    html("td", { class: "num" }, s.p_text || "pooled", r);
+    html("td", { class: "small" }, s.sources.join(", "), r);
+  }
+  $("table").innerHTML = ""; $("table").appendChild(t);
+}
+$("table-toggle").addEventListener("click", (e) => {
+  const open = $("table").classList.toggle("hidden") === false;
+  e.target.setAttribute("aria-expanded", String(open));
+  e.target.textContent = open ? "Hide the table" : "Show as a table";
+});
+const tipBox = $("tip");
+function showTip(e, content) {
+  tipBox.innerHTML = content; tipBox.style.display = "block";
+  const w = tipBox.offsetWidth, h = tipBox.offsetHeight;
+  let x = e.clientX + 14, y = e.clientY + 14;
+  if (x + w > innerWidth - 8) x = e.clientX - w - 14;
+  if (y + h > innerHeight - 8) y = e.clientY - h - 14;
+  tipBox.style.left = `${x}px`; tipBox.style.top = `${y}px`;
+}
+function hideTip() { tipBox.style.display = "none"; }
+
+// ----- footer and theme -----
+$("source-episodes").textContent = `Episodes: real rollouts of the committed controllers (the recorded route with executor window and K = ${D.counts.max_steps}, and baseline_raw) with the published checkpoints, through the evaluation loop of the CSVs (fbplan.evaluate.run_episode), on ${D.platform} with the code at ${D.commit}. Each pair has the reset seed of the CSV rows with the same task, eval seed and episode. The ant dynamics are chaotic, so the canonical Linux runs of the same seed are other episodes; each panel gives the outcome of its Linux CSV row.`;
+function setTheme(name) {
+  document.documentElement.setAttribute("data-theme", name);
+  $("theme").textContent = name === "dark" ? "Light" : "Dark";
+  drawBoard();
+}
+$("theme").addEventListener("click", () => {
+  const dark = document.documentElement.getAttribute("data-theme") === "dark" ||
+    (!document.documentElement.hasAttribute("data-theme") && matchMedia("(prefers-color-scheme: dark)").matches);
+  setTheme(dark ? "light" : "dark");
+});
+if (matchMedia("(prefers-color-scheme: dark)").matches) $("theme").textContent = "Light";
+selectPair(D.hero);
+drawBoard(); drawTable();
+// One replay of the selected pair on load; none when the reader asks for reduced motion.
+if (!matchMedia("(prefers-reduced-motion: reduce)").matches) setPlaying(true);
+</script>
+</body>
+</html>
