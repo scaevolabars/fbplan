@@ -142,10 +142,13 @@ def render(cache: Path, out: Path) -> list[Path]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("stages", nargs="*", choices=["record", "render"], default=[])
+    parser.add_argument("stages", nargs="*", help="record, render (default: both)")
     parser.add_argument("--out", type=Path, default=OUT)
     parser.add_argument("--cache", type=Path, default=CACHE)
     args = parser.parse_args()
+    unknown = set(args.stages) - {"record", "render"}
+    if unknown:
+        parser.error(f"unknown stages {sorted(unknown)}: use record, render")
     stages = args.stages or ["record", "render"]
     if "record" in stages:
         print(f"bundle: {record(args.cache)}")
